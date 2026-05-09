@@ -1,6 +1,6 @@
 (global vim vim)
 (local config (require :compis.config))
-(local curl (require :plenary.curl))
+(local provider (require :compis.provider))
 
 (local M {})
 
@@ -11,16 +11,20 @@
 (fn schedule-notify [msg level]
   (promise #(vim.notify msg level)))
 
-(set M.ping
-     (fn []
-       (let [url config.config.url]
-         (curl.get url
-                   {:callback (fn [res]
-                                (if (not= res.status 200)
-                                    (schedule-notify (.. "compis: request failed – HTTP "
-                                                         res.status)
-                                                     vim.log.levels.ERROR)
-                                    (schedule-notify res.body
-                                                     vim.log.levels.INFO)))}))))
+(set M.ask
+     (fn [question]
+       (let [system-prompt "You are a helpful assistant. Answer concisely."]
+         (provider.complete system-prompt question
+                            (fn [result err]
+                              (if err
+                                  (schedule-notify (.. "compis: " err)
+                                                   vim.log.levels.ERROR)
+                                  (let [content (?. result :choices 1 :message
+                                                    :content)]
+                                    (if content
+                                        (schedule-notify content
+                                                         vim.log.levels.INFO)
+                                        (schedule-notify "compis: no response content"
+                                                         vim.log.levels.WARN)))))))))
 
 M

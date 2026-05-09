@@ -4,5 +4,5 @@ end
 vim.g.loaded_compis = 1
 
 vim.api.nvim_create_user_command("Compis", function()
-  require("compis").ping()
-end, { desc = "Fetch a test URL and display the response" })
+  require("compis").ask("What is the best month of the year and why?")
+end, { desc = "Ask the AI a question and display the response" })

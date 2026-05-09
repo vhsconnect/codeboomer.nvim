@@ -1,2 +1,2 @@
-vim.opt.runtimepath:append("/home/vhs/Repos/compis.nvim")
+vim.opt.runtimepath:append("/home/vhs/Repos/frens/compis.nvim")
 require("compis").setup()
