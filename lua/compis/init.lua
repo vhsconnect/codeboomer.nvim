@@ -20,27 +20,7 @@ local function _3_(question)
     if err then
       return schedule_notify(("compis: " .. err), vim.log.levels.ERROR)
     else
-      local content
-      do
-        local t_5_ = result
-        if (nil ~= t_5_) then
-          t_5_ = t_5_.choices
-        else
-        end
-        if (nil ~= t_5_) then
-          t_5_ = t_5_[1]
-        else
-        end
-        if (nil ~= t_5_) then
-          t_5_ = t_5_.message
-        else
-        end
-        if (nil ~= t_5_) then
-          t_5_ = t_5_.content
-        else
-        end
-        content = t_5_
-      end
+      local content = provider["extract-content"](config.config.provider, result)
       if content then
         return schedule_notify(content, vim.log.levels.INFO)
       else

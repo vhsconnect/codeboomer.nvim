@@ -19,8 +19,8 @@
                               (if err
                                   (schedule-notify (.. "compis: " err)
                                                    vim.log.levels.ERROR)
-                                  (let [content (?. result :choices 1 :message
-                                                    :content)]
+                                  (let [content (provider.extract-content config.config.provider
+                                                                          result)]
                                     (if content
                                         (schedule-notify content
                                                          vim.log.levels.INFO)

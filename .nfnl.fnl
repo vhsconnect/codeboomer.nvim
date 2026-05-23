@@ -18,7 +18,7 @@
   ;; If you embed nfnl, for example, in your Lua directory then nfnl will detect those files as orphans.
   ;; You can add Lua patterns here to tell nfnl which Lua paths are okay and should not be counted as orphans.
   ;; Example: ["lua/nfnl/"]
-  :ignore-patterns []}
+  :ignore-patterns ["lua/nfnl/"]}
 
  ;; Passed to fennel.compileString when your code is compiled.
  ;; See https://fennel-lang.org/api for more information.
