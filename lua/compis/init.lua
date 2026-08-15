@@ -1,22 +1,145 @@
 -- [nfnl] compis/init.fnl
 vim = vim
+local core = require("nfnl.core")
 local config = require("compis.config")
 local provider = require("compis.provider")
+local state = {pane = nil}
 local M = {}
 local function _1_(opts)
   return config.setup(opts)
 end
 M.setup = _1_
 local promise = vim.schedule
+local sessions_command = "tmux list-session -F '#{session_name}|#{session_windows}|#{session_attached}'"
 local function schedule_notify(msg, level)
   local function _2_()
     return vim.notify(msg, level)
   end
   return promise(_2_)
 end
-local function _3_(question)
+local function shell(command)
+  local handle = io.popen(command)
+  local output = handle:read("*a")
+  handle:close()
+  return output
+end
+local panes_command = "tmux list-panes -a -F '#{session_name}|#{session_id}|#{window_index}|#{pane_index}|#{pane_id}|#{pane_current_command}|#{pane_mode}|#{pane_active}|#{window_active}'"
+local function parse_panes(x)
+  local pattern = "([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)"
+  local result = string.gmatch(x, pattern)
+  local tbl_26_ = {}
+  local i_27_ = 0
+  for session_name, session_id, window_index, pane_index, pane_id, pane_current_command, pane_mode, pane_active, window_active in result do
+    local val_28_ = {["session-name"] = session_name, ["session-id"] = session_id, ["window-index"] = window_index, ["pane-index"] = pane_index, ["pane-id"] = pane_id, ["pane-current-command"] = pane_current_command, ["pane-mode"] = pane_mode, ["pane-active"] = pane_active, ["window-active"] = window_active}
+    if (nil ~= val_28_) then
+      i_27_ = (i_27_ + 1)
+      tbl_26_[i_27_] = val_28_
+    else
+    end
+  end
+  return tbl_26_
+end
+local function parse_sessions(x)
+  local tbl_26_ = {}
+  local i_27_ = 0
+  for name, windows, attached in string.gmatch(x, "([^|]*)|([^|]*)|([^|]*)") do
+    local val_28_ = {name = name, windows = windows, session = attached}
+    if (nil ~= val_28_) then
+      i_27_ = (i_27_ + 1)
+      tbl_26_[i_27_] = val_28_
+    else
+    end
+  end
+  return tbl_26_
+end
+local function shell_quote(s)
+  return ("'" .. string.gsub(s, "'", "'\\''") .. "'")
+end
+local function send_text_command(pane_id, text)
+  return string.format("tmux send-keys -t %s -l %s", pane_id, shell_quote(text))
+end
+local function press_key_command(pane_id, key)
+  return string.format("tmux send-keys -t %s %s", pane_id, key)
+end
+local function cancel_mode_command(pane_id)
+  return string.format("tmux send-keys -t %s -X cancel", pane_id)
+end
+local function send_keys_to_selected_pane(text)
+  local pane_id = state.pane["pane-id"]
+  if ("" ~= state.pane["pane-mode"]) then
+    shell(cancel_mode_command(pane_id))
+  else
+  end
+  shell(send_text_command(pane_id, text))
+  return shell(press_key_command(pane_id, "Enter"))
+end
+local function choose_pane(panes)
+  local fzf = require("fzf-lua")
+  local by_display = {}
+  local lines
+  do
+    local tbl_26_ = {}
+    local i_27_ = 0
+    for _, p in ipairs(panes) do
+      local val_28_
+      do
+        local display
+        local function _6_()
+          if (p["pane-mode"] ~= "") then
+            return ("[" .. p["pane-mode"] .. "]")
+          else
+            return ""
+          end
+        end
+        display = string.format("%s:%s.%s  %-10s %-6s%s", p["session-name"], p["window-index"], p["pane-index"], p["pane-current-command"], p["pane-id"], _6_())
+        by_display[display] = p
+        val_28_ = display
+      end
+      if (nil ~= val_28_) then
+        i_27_ = (i_27_ + 1)
+        tbl_26_[i_27_] = val_28_
+      else
+      end
+    end
+    lines = tbl_26_
+  end
+  local function _8_(selected)
+    local pane = by_display[selected[1]]
+    state.pane = pane
+    return schedule_notify(string.format("compis: pane %s (%s:%s.%s) selected", pane["pane-id"], pane["session-name"], pane["window-index"], pane["pane-index"]), vim.log.levels.INFO)
+  end
+  return fzf.fzf_exec(lines, {prompt = "Pick a Pane> ", actions = {default = _8_}})
+end
+local function _9_()
+  return parse_sessions(shell(sessions_command))
+end
+M.ParseSessions = _9_
+local function _10_()
+  return parse_panes(shell(panes_command))
+end
+M.ParsePanes = _10_
+local function _11_()
+  if state.pane then
+    local function _12_(input)
+      if (input and (input ~= "")) then
+        return send_keys_to_selected_pane(input)
+      else
+        return nil
+      end
+    end
+    return vim.ui.input({prompt = "compis> "}, _12_)
+  else
+    return schedule_notify("compis: no pane selected \226\128\148 run Compis SetPane first", vim.log.levels.WARN)
+  end
+end
+M.SendKeys = _11_
+local function _15_()
+  return choose_pane(parse_panes(shell(panes_command)))
+end
+M.SetPane = _15_
+local function _16_(question)
   local system_prompt = "You are a helpful assistant. Answer concisely."
-  local function _4_(result, err)
+  local function _17_(result, err)
     if err then
       return schedule_notify(("compis: " .. err), vim.log.levels.ERROR)
     else
@@ -28,7 +151,7 @@ local function _3_(question)
       end
     end
   end
-  return provider.complete(system_prompt, question, _4_)
+  return provider.complete(system_prompt, question, _17_)
 end
-M.ask = _3_
+M.ask = _16_
 return M

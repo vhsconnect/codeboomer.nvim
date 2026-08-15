@@ -1,4 +1,4 @@
--- [nfnl] compis/provider.fnl
+-- [nfnl] fnl/compis/provider.fnl
 vim = vim
 local config = require("compis.config")
 local curl = require("plenary.curl")
