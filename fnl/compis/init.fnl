@@ -102,12 +102,40 @@
 (set M.ParseSessions (fn [] (parse-sessions (shell sessions-command))))
 (set M.ParsePanes (fn [] (parse-panes (shell panes-command))))
 
-(set M.SendKeys (fn []
+(fn concat-list [list]
+  (core.reduce (fn [acc x] (.. acc x)) "" list))
+
+(fn get-visual-lines [opts]
+  (when (= (?. opts :range) 2)
+    (let [path (vim.api.nvim_buf_get_name 0)
+          (ok region-lines) (pcall vim.fn.getregion (vim.fn.getpos "'<")
+                                   (vim.fn.getpos "'>")
+                                   {:type (vim.fn.visualmode)})
+          lines (if ok (concat-list region-lines)
+                    (concat-list (vim.api.nvim_buf_get_lines 0 (- opts.line1 1)
+                                                             opts.line2 false)))]
+      (print lines)
+      {: lines :line1 opts.line1 :line2 opts.line2 :file path})))
+
+(set M.SendKeys (fn [opts]
                   (if state.pane
-                      (vim.ui.input {:prompt "compis> "}
-                                    (fn [input]
-                                      (when (and input (not= input ""))
-                                        (send-keys-to-selected-pane input))))
+                      (let [context (get-visual-lines opts)] ; (if (and ?prefilled (not= ?prefilled "")) ;     ;; visual-mode path: text pre-composed by the :Compis dispatcher
+                        ;     (send-keys-to-selected-pane ?prefilled)
+                        (vim.ui.input {:prompt "compis> "}
+                                      (fn [input]
+                                        (when (and input (not= input ""))
+                                          (let [ctx (if context
+                                                        (.. "regarding "
+                                                            context.file " "
+                                                            "lines "
+                                                            context.line1 " to "
+                                                            context.line2 " :"
+                                                            context.lines "\n"))]
+                                            (send-keys-to-selected-pane (if context
+                                                                            (.. ctx
+                                                                                "\n"
+                                                                                input)
+                                                                            input)))))))
                       (schedule-notify "compis: no pane selected — run Compis SetPane first"
                                        vim.log.levels.WARN))))
 

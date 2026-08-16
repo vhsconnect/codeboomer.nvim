@@ -118,28 +118,73 @@ local function _10_()
   return parse_panes(shell(panes_command))
 end
 M.ParsePanes = _10_
-local function _11_()
+local function concat_list(list)
+  local function _11_(acc, x)
+    return (acc .. x)
+  end
+  return core.reduce(_11_, "", list)
+end
+local function get_visual_lines(opts)
+  local _13_
+  do
+    local t_12_ = opts
+    if (nil ~= t_12_) then
+      t_12_ = t_12_.range
+    else
+    end
+    _13_ = t_12_
+  end
+  if (_13_ == 2) then
+    local path = vim.api.nvim_buf_get_name(0)
+    local ok, region_lines = pcall(vim.fn.getregion, vim.fn.getpos("'<"), vim.fn.getpos("'>"), {type = vim.fn.visualmode()})
+    local lines
+    if ok then
+      lines = concat_list(region_lines)
+    else
+      lines = concat_list(vim.api.nvim_buf_get_lines(0, (opts.line1 - 1), opts.line2, false))
+    end
+    print(lines)
+    return {lines = lines, line1 = opts.line1, line2 = opts.line2, file = path}
+  else
+    return nil
+  end
+end
+local function _17_(opts)
   if state.pane then
-    local function _12_(input)
+    local context = get_visual_lines(opts)
+    local function _18_(input)
       if (input and (input ~= "")) then
-        return send_keys_to_selected_pane(input)
+        local ctx
+        if context then
+          ctx = ("regarding " .. context.file .. " " .. "lines " .. context.line1 .. " to " .. context.line2 .. " :" .. context.lines .. "\n")
+        else
+          ctx = nil
+        end
+        local function _20_()
+          if context then
+            return (ctx .. "\n" .. input)
+          else
+            return input
+          end
+        end
+        return send_keys_to_selected_pane(_20_())
       else
         return nil
       end
     end
-    return vim.ui.input({prompt = "compis> "}, _12_)
+    return vim.ui.input({prompt = "compis> "}, _18_)
   else
     return schedule_notify("compis: no pane selected \226\128\148 run Compis SetPane first", vim.log.levels.WARN)
   end
 end
-M.SendKeys = _11_
-local function _15_()
+M.SendKeys = _17_
+local function _23_()
   return choose_pane(parse_panes(shell(panes_command)))
 end
-M.SetPane = _15_
-local function _16_(question)
+M.SetPane = _23_
+local function _24_(question)
   local system_prompt = "You are a helpful assistant. Answer concisely."
-  local function _17_(result, err)
+  local function _25_(result, err)
     if err then
       return schedule_notify(("compis: " .. err), vim.log.levels.ERROR)
     else
@@ -151,7 +196,7 @@ local function _16_(question)
       end
     end
   end
-  return provider.complete(system_prompt, question, _17_)
+  return provider.complete(system_prompt, question, _25_)
 end
-M.ask = _16_
+M.ask = _24_
 return M

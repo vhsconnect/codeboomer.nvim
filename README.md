@@ -92,6 +92,16 @@ Other providers (Copilot, Azure, Gemini, Cohere) are configured but don't yet ha
 
 Asks the configured LLM a question and shows the response in a notification.
 
+### `:Compis SendKeys [message]`
+
+Sends text to the tmux pane selected via `:Compis SetPane` (prompts for the
+text if not given).
+
+From visual mode, sends the exact selection (charwise/linewise/blockwise)
+wrapped in a code fence, with the optional message prepended:
+
+    :'<,'>Compis SendKeys what does this do
+
 ## Development
 
 This plugin is written in **Fennel** and compiled to Lua using **nfnl** (embedded directly in the repo under `lua/nfnl/`).

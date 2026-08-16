@@ -21,8 +21,9 @@ subcommands.SetPane = function()
   require("compis").SetPane()
 end
 
-subcommands.SendKeys = function()
-  require("compis").SendKeys()
+subcommands.SendKeys = function(opts)
+  local compis = require("compis")
+  compis.SendKeys(opts)
 end
 
 subcommands.Ask = function(opts)
@@ -55,6 +56,7 @@ vim.api.nvim_create_user_command("Compis", function(opts)
   run(opts)
 end, {
   nargs = "*",
+  range = true,
   desc = "compis.nvim",
   complete = function(arg_lead)
     local matches = {}
