@@ -2,6 +2,7 @@
 vim = vim
 local core = require("nfnl.core")
 local config = require("compis.config")
+local input = require("compis.input")
 local provider = require("compis.provider")
 local state = {pane = nil}
 local M = {}
@@ -52,11 +53,10 @@ local function parse_sessions(x)
   end
   return tbl_26_
 end
-local function shell_quote(s)
-  return ("'" .. string.gsub(s, "'", "'\\''") .. "'")
-end
-local function send_text_command(pane_id, text)
-  return string.format("tmux send-keys -t %s -l %s", pane_id, shell_quote(text))
+local function paste_text(pane_id, text)
+  local handle = io.popen(("tmux load-buffer -b compis-paste - && " .. "tmux paste-buffer -p -r -d -b compis-paste -t " .. pane_id), "w")
+  handle:write(text)
+  return handle:close()
 end
 local function press_key_command(pane_id, key)
   return string.format("tmux send-keys -t %s %s", pane_id, key)
@@ -70,7 +70,7 @@ local function send_keys_to_selected_pane(text)
     shell(cancel_mode_command(pane_id))
   else
   end
-  shell(send_text_command(pane_id, text))
+  paste_text(pane_id, text)
   return shell(press_key_command(pane_id, "Enter"))
 end
 local function choose_pane(panes)
@@ -118,23 +118,20 @@ local function _10_()
   return parse_panes(shell(panes_command))
 end
 M.ParsePanes = _10_
-local function concat_list(list)
-  local function _11_(acc, x)
-    return (acc .. x)
-  end
-  return core.reduce(_11_, "", list)
+local function concat_list(lines)
+  return table.concat(lines, "\n")
 end
 local function get_visual_lines(opts)
-  local _13_
+  local _12_
   do
-    local t_12_ = opts
-    if (nil ~= t_12_) then
-      t_12_ = t_12_.range
+    local t_11_ = opts
+    if (nil ~= t_11_) then
+      t_11_ = t_11_.range
     else
     end
-    _13_ = t_12_
+    _12_ = t_11_
   end
-  if (_13_ == 2) then
+  if (_12_ == 2) then
     local path = vim.api.nvim_buf_get_name(0)
     local ok, region_lines = pcall(vim.fn.getregion, vim.fn.getpos("'<"), vim.fn.getpos("'>"), {type = vim.fn.visualmode()})
     local lines
@@ -143,60 +140,37 @@ local function get_visual_lines(opts)
     else
       lines = concat_list(vim.api.nvim_buf_get_lines(0, (opts.line1 - 1), opts.line2, false))
     end
-    print(lines)
     return {lines = lines, line1 = opts.line1, line2 = opts.line2, file = path}
   else
     return nil
   end
 end
+local function compose_message(context, text)
+  if context then
+    return ("regarding " .. context.file .. " lines " .. context.line1 .. " to " .. context.line2 .. "\n" .. context.lines .. "\n" .. text)
+  else
+    return text
+  end
+end
 local function _17_(opts)
   if state.pane then
     local context = get_visual_lines(opts)
-    local function _18_(input)
-      if (input and (input ~= "")) then
-        local ctx
-        if context then
-          ctx = ("regarding " .. context.file .. " " .. "lines " .. context.line1 .. " to " .. context.line2 .. " :" .. context.lines .. "\n")
-        else
-          ctx = nil
-        end
-        local function _20_()
-          if context then
-            return (ctx .. "\n" .. input)
-          else
-            return input
-          end
-        end
-        return send_keys_to_selected_pane(_20_())
+    local function _18_(lines)
+      local text = concat_list(lines)
+      if (text ~= "") then
+        return send_keys_to_selected_pane(compose_message(context, text))
       else
         return nil
       end
     end
-    return vim.ui.input({prompt = "compis> "}, _18_)
+    return input.open({title = " Compis> ", ["on-submit"] = _18_})
   else
     return schedule_notify("compis: no pane selected \226\128\148 run Compis SetPane first", vim.log.levels.WARN)
   end
 end
 M.SendKeys = _17_
-local function _23_()
+local function _21_()
   return choose_pane(parse_panes(shell(panes_command)))
 end
-M.SetPane = _23_
-local function _24_(question)
-  local system_prompt = "You are a helpful assistant. Answer concisely."
-  local function _25_(result, err)
-    if err then
-      return schedule_notify(("compis: " .. err), vim.log.levels.ERROR)
-    else
-      local content = provider["extract-content"](config.config.provider, result)
-      if content then
-        return schedule_notify(content, vim.log.levels.INFO)
-      else
-        return schedule_notify("compis: no response content", vim.log.levels.WARN)
-      end
-    end
-  end
-  return provider.complete(system_prompt, question, _25_)
-end
-M.ask = _24_
+M.SetPane = _21_
 return M

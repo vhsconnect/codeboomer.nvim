@@ -26,27 +26,8 @@ subcommands.SendKeys = function(opts)
   compis.SendKeys(opts)
 end
 
-subcommands.Ask = function(opts)
-  local compis = require("compis")
-  local inline = opts and table.concat(opts.fargs, " ", 2) or ""
-  if inline ~= "" then
-    compis.ask(inline)
-    return
-  end
-  vim.ui.input({ prompt = "Ask compis: " }, function(input)
-    if input and input ~= "" then
-      compis.ask(input)
-    end
-  end)
-end
-
 vim.api.nvim_create_user_command("Compis", function(opts)
   local name = opts.fargs[1]
-  if not name then
-    subcommands.Ask({ fargs = {} }) -- bare :Compis opens the input box
-    return
-  end
-
   local run = subcommands[name]
   if not run then
     vim.notify(("compis: unknown subcommand %q"):format(name), vim.log.levels.ERROR)

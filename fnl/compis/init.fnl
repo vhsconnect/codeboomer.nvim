@@ -2,6 +2,7 @@
 
 (local core (require :nfnl.core))
 (local config (require :compis.config))
+(local input (require :compis.input))
 (local provider (require :compis.provider))
 (local state {:pane nil})
 
@@ -55,11 +56,18 @@
   (icollect [(name windows attached) (string.gmatch x "([^|]*)|([^|]*)|([^|]*)")]
     {: name : windows :session attached}))
 
-(fn shell-quote [s]
-  (.. "'" (string.gsub s "'" "'\\''") "'"))
-
-(fn send-text-command [pane-id text]
-  (string.format "tmux send-keys -t %s -l %s" pane-id (shell-quote text)))
+(fn paste-text [pane-id text]
+  ;; send-keys -l delivers raw LF bytes, which TUI input fields (pi, Claude
+  ;; Code, ...) drop — only CR counts as a key — so multi-line text arrived
+  ;; without line breaks. Loading a tmux buffer and pasting it with -p wraps
+  ;; the text in bracketed-paste control codes (when the app supports them)
+  ;; so newlines are inserted literally; -r stops tmux from rewriting LF to
+  ;; CR inside the paste; -d deletes the buffer after pasting.
+  (let [handle (io.popen (.. "tmux load-buffer -b compis-paste - && "
+                             "tmux paste-buffer -p -r -d -b compis-paste -t "
+                             pane-id) :w)]
+    (handle:write text)
+    (handle:close)))
 
 (fn press-key-command [pane-id key]
   (string.format "tmux send-keys -t %s %s" pane-id key))
@@ -71,7 +79,7 @@
   (let [pane-id state.pane.pane-id]
     (when (not= "" state.pane.pane-mode)
       (shell (cancel-mode-command pane-id)))
-    (shell (send-text-command pane-id text))
+    (paste-text pane-id text)
     (shell (press-key-command pane-id :Enter))))
 
 (fn choose-pane [panes]
@@ -102,8 +110,8 @@
 (set M.ParseSessions (fn [] (parse-sessions (shell sessions-command))))
 (set M.ParsePanes (fn [] (parse-panes (shell panes-command))))
 
-(fn concat-list [list]
-  (core.reduce (fn [acc x] (.. acc x)) "" list))
+(fn concat-list [lines]
+  (table.concat lines "\n"))
 
 (fn get-visual-lines [opts]
   (when (= (?. opts :range) 2)
@@ -114,49 +122,28 @@
           lines (if ok (concat-list region-lines)
                     (concat-list (vim.api.nvim_buf_get_lines 0 (- opts.line1 1)
                                                              opts.line2 false)))]
-      (print lines)
       {: lines :line1 opts.line1 :line2 opts.line2 :file path})))
+
+(fn compose-message [context text]
+  (if context
+      (.. "regarding " context.file " lines " context.line1 " to "
+          context.line2 "\n" context.lines "\n" text)
+      text))
 
 (set M.SendKeys (fn [opts]
                   (if state.pane
-                      (let [context (get-visual-lines opts)] ; (if (and ?prefilled (not= ?prefilled "")) ;     ;; visual-mode path: text pre-composed by the :Compis dispatcher
-                        ;     (send-keys-to-selected-pane ?prefilled)
-                        (vim.ui.input {:prompt "compis> "}
-                                      (fn [input]
-                                        (when (and input (not= input ""))
-                                          (let [ctx (if context
-                                                        (.. "regarding "
-                                                            context.file " "
-                                                            "lines "
-                                                            context.line1 " to "
-                                                            context.line2 " :"
-                                                            context.lines "\n"))]
-                                            (send-keys-to-selected-pane (if context
-                                                                            (.. ctx
-                                                                                "\n"
-                                                                                input)
-                                                                            input)))))))
+                      (let [context (get-visual-lines opts)]
+                        (input.open {:title " Compis> "
+                                     :on-submit (fn [lines]
+                                                  (let [text (concat-list lines)]
+                                                    (when (not= text "")
+                                                      (send-keys-to-selected-pane (compose-message context
+                                                                                                   text)))))}))
                       (schedule-notify "compis: no pane selected — run Compis SetPane first"
                                        vim.log.levels.WARN))))
 
 (set M.SetPane
      (fn []
        (choose-pane (parse-panes (shell panes-command)))))
-
-(set M.ask
-     (fn [question]
-       (let [system-prompt "You are a helpful assistant. Answer concisely."]
-         (provider.complete system-prompt question
-                            (fn [result err]
-                              (if err
-                                  (schedule-notify (.. "compis: " err)
-                                                   vim.log.levels.ERROR)
-                                  (let [content (provider.extract-content config.config.provider
-                                                                          result)]
-                                    (if content
-                                        (schedule-notify content
-                                                         vim.log.levels.INFO)
-                                        (schedule-notify "compis: no response content"
-                                                         vim.log.levels.WARN)))))))))
 
 M
