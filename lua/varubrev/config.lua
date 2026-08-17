@@ -1,7 +1,7 @@
--- [nfnl] fnl/compis/config.fnl
+-- [nfnl] fnl/varubrev/config.fnl
 vim = vim
 local M = {}
-local keymaps = {send = {"n", "<cmd>Compis SendKeys<cr>", "compis: send message to pane"}, send_visual = {"x", ":Compis SendKeys<cr>", "compis: send selection to pane"}, pane = {"n", "<cmd>Compis SetPane<cr>", "compis: pick a tmux pane"}}
+local keymaps = {send = {"n", "<cmd>Varubrev SendKeys<cr>", "varubrev: send message to pane"}, send_visual = {"x", ":Varubrev SendKeys<cr>", "varubrev: send selection to pane"}, pane = {"n", "<cmd>Varubrev SetPane<cr>", "varubrev: pick a tmux pane"}}
 M.setup = function(opts)
   M.config = vim.tbl_deep_extend("force", (M.config or {}), (opts or {}))
   for k, _1_ in pairs(keymaps) do

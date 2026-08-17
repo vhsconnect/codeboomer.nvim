@@ -1,7 +1,7 @@
 (global vim vim)
 
-(local config (require :compis.config))
-(local input (require :compis.input))
+(local config (require :varubrev.config))
+(local input (require :varubrev.input))
 (local state {:pane nil})
 
 (local M {})
@@ -61,8 +61,8 @@
   ;; the text in bracketed-paste control codes (when the app supports them)
   ;; so newlines are inserted literally; -r stops tmux from rewriting LF to
   ;; CR inside the paste; -d deletes the buffer after pasting.
-  (let [handle (io.popen (.. "tmux load-buffer -b compis-paste - && "
-                             "tmux paste-buffer -p -r -d -b compis-paste -t "
+  (let [handle (io.popen (.. "tmux load-buffer -b varubrev-paste - && "
+                             "tmux paste-buffer -p -r -d -b varubrev-paste -t "
                              pane-id) :w)]
     (handle:write text)
     (handle:close)))
@@ -98,7 +98,7 @@
                    :actions {:default (fn [selected]
                                         (let [pane (. by-display (. selected 1))]
                                           (set state.pane pane)
-                                          (schedule-notify (string.format "compis: pane %s (%s:%s.%s) selected"
+                                          (schedule-notify (string.format "varubrev: pane %s (%s:%s.%s) selected"
                                                                           pane.pane-id
                                                                           pane.session-name
                                                                           pane.window-index
@@ -131,13 +131,13 @@
 (set M.SendKeys (fn [opts]
                   (if state.pane
                       (let [context (get-visual-lines opts)]
-                        (input.open {:title " Compis> "
+                        (input.open {:title " Varubrev> "
                                      :on-submit (fn [lines]
                                                   (let [text (concat-list lines)]
                                                     (when (not= text "")
                                                       (send-keys-to-selected-pane (compose-message context
                                                                                                    text)))))}))
-                      (schedule-notify "compis: no pane selected — run Compis SetPane first"
+                      (schedule-notify "varubrev: no pane selected — run Varubrev SetPane first"
                                        vim.log.levels.WARN))))
 
 (set M.SetPane

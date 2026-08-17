@@ -1,4 +1,4 @@
-# compis.nvim
+# varubrev.nvim
 
 A Neovim plugin for sending text and commands to tmux panes. Written in [Fennel](https://fennel-lang.org/), compiled to Lua automatically via [nfnl](https://github.com/Olical/nfnl).
 
@@ -14,10 +14,10 @@ A Neovim plugin for sending text and commands to tmux panes. Written in [Fennel]
 ```lua
 -- lazy.nvim
 {
-  "your-org/compis.nvim",
+  "your-org/varubrev.nvim",
   dependencies = { "ibhagwan/fzf-lua" },
   config = function()
-    require("compis").setup()
+    require("varubrev").setup()
   end,
 }
 ```
@@ -36,7 +36,7 @@ You can set up something like this
 Disable or customize any binding in `setup()`:
 
 ```lua
-require("compis").setup({
+require("varubrev").setup({
   -- Use different bindings
   send = "<leader>cs",
   send_visual = "<leader>cs",
@@ -47,34 +47,34 @@ require("compis").setup({
 
 ## Commands
 
-### `:Compis SendKeys [message]`
+### `:Varubrev SendKeys [message]`
 
-Sends text to the tmux pane selected via `:Compis SetPane`.
+Sends text to the tmux pane selected via `:Varubrev SetPane`.
 
 - Without arguments, prompts for input
 - With a message argument, sends it directly
 - From visual mode, sends the selection wrapped in a code fence with context (file and line numbers)
 
 ```
-:'<,'>Compis SendKeys what does this do
+:'<,'>Varubrev SendKeys what does this do
 ```
 
-### `:Compis SetPane`
+### `:Varubrev SetPane`
 
 Opens fzf-lua to select a target tmux pane. Shows session, window, pane index, running command, and current mode.
 
-### `:Compis ParseSessions` / `:Compis ParsePanes`
+### `:Varubrev ParseSessions` / `:Varubrev ParsePanes`
 
 Debug commands that return parsed tmux state as Lua tables.
 
-### `:Compis Compose`
+### `:Varubrev Compose`
 
 (Reserved for future use)
 
 ## How it works
 
-1. Select a pane with `<leader>cp` or `:Compis SetPane`
-2. Send text with `<leader>cs` or `:Compis SendKeys`
+1. Select a pane with `<leader>cp` or `:Varubrev SetPane`
+2. Send text with `<leader>cs` or `:Varubrev SendKeys`
 3. For code selections, the plugin includes file path and line numbers in the message
 
 The plugin uses tmux's bracketed-paste mode (`paste-buffer -p`) so multi-line text preserves line breaks in TUI applications.
@@ -82,7 +82,7 @@ The plugin uses tmux's bracketed-paste mode (`paste-buffer -p`) so multi-line te
 ## Configuration
 
 ```lua
-require("compis").setup({
+require("varubrev").setup({
   -- Keybindings - set to false to disable
   send = "<leader>cs",      -- normal mode: send message
   send_visual = "<leader>cs", -- visual mode: send selection
@@ -120,8 +120,8 @@ To develop on this plugin without installing it into your main Neovim config, us
 
 ```lua
 -- dev.lua  (run with: nvim -u dev.lua)
-vim.opt.runtimepath:append("/path/to/compis.nvim")
-require("compis").setup()
+vim.opt.runtimepath:append("/path/to/varubrev.nvim")
+require("varubrev").setup()
 ```
 
 **Update the path** in `dev.lua` to point at your local clone, then launch:
@@ -139,17 +139,17 @@ This gives you an isolated Neovim instance with the plugin loaded, nfnl active, 
 ├── .nfnl.fnl          # nfnl configuration (compiler options, macros, orphan detection)
 ├── dev.lua             # dev launcher (nvim -u dev.lua)
 ├── plugin/
-│   └── compis.lua      # registers the :Compis user command
+│   └── varubrev.lua    # registers the :Varubrev user command
 ├── fnl/
-│   └── compis/
+│   └── varubrev/
 │       ├── init.fnl    # main module (setup, SendKeys, SetPane)
 │       ├── config.fnl  # keymap defaults & setup
 │       └── input.fnl   # floating input UI
 └── lua/
-    ├── compis/
-    │   ├── init.lua    # ← compiled from fnl/compis/init.fnl
-    │   ├── config.lua  # ← compiled from fnl/compis/config.fnl
-    │   └── input.lua   # ← compiled from fnl/compis/input.fnl
+    ├── varubrev/
+    │   ├── init.lua    # ← compiled from fnl/varubrev/init.fnl
+    │   ├── config.lua  # ← compiled from fnl/varubrev/config.fnl
+    │   └── input.lua   # ← compiled from fnl/varubrev/input.fnl
     └── nfnl/            # embedded nfnl runtime (not hand-edited)
 ```
 

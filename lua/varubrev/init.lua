@@ -1,7 +1,7 @@
--- [nfnl] compis/init.fnl
+-- [nfnl] varubrev/init.fnl
 vim = vim
-local config = require("compis.config")
-local input = require("compis.input")
+local config = require("varubrev.config")
+local input = require("varubrev.input")
 local state = {pane = nil}
 local M = {}
 local function _1_(opts)
@@ -52,7 +52,7 @@ local function parse_sessions(x)
   return tbl_26_
 end
 local function paste_text(pane_id, text)
-  local handle = io.popen(("tmux load-buffer -b compis-paste - && " .. "tmux paste-buffer -p -r -d -b compis-paste -t " .. pane_id), "w")
+  local handle = io.popen(("tmux load-buffer -b varubrev-paste - && " .. "tmux paste-buffer -p -r -d -b varubrev-paste -t " .. pane_id), "w")
   handle:write(text)
   return handle:close()
 end
@@ -104,7 +104,7 @@ local function choose_pane(panes)
   local function _8_(selected)
     local pane = by_display[selected[1]]
     state.pane = pane
-    return schedule_notify(string.format("compis: pane %s (%s:%s.%s) selected", pane["pane-id"], pane["session-name"], pane["window-index"], pane["pane-index"]), vim.log.levels.INFO)
+    return schedule_notify(string.format("varubrev: pane %s (%s:%s.%s) selected", pane["pane-id"], pane["session-name"], pane["window-index"], pane["pane-index"]), vim.log.levels.INFO)
   end
   return fzf.fzf_exec(lines, {prompt = "Pick a Pane> ", actions = {default = _8_}})
 end
@@ -161,9 +161,9 @@ local function _17_(opts)
         return nil
       end
     end
-    return input.open({title = " Compis> ", ["on-submit"] = _18_})
+    return input.open({title = " Varubrev> ", ["on-submit"] = _18_})
   else
-    return schedule_notify("compis: no pane selected \226\128\148 run Compis SetPane first", vim.log.levels.WARN)
+    return schedule_notify("varubrev: no pane selected \226\128\148 run Varubrev SetPane first", vim.log.levels.WARN)
   end
 end
 M.SendKeys = _17_
