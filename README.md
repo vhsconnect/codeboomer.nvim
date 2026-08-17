@@ -1,6 +1,13 @@
 # compis.nvim
 
-A minimal Neovim plugin for querying LLM providers from inside the editor. Written in [Fennel](https://fennel-lang.org/), compiled to Lua automatically via [nfnl](https://github.com/Olical/nfnl).
+A Neovim plugin for sending text and commands to tmux panes. Written in [Fennel](https://fennel-lang.org/), compiled to Lua automatically via [nfnl](https://github.com/Olical/nfnl).
+
+## Features
+
+- Send text from Neovim to any tmux pane
+- Fuzzy-finder interface (via fzf-lua) to select target panes
+- Visual mode support — send code selections wrapped in context
+- Bracketed-paste support for proper multi-line handling
 
 ## Installation
 
@@ -8,99 +15,80 @@ A minimal Neovim plugin for querying LLM providers from inside the editor. Writt
 -- lazy.nvim
 {
   "your-org/compis.nvim",
-  dependencies = { "nvim-lua/plenary.nvim" },
+  dependencies = { "ibhagwan/fzf-lua" },
   config = function()
     require("compis").setup()
   end,
 }
 ```
 
-## Configuration
+## Keybindings
 
-Call `setup()` with any of these overrides:
+The plugin sets up no default keybindings:
+You can set up something like this
+
+| Mode | Binding | Description |
+|------|---------|-------------|
+| Normal | `<leader>cs` | Send a message to the selected pane |
+| Visual | `<leader>cs` | Send the selected text to the pane |
+| Normal | `<leader>cp` | Pick a tmux pane to send messages to |
+
+Disable or customize any binding in `setup()`:
 
 ```lua
 require("compis").setup({
-  provider = "ollama", -- default provider
+  -- Use different bindings
+  send = "<leader>cs",
+  send_visual = "<leader>cs",
+  pane = "<leader>cp",
 
-  openai = {
-    endpoint = "https://api.openai.com/v1",
-    model = "gpt-4o",
-    timeout = 30000,
-    temperature = 0,
-    max_tokens = 4096,
-  },
-
-  copilot = {
-    endpoint = "https://api.githubcopilot.com",
-    model = "gpt-4o-2024-05-13",
-    timeout = 30000,
-    temperature = 0,
-    max_tokens = 4096,
-  },
-
-  claude = {
-    endpoint = "https://api.anthropic.com",
-    model = "claude-3-5-sonnet-20240620",
-    timeout = 30000,
-    temperature = 0,
-    max_tokens = 8000,
-  },
-
-  gemini = {
-    endpoint = "https://generativelanguage.googleapis.com/v1beta/models",
-    model = "gemini-1.5-flash-latest",
-    timeout = 30000,
-    temperature = 0,
-    max_tokens = 4096,
-  },
-
-  openrouter = {
-    endpoint = "https://openrouter.ai/api/v1",
-    model = "deepseek/deepseek-v3.2",
-    timeout = 30000,
-    temperature = 0,
-    max_tokens = 4096,
-  },
-
-  ollama = {
-    endpoint = "http://localhost:11434",
-    model = "nemotron-mini:latest",
-    timeout = 30000,
-    temperature = 0,
-    max_tokens = 4096,
-  },
 })
 ```
 
-### Provider API keys
-
-For cloud providers the plugin reads these environment variables automatically:
-
-| Provider | Env var |
-|----------|---------|
-| OpenAI | `OPENAI_API_KEY` |
-| Claude | `ANTHROPIC_API_KEY` |
-| OpenRouter | `OPENROUTER_API_KEY` |
-| Ollama | *(none needed — local only)* |
-
-Other providers (Copilot, Azure, Gemini, Cohere) are configured but don't yet have automatic key lookup — set the key manually or contribute it.
-
 ## Commands
-
-### `:Compis`
-
-Asks the configured LLM a question and shows the response in a notification.
 
 ### `:Compis SendKeys [message]`
 
-Sends text to the tmux pane selected via `:Compis SetPane` (prompts for the
-text if not given).
+Sends text to the tmux pane selected via `:Compis SetPane`.
 
-From visual mode, sends the exact selection (charwise/linewise/blockwise)
-wrapped in a code fence, with the optional message prepended:
+- Without arguments, prompts for input
+- With a message argument, sends it directly
+- From visual mode, sends the selection wrapped in a code fence with context (file and line numbers)
 
-    :'<,'>Compis SendKeys what does this do
+```
+:'<,'>Compis SendKeys what does this do
+```
+
+### `:Compis SetPane`
+
+Opens fzf-lua to select a target tmux pane. Shows session, window, pane index, running command, and current mode.
+
+### `:Compis ParseSessions` / `:Compis ParsePanes`
+
+Debug commands that return parsed tmux state as Lua tables.
+
+### `:Compis Compose`
+
+(Reserved for future use)
+
+## How it works
+
+1. Select a pane with `<leader>cp` or `:Compis SetPane`
+2. Send text with `<leader>cs` or `:Compis SendKeys`
+3. For code selections, the plugin includes file path and line numbers in the message
+
+The plugin uses tmux's bracketed-paste mode (`paste-buffer -p`) so multi-line text preserves line breaks in TUI applications.
+
+## Configuration
+
+```lua
+require("compis").setup({
+  -- Keybindings - set to false to disable
+  send = "<leader>cs",      -- normal mode: send message
+  send_visual = "<leader>cs", -- visual mode: send selection
+  pane = "<leader>cp",      -- pick target pane
+})
+```
 
 ## Development
 
@@ -154,21 +142,20 @@ This gives you an isolated Neovim instance with the plugin loaded, nfnl active, 
 │   └── compis.lua      # registers the :Compis user command
 ├── fnl/
 │   └── compis/
-│       ├── init.fnl    # main module (setup, ask)
-│       ├── config.fnl  # defaults & provider config
-│       └── provider.fnl # HTTP layer (plenary.curl)
+│       ├── init.fnl    # main module (setup, SendKeys, SetPane)
+│       ├── config.fnl  # keymap defaults & setup
+│       └── input.fnl   # floating input UI
 └── lua/
     ├── compis/
     │   ├── init.lua    # ← compiled from fnl/compis/init.fnl
     │   ├── config.lua  # ← compiled from fnl/compis/config.fnl
-    │   └── provider.lua # ← compiled from fnl/compis/provider.fnl
+    │   └── input.lua   # ← compiled from fnl/compis/input.fnl
     └── nfnl/            # embedded nfnl runtime (not hand-edited)
-
-
 ```
 
 ### Trusting the repo
-- you need to trust the repo for the plugin to compile your code. Open a fennel buffer. Follow the prompt, `v` to view and then `:trust` in the empty buffer that neovim opens.
+
+You need to trust the repo for the plugin to compile your code. Open a fennel buffer, follow the prompt, press `v` to view and then run `:trust` in the empty buffer that Neovim opens.
 
 ## License
 
