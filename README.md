@@ -157,6 +157,10 @@ This gives you an isolated Neovim instance with the plugin loaded, nfnl active, 
 
 You need to trust the repo for the plugin to compile your code. Open a fennel buffer, follow the prompt, press `v` to view and then run `:trust` in the empty buffer that Neovim opens.
 
+## LLM assistance
+
+- GLM 5.2
+
 ## License
 
 MIT
