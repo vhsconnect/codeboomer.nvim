@@ -1,6 +1,5 @@
--- [nfnl] fnl/compis/init.fnl
+-- [nfnl] compis/init.fnl
 vim = vim
-local core = require("nfnl.core")
 local config = require("compis.config")
 local input = require("compis.input")
 local state = {pane = nil}
