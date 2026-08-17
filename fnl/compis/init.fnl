@@ -3,7 +3,6 @@
 (local core (require :nfnl.core))
 (local config (require :compis.config))
 (local input (require :compis.input))
-(local provider (require :compis.provider))
 (local state {:pane nil})
 
 (local M {})

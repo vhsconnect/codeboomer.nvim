@@ -1,5 +1,11 @@
 local project_root = "/home/vhs/Repos/compis.nvim"
 
+-- <leader> must be set BEFORE any <leader> mappings are created — the
+-- prefix is resolved when the map is defined, not when it is pressed.
+vim.g.mapleader = " "
+-- silence space's default "move right" so an abandoned sequence does nothing
+vim.keymap.set({ "n", "x" }, "<Space>", "<Nop>")
+
 -- Note: the nix nvim wrapper already puts every plugin (including fzf-lua)
 -- from vim-pack-dir on the default runtimepath, so no extra rtp entry is
 -- needed for `require("fzf-lua")`.
@@ -22,13 +28,19 @@ local function reload_compis()
   vim.cmd.source(project_root .. "/plugin/compis.lua")
 
   -- 4. Re-run setup
-  require("compis").setup()
+  require("compis").setup(opts)
 
   vim.notify("compis: reloaded", vim.log.levels.INFO)
 end
+
+local opts = {
+  send = "<leader>cs",
+  send_visual = "<leader>cs",
+  pane = "<leader>cp",
+}
 
 vim.api.nvim_create_user_command("CompisReload", reload_compis, {
   desc = "Recompile (fnl->lua) and reload compis.nvim",
 })
 
-require("compis").setup()
+require("compis").setup(opts)

@@ -1,9 +1,8 @@
--- [nfnl] compis/init.fnl
+-- [nfnl] fnl/compis/init.fnl
 vim = vim
 local core = require("nfnl.core")
 local config = require("compis.config")
 local input = require("compis.input")
-local provider = require("compis.provider")
 local state = {pane = nil}
 local M = {}
 local function _1_(opts)
