@@ -2,3 +2,5 @@
 *.swo
 *~
 .vscode/
+.clj-kondo/
+.lsp/

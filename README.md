@@ -7,6 +7,7 @@ A Neovim plugin for sending text and commands to tmux panes. Written in [Fennel]
 - Send text from Neovim to any tmux pane
 - Fuzzy-finder interface (via fzf-lua) to select target panes
 - Visual mode support — send code selections wrapped in context
+- Annotation workflow — accumulate multiple code selections for review before sending
 - Bracketed-paste support for proper multi-line handling
 
 ## Installation
@@ -14,10 +15,14 @@ A Neovim plugin for sending text and commands to tmux panes. Written in [Fennel]
 ```lua
 -- lazy.nvim
 {
-  "your-org/varubrev.nvim",
+  "vhsconnect/varubrev.nvim",
   dependencies = { "ibhagwan/fzf-lua" },
   config = function()
-    require("varubrev").setup()
+    require("varubrev").setup({
+      -- Optional: customize keybindings (set to false to disable)
+      pane = "<leader>cp",        -- pick a tmux pane
+      send = "<leader>cs",        -- send text to pane
+    })
   end,
 }
 ```
@@ -30,18 +35,24 @@ You can set up something like this
 | Mode | Binding | Description |
 |------|---------|-------------|
 | Normal | `<leader>cs` | Send a message to the selected pane |
-| Visual | `<leader>cs` | Send the selected text to the pane |
+| Visual | `<leader>cs` | Send the selection to the pane |
+| Visual | `<leader>cc` | Send a one-off query to Claude (no session) |
 | Normal | `<leader>cp` | Pick a tmux pane to send messages to |
+| Normal | `<leader>ca` | Annotate text (adds to query context) |
+| Visual | `<leader>ca` | Annotate selection (adds to query context) |
+| Normal | `<leader>cd` | Send with directive (includes accumulated annotations) |
 
 Disable or customize any binding in `setup()`:
 
 ```lua
 require("varubrev").setup({
-  -- Use different bindings
+  -- Use different bindings (set to false to disable)
   send = "<leader>cs",
   send_visual = "<leader>cs",
+  send_visualOO = "<leader>cc",
   pane = "<leader>cp",
-
+  annotate = "<leader>ca",
+  send_with_directive = "<leader>cd",
 })
 ```
 
@@ -63,6 +74,46 @@ Sends text to the tmux pane selected via `:Varubrev SetPane`.
 
 Opens fzf-lua to select a target tmux pane. Shows session, window, pane index, running command, and current mode.
 
+### `:Varubrev SendKeysOO`
+
+Runs a **one-shot** Claude Code query — no tmux pane and no session needed:
+
+```
+:'<,'>Varubrev SendKeysOO
+```
+
+Opens the same input UI as `SendKeys` (a visual selection is included as context, with file and line numbers), then runs `claude-code -p` through `nix run` and shows the answer in a notification when it finishes.
+
+- The input submits on `<CR>` and closes itself — `<C-j>` (insert mode) or `o` (normal mode) if you need a newline
+- The prompt is passed as an argv vector via `vim.system`, so quotes, `$`, backticks and newlines in your message are never interpreted by a shell
+- Runs asynchronously with a 60s timeout — the editor never freezes while the LLM thinks
+- Failures surface the exit code and stderr in an `ERROR` notification
+
+### `:Varubrev Annotate`
+
+Adds the current selection to an accumulated query context. Use this to annotate multiple code sections before sending a directive.
+
+- Requires a pane to be selected first via `:Varubrev SetPane`
+- The selection is stored and will be included in the next `:Varubrev SendWithDirective` call
+
+```
+:'<,'>Varubrev Annotate
+```
+
+### `:Varubrev SendWithDirective`
+
+> [!warn] **Tentative API** — This command is experimental and subject to change in future versions.
+
+Sends your message along with all previously accumulated annotations from `:Varubrev Annotate`.
+
+- Requires a pane to be selected first via `:Varubrev SetPane`
+- Useful for providing multiple code sections as context before asking a question
+- After sending, the annotation context is preserved for additional queries
+
+```vim
+:Varubrev SendWithDirective
+```
+
 ### `:Varubrev ParseSessions` / `:Varubrev ParsePanes`
 
 Debug commands that return parsed tmux state as Lua tables.
@@ -73,9 +124,21 @@ Debug commands that return parsed tmux state as Lua tables.
 
 ## How it works
 
+### Basic workflow
+
 1. Select a pane with `<leader>cp` or `:Varubrev SetPane`
 2. Send text with `<leader>cs` or `:Varubrev SendKeys`
 3. For code selections, the plugin includes file path and line numbers in the message
+
+### Annotation workflow
+
+For more complex queries, you can build up context across multiple selections:
+
+1. Select a pane with `<leader>cp`
+2. Select code sections and run `<leader>ca` (or `:Varubrev Annotate`) to add annotations to your query
+3. When ready, run `<leader>cd` (or `:Varubrev SendWithDirective`) to send your directive along with all accumulated annotations
+
+This is useful for giving the LLM multiple code sections to consider before asking your question.
 
 The plugin uses tmux's bracketed-paste mode (`paste-buffer -p`) so multi-line text preserves line breaks in TUI applications.
 
@@ -84,9 +147,12 @@ The plugin uses tmux's bracketed-paste mode (`paste-buffer -p`) so multi-line te
 ```lua
 require("varubrev").setup({
   -- Keybindings - set to false to disable
-  send = "<leader>cs",      -- normal mode: send message
-  send_visual = "<leader>cs", -- visual mode: send selection
-  pane = "<leader>cp",      -- pick target pane
+  send = "<leader>cs",              -- normal mode: send message
+  send_visual = "<leader>cs",       -- visual mode: send selection
+  send_visualOO = "<leader>cc",     -- visual mode: one-off Claude query
+  pane = "<leader>cp",              -- pick target pane
+  annotate = "<leader>ca",          -- annotate text/selection (adds to context)
+  send_with_directive = "<leader>cd", -- send with accumulated annotations
 })
 ```
 
@@ -160,6 +226,7 @@ You need to trust the repo for the plugin to compile your code. Open a fennel bu
 ## LLM assistance
 
 - GLM 5.2
+- Claude Opus 5 (claude-opus-5[1m])
 
 ## License
 

@@ -10,7 +10,7 @@ vim.keymap.set({ "n", "x" }, "<Space>", "<Nop>")
 -- from vim-pack-dir on the default runtimepath, so no extra rtp entry is
 -- needed for `require("fzf-lua")`.
 
-vim.opt.runtimepath:append(project_root)
+vim.opt.runtimepath:prepend(project_root)
 
 local function reload_varubrev()
   -- 1. Recompile fnl/ -> lua/
@@ -36,7 +36,10 @@ end
 local opts = {
   send = "<leader>cs",
   send_visual = "<leader>cs",
+  send_visualOO = "<leader>cc",
+  send_with_directive = "<leader>cd",
   pane = "<leader>cp",
+  annotate = "<leader>ca",
 }
 
 vim.api.nvim_create_user_command("VarubrevReload", reload_varubrev, {

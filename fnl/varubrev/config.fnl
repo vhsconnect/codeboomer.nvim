@@ -10,16 +10,30 @@
 
 (local M {})
 
-(local keymaps
-  {:send        [:n "<cmd>Varubrev SendKeys<cr>" "varubrev: send message to pane"]
-   :send_visual [:x ":Varubrev SendKeys<cr>" "varubrev: send selection to pane"]
-   :pane        [:n "<cmd>Varubrev SetPane<cr>" "varubrev: pick a tmux pane"]})
+(local keymaps {:send [:n
+                       "<cmd>Varubrev SendKeys<cr>"
+                       "varubrev: send message to pane"]
+                :send_visual [:x
+                              ":Varubrev SendKeys<cr>"
+                              "varubrev: send selection to pane"]
+                :pane [:n
+                       "<cmd>Varubrev SetPane<cr>"
+                       "varubrev: pick a tmux pane"]
+                :send_with_directive [:n
+                                      "<cmd>Varubrev SendWithDirective<cr>"
+                                      "varubrev: Send Keys along with annotations"]
+                :send_visualOO [:x
+                                ":Varubrev SendKeysOO<cr>"
+                                "varubrev: send one off action"]
+                :annotate [:x
+                           ":Varubrev Annotate<cr>"
+                           "varubrev: annotate some text"]})
 
 (fn M.setup [opts]
   (set M.config (vim.tbl_deep_extend :force (or M.config {}) (or opts {})))
   (each [k [mode rhs desc] (pairs keymaps)]
     (when (. M.config k)
-      (vim.keymap.set mode (. M.config k) rhs {:desc desc})))
+      (vim.keymap.set mode (. M.config k) rhs {: desc})))
   M.config)
 
 M

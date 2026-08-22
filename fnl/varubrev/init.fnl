@@ -2,9 +2,16 @@
 
 (local config (require :varubrev.config))
 (local input (require :varubrev.input))
-(local state {:pane nil})
+
+(local state {:pane nil :query-parts {}})
 
 (local M {})
+
+(macro when-pan [body]
+  `(if state.pane
+       ,body
+       (schedule-notify "varubrev: no pane selected — run Varubrev SetPane first"
+                        vim.log.levels.WARN)))
 
 (set M.setup (fn [opts]
                (config.setup opts)))
@@ -24,6 +31,40 @@
 
 (local panes-command
        "tmux list-panes -a -F '#{session_name}|#{session_id}|#{window_index}|#{pane_index}|#{pane_id}|#{pane_current_command}|#{pane_mode}|#{pane_active}|#{window_active}'")
+
+(fn one-off-command [prompt]
+  [:nix
+   :run
+   "github:numtide/llm-agents.nix#claude-code"
+   "--"
+   :--model
+   :haiku
+   :--output-format
+   :json
+   :--permission-mode
+   :acceptEdits
+   :-p
+   prompt])
+
+(fn one-off-result [stdout]
+  ;; --output-format json wraps the answer in an object; show the .result
+  ;; field and fall back to raw output when it isn't JSON
+  (let [(ok parsed) (pcall vim.json.decode stdout)]
+    (if (and ok (= (type parsed) :table) (. parsed :result))
+        (. parsed :result)
+        stdout)))
+
+(fn run-one-off [prompt]
+  ;; async on purpose: a slow flake build / LLM round-trip must not
+  ;; freeze the editor, and a non-zero exit must surface stderr
+  (vim.system (one-off-command prompt) {:text true :timeout 60000}
+              (fn [obj]
+                (promise #(if (= obj.code 0)
+                              (vim.notify (one-off-result (or obj.stdout ""))
+                                          vim.log.levels.INFO)
+                              (vim.notify (.. "varubrev: one-off failed (exit "
+                                              obj.code ")\n" (or obj.stderr ""))
+                                          vim.log.levels.ERROR))))))
 
 (fn parse-panes [x]
   (let [pattern "([^|
@@ -107,9 +148,13 @@
 
 (set M.ParseSessions (fn [] (parse-sessions (shell sessions-command))))
 (set M.ParsePanes (fn [] (parse-panes (shell panes-command))))
+(set M.RunOneOff run-one-off)
 
 (fn concat-list [lines]
   (table.concat lines "\n"))
+
+(fn concat-list-with-format [lines beginning sep end]
+  (.. beginning "\n" (table.concat lines (.. sep "\n")) "\n" end "\n"))
 
 (fn get-visual-lines [opts]
   (when (= (?. opts :range) 2)
@@ -125,20 +170,46 @@
 (fn compose-message [context text]
   (if context
       (.. "regarding " context.file " lines " context.line1 " to "
-          context.line2 "\n" context.lines "\n" text)
+          context.line2 "\n" context.lines "\n" text "\n")
       text))
 
-(set M.SendKeys (fn [opts]
-                  (if state.pane
-                      (let [context (get-visual-lines opts)]
-                        (input.open {:title " Varubrev> "
-                                     :on-submit (fn [lines]
-                                                  (let [text (concat-list lines)]
-                                                    (when (not= text "")
-                                                      (send-keys-to-selected-pane (compose-message context
-                                                                                                   text)))))}))
-                      (schedule-notify "varubrev: no pane selected — run Varubrev SetPane first"
-                                       vim.log.levels.WARN))))
+(set M.Annotate
+     (fn [opts]
+       (when-pan (let [context (get-visual-lines opts)]
+                   (input.open {:title " Annotate> "
+                                :on-submit (fn [lines]
+                                             (let [text (concat-list lines)]
+                                               (when (not= text "")
+                                                 (table.insert state.query-parts
+                                                               (compose-message context
+                                                                                text)))))})))))
+
+(set M.SendWithDirective
+     (fn []
+       (when-pan (input.open {:title " SendWithDirective> "
+                              :on-submit (fn [lines]
+                                           (let [text (concat-list lines)
+                                                 annotations (concat-list-with-format state.query-parts
+                                                                                      "==Section Start=="
+                                                                                      "===="
+                                                                                      "==Section End==")]
+                                             (when (not= text "")
+                                               (send-keys-to-selected-pane (.. annotations
+                                                                               text)))))}))))
+
+(set M.SendKeysOO
+     (fn [opts]
+       ;; one-shot query: no pane, no session — warn about neither.
+       ;; submit-on-enter: CR sends the prompt and closes the input
+       ;; window by itself (C-j still inserts a newline)
+       (let [context (get-visual-lines opts)]
+         (input.open {:title " one-off (Enter to send)> "
+                      :submit-on-enter true
+                      :on-submit (fn [lines]
+                                   (let [text (concat-list lines)]
+                                     (when (not= text "")
+                                       (run-one-off (compose-message context
+                                                                     text)))))}))))
 
 (set M.SetPane
      (fn []

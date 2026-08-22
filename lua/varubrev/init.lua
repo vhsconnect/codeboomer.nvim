@@ -2,7 +2,7 @@
 vim = vim
 local config = require("varubrev.config")
 local input = require("varubrev.input")
-local state = {pane = nil}
+local state = {pane = nil, ["query-parts"] = {}}
 local M = {}
 local function _1_(opts)
   return config.setup(opts)
@@ -23,6 +23,30 @@ local function shell(command)
   return output
 end
 local panes_command = "tmux list-panes -a -F '#{session_name}|#{session_id}|#{window_index}|#{pane_index}|#{pane_id}|#{pane_current_command}|#{pane_mode}|#{pane_active}|#{window_active}'"
+local function one_off_command(prompt)
+  return {"nix", "run", "github:numtide/llm-agents.nix#claude-code", "--", "--model", "haiku", "--output-format", "json", "--permission-mode", "acceptEdits", "-p", prompt}
+end
+local function one_off_result(stdout)
+  local ok, parsed = pcall(vim.json.decode, stdout)
+  if (ok and (type(parsed) == "table") and parsed.result) then
+    return parsed.result
+  else
+    return stdout
+  end
+end
+local function run_one_off(prompt)
+  local function _4_(obj)
+    local function _5_()
+      if (obj.code == 0) then
+        return vim.notify(one_off_result((obj.stdout or "")), vim.log.levels.INFO)
+      else
+        return vim.notify(("varubrev: one-off failed (exit " .. obj.code .. ")\n" .. (obj.stderr or "")), vim.log.levels.ERROR)
+      end
+    end
+    return promise(_5_)
+  end
+  return vim.system(one_off_command(prompt), {text = true, timeout = 60000}, _4_)
+end
 local function parse_panes(x)
   local pattern = "([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)"
   local result = string.gmatch(x, pattern)
@@ -82,14 +106,14 @@ local function choose_pane(panes)
       local val_28_
       do
         local display
-        local function _6_()
+        local function _10_()
           if (p["pane-mode"] ~= "") then
             return ("[" .. p["pane-mode"] .. "]")
           else
             return ""
           end
         end
-        display = string.format("%s:%s.%s  %-10s %-6s%s", p["session-name"], p["window-index"], p["pane-index"], p["pane-current-command"], p["pane-id"], _6_())
+        display = string.format("%s:%s.%s  %-10s %-6s%s", p["session-name"], p["window-index"], p["pane-index"], p["pane-current-command"], p["pane-id"], _10_())
         by_display[display] = p
         val_28_ = display
       end
@@ -101,35 +125,39 @@ local function choose_pane(panes)
     end
     lines = tbl_26_
   end
-  local function _8_(selected)
+  local function _12_(selected)
     local pane = by_display[selected[1]]
     state.pane = pane
     return schedule_notify(string.format("varubrev: pane %s (%s:%s.%s) selected", pane["pane-id"], pane["session-name"], pane["window-index"], pane["pane-index"]), vim.log.levels.INFO)
   end
-  return fzf.fzf_exec(lines, {prompt = "Pick a Pane> ", actions = {default = _8_}})
+  return fzf.fzf_exec(lines, {prompt = "Pick a Pane> ", actions = {default = _12_}})
 end
-local function _9_()
+local function _13_()
   return parse_sessions(shell(sessions_command))
 end
-M.ParseSessions = _9_
-local function _10_()
+M.ParseSessions = _13_
+local function _14_()
   return parse_panes(shell(panes_command))
 end
-M.ParsePanes = _10_
+M.ParsePanes = _14_
+M.RunOneOff = run_one_off
 local function concat_list(lines)
   return table.concat(lines, "\n")
 end
+local function concat_list_with_format(lines, beginning, sep, _end)
+  return (beginning .. "\n" .. table.concat(lines, (sep .. "\n")) .. "\n" .. _end .. "\n")
+end
 local function get_visual_lines(opts)
-  local _12_
+  local _16_
   do
-    local t_11_ = opts
-    if (nil ~= t_11_) then
-      t_11_ = t_11_.range
+    local t_15_ = opts
+    if (nil ~= t_15_) then
+      t_15_ = t_15_.range
     else
     end
-    _12_ = t_11_
+    _16_ = t_15_
   end
-  if (_12_ == 2) then
+  if (_16_ == 2) then
     local path = vim.api.nvim_buf_get_name(0)
     local ok, region_lines = pcall(vim.fn.getregion, vim.fn.getpos("'<"), vim.fn.getpos("'>"), {type = vim.fn.visualmode()})
     local lines
@@ -145,30 +173,60 @@ local function get_visual_lines(opts)
 end
 local function compose_message(context, text)
   if context then
-    return ("regarding " .. context.file .. " lines " .. context.line1 .. " to " .. context.line2 .. "\n" .. context.lines .. "\n" .. text)
+    return ("regarding " .. context.file .. " lines " .. context.line1 .. " to " .. context.line2 .. "\n" .. context.lines .. "\n" .. text .. "\n")
   else
     return text
   end
 end
-local function _17_(opts)
+local function _21_(opts)
   if state.pane then
     local context = get_visual_lines(opts)
-    local function _18_(lines)
+    local function _22_(lines)
       local text = concat_list(lines)
       if (text ~= "") then
-        return send_keys_to_selected_pane(compose_message(context, text))
+        return table.insert(state["query-parts"], compose_message(context, text))
       else
         return nil
       end
     end
-    return input.open({title = " Varubrev> ", ["on-submit"] = _18_})
+    return input.open({title = " Annotate> ", ["on-submit"] = _22_})
   else
     return schedule_notify("varubrev: no pane selected \226\128\148 run Varubrev SetPane first", vim.log.levels.WARN)
   end
 end
-M.SendKeys = _17_
-local function _21_()
+M.Annotate = _21_
+local function _25_()
+  if state.pane then
+    local function _26_(lines)
+      local text = concat_list(lines)
+      local annotations = concat_list_with_format(state["query-parts"], "==Section Start==", "====", "==Section End==")
+      if (text ~= "") then
+        return send_keys_to_selected_pane((annotations .. text))
+      else
+        return nil
+      end
+    end
+    return input.open({title = " SendWithDirective> ", ["on-submit"] = _26_})
+  else
+    return schedule_notify("varubrev: no pane selected \226\128\148 run Varubrev SetPane first", vim.log.levels.WARN)
+  end
+end
+M.SendWithDirective = _25_
+local function _29_(opts)
+  local context = get_visual_lines(opts)
+  local function _30_(lines)
+    local text = concat_list(lines)
+    if (text ~= "") then
+      return run_one_off(compose_message(context, text))
+    else
+      return nil
+    end
+  end
+  return input.open({title = " one-off (Enter to send)> ", ["submit-on-enter"] = true, ["on-submit"] = _30_})
+end
+M.SendKeysOO = _29_
+local function _32_()
   return choose_pane(parse_panes(shell(panes_command)))
 end
-M.SetPane = _21_
+M.SetPane = _32_
 return M

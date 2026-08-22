@@ -26,6 +26,21 @@ subcommands.SendKeys = function(opts)
   varubrev.SendKeys(opts)
 end
 
+subcommands.SendKeysOO = function(opts)
+  local varubrev = require("varubrev")
+  varubrev.SendKeysOO(opts)
+end
+
+subcommands.Annotate = function(opts)
+  local varubrev = require("varubrev")
+  varubrev.Annotate(opts)
+end
+
+subcommands.SendWithDirective = function()
+  local varubrev = require("varubrev")
+  varubrev.SendWithDirective()
+end
+
 vim.api.nvim_create_user_command("Varubrev", function(opts)
   local name = opts.fargs[1]
   local run = subcommands[name]

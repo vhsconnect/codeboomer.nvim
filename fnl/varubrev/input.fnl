@@ -1,10 +1,15 @@
 ;; [nfnl] varubrev/input.fnl
 ;; Multi-line editable input: a scratch buffer in a floating window.
 ;; Like vim.ui.input, but the callback receives a LIST of lines.
-;; There is no cancel and no key intercepts: the ONLY way out is closing
-;; the window (:q, <C-w>c, :bd, ...), which submits. <CR> inserts a real
+;; Default: no cancel and no key intercepts — the ONLY way out is closing
+;; the window (:q, ZZ, <C-w>c, :bd, ...), which submits. <CR> inserts a real
 ;; newline (insert mode) / opens a line (normal mode); <Esc> behaves
 ;; exactly like any vim buffer.
+;;
+;; Opt-in :submit-on-enter for single-line prompt-style inputs (the
+;; one-off query): <CR> submits AND closes the window instead. Newlines
+;; stay available via <C-j> (insert mode) and o/O (normal mode); closing
+;; the window manually still submits, as before.
 (global vim vim)
 
 (local M {})
@@ -16,9 +21,13 @@
 ;; accept both kebab-case (Fennel callers) and snake_case (Lua callers):
 ;; hyphens survive compilation as string keys, so plugin/varubrev.lua would
 ;; otherwise need the awkward ["on-submit"] = syntax
-(fn open [{: on-submit :on_submit alt-on-submit
+(fn open [{: on-submit
+           :on_submit alt-on-submit
+           : submit-on-enter
+           :submit_on_enter alt-submit-on-enter
            : title}]
   (let [on-submit (or on-submit alt-on-submit)
+        submit-on-enter (or submit-on-enter alt-submit-on-enter)
         buf (vim.api.nvim_create_buf false true)
         bo (. vim.bo buf)
         width (math.floor (* vim.o.columns 0.6))
@@ -46,8 +55,13 @@
         (close-win win)
         (when on-submit (on-submit lines))))
 
-    ;; no keymaps: the only way out is closing the window (:q, <C-w>c,
-    ;; :bd, ...), which submits
+    ;; CR submits and closes the window — only when opted in, so the
+    ;; default multi-line compose behaviour (CR = newline) is unchanged.
+    ;; finish() flips submitted? before closing, so the WinClosed
+    ;; autocmd below cannot double-submit.
+    (when submit-on-enter
+      (vim.keymap.set [:i :n] :<CR> finish {:buffer buf}))
+    ;; closing the window (:q, ZZ, <C-w>c, :bd, ...) always submits
     (vim.api.nvim_create_autocmd :WinClosed
                                  {:pattern (tostring win)
                                   :once true

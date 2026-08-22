@@ -11,8 +11,11 @@ end
 local function open(_2_)
   local on_submit = _2_["on-submit"]
   local alt_on_submit = _2_.on_submit
+  local submit_on_enter = _2_["submit-on-enter"]
+  local alt_submit_on_enter = _2_.submit_on_enter
   local title = _2_.title
   local on_submit0 = (on_submit or alt_on_submit)
+  local submit_on_enter0 = (submit_on_enter or alt_submit_on_enter)
   local buf = vim.api.nvim_create_buf(false, true)
   local bo = vim.bo[buf]
   local width = math.floor((vim.o.columns * 0.6))
@@ -30,14 +33,18 @@ local function open(_2_)
       return nil
     end
   end
-  local function _4_()
+  if submit_on_enter0 then
+    vim.keymap.set({"i", "n"}, "<CR>", finish, {buffer = buf})
+  else
+  end
+  local function _5_()
     if not submitted_3f then
       return finish()
     else
       return nil
     end
   end
-  vim.api.nvim_create_autocmd("WinClosed", {pattern = tostring(win), once = true, callback = _4_})
+  vim.api.nvim_create_autocmd("WinClosed", {pattern = tostring(win), once = true, callback = _5_})
   vim.cmd.startinsert()
   return win
 end
