@@ -34,12 +34,14 @@ local function reload_varubrev()
 end
 
 local opts = {
-  send = "<leader>cs",
-  send_visual = "<leader>cs",
-  send_visualOO = "<leader>cc",
-  send_with_directive = "<leader>cd",
-  pane = "<leader>cp",
-  annotate = "<leader>ca",
+  keybindings = {
+    send = "<leader>cs",
+    send_visual = "<leader>cs",
+    send_visualOO = "<leader>cc",
+    send_with_directive = "<leader>cd",
+    pane = "<leader>cp",
+    annotate = "<leader>ca",
+  },
 }
 
 vim.api.nvim_create_user_command("VarubrevReload", reload_varubrev, {

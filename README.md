@@ -20,14 +20,18 @@ A Neovim plugin for sending text and commands to tmux panes. Written in [Fennel]
   config = function()
     require("varubrev").setup({
       -- Optional: customize keybindings (set to false to disable)
-      pane = "<leader>cp",        -- pick a tmux pane
-      send = "<leader>cs",        -- send text to pane
+      keybindings = {
+        pane = "<leader>cp",        -- pick a tmux pane
+        send = "<leader>cs",        -- send text to pane
+      },
     })
   end,
 }
 ```
 
-## Keybindings
+## Configuration
+
+### Keybindings
 
 The plugin sets up no default keybindings:
 You can set up something like this
@@ -42,19 +46,45 @@ You can set up something like this
 | Visual | `<leader>ca` | Annotate selection (adds to query context) |
 | Normal | `<leader>cd` | Send with directive (includes accumulated annotations) |
 
-Disable or customize any binding in `setup()`:
+Disable or customize any binding under `keybindings` in `setup()` (set to `false` to disable):
 
 ```lua
 require("varubrev").setup({
-  -- Use different bindings (set to false to disable)
-  send = "<leader>cs",
-  send_visual = "<leader>cs",
-  send_visualOO = "<leader>cc",
-  pane = "<leader>cp",
-  annotate = "<leader>ca",
-  send_with_directive = "<leader>cd",
+  keybindings = {
+    send = "<leader>cs",
+    send_visual = "<leader>cs",
+    send_visualOO = "<leader>cc",
+    pane = "<leader>cp",
+    annotate = "<leader>ca",
+    send_with_directive = "<leader>cd",
+  },
 })
 ```
+
+### Prompting
+
+`<leader>cd` (`:Varubrev SendWithDirective`) picks a directive from a
+fzf-lua menu — by default the two built-ins, `Review - converse` and
+`Review - execute`. Pass your own list under `prompting.directives` in
+`setup()` to add to or override it:
+
+```lua
+require("varubrev").setup({
+  prompting = {
+    directives = {
+      -- a label matching a built-in overrides it in place
+      { label = "Review - converse", text = "Reply point by point, then wait." },
+      -- new labels are appended after the built-ins
+      { label = "Explain", text = "Explain the selected code. No changes." },
+    },
+  },
+})
+```
+
+Each entry needs a `label` (shown in the fzf menu) and a `text` (the message
+sent along with any accumulated annotations). Omitting `prompting.directives`
+keeps
+the built-ins as-is.
 
 ## Commands
 
@@ -104,10 +134,10 @@ Adds the current selection to an accumulated query context. Use this to annotate
 
 > [!warn] **Tentative API** — This command is experimental and subject to change in future versions.
 
-Sends your message along with all previously accumulated annotations from `:Varubrev Annotate`.
+Opens fzf to select a pre-defined directive, then sends it along with all previously accumulated annotations from `:Varubrev Annotate`.
 
 - Requires a pane to be selected first via `:Varubrev SetPane`
-- Useful for providing multiple code sections as context before asking a question
+- Select from a list of pre-defined directives (see Configuration below for customizing)
 - After sending, the annotation context is preserved for additional queries
 
 ```vim
@@ -141,20 +171,6 @@ For more complex queries, you can build up context across multiple selections:
 This is useful for giving the LLM multiple code sections to consider before asking your question.
 
 The plugin uses tmux's bracketed-paste mode (`paste-buffer -p`) so multi-line text preserves line breaks in TUI applications.
-
-## Configuration
-
-```lua
-require("varubrev").setup({
-  -- Keybindings - set to false to disable
-  send = "<leader>cs",              -- normal mode: send message
-  send_visual = "<leader>cs",       -- visual mode: send selection
-  send_visualOO = "<leader>cc",     -- visual mode: one-off Claude query
-  pane = "<leader>cp",              -- pick target pane
-  annotate = "<leader>ca",          -- annotate text/selection (adds to context)
-  send_with_directive = "<leader>cd", -- send with accumulated annotations
-})
-```
 
 ## Development
 
@@ -194,9 +210,18 @@ require("varubrev").setup()
 
 ```bash
 nvim -u dev.lua
+
+
 ```
 
+
 This gives you an isolated Neovim instance with the plugin loaded, nfnl active, and auto-compilation working — write any `.fnl` file and the corresponding `.lua` updates immediately.
+
+For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-varu`. It requires `VARUBREV_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>ca`):
+
+```bash
+VARUBREV_PATH=$PWD ./test-varu
+```
 
 ### Project structure
 
@@ -226,7 +251,6 @@ You need to trust the repo for the plugin to compile your code. Open a fennel bu
 ## LLM assistance
 
 - GLM 5.2
-- Claude Opus 5 (claude-opus-5[1m])
 
 ## License
 

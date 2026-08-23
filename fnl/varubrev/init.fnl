@@ -2,6 +2,7 @@
 
 (local config (require :varubrev.config))
 (local input (require :varubrev.input))
+(local directives (require :varubrev.directives))
 
 (local state {:pane nil :query-parts {}})
 
@@ -186,16 +187,35 @@
 
 (set M.SendWithDirective
      (fn []
-       (when-pan (input.open {:title " SendWithDirective> "
-                              :on-submit (fn [lines]
-                                           (let [text (concat-list lines)
-                                                 annotations (concat-list-with-format state.query-parts
-                                                                                      "==Section Start=="
-                                                                                      "===="
-                                                                                      "==Section End==")]
-                                             (when (not= text "")
-                                               (send-keys-to-selected-pane (.. annotations
-                                                                               text)))))}))))
+       (when-pan (let [fzf (require :fzf-lua)
+                       all-directives (directives.list)
+                       lines (icollect [_ d (ipairs all-directives)]
+                               d.label)]
+                   (fzf.fzf_exec lines
+                                 {:prompt "Pick a Directive> "
+                                  :actions {:default (fn [selected]
+                                                       (let [selected-label (. selected
+                                                                               1)
+                                                             directive-text (directives.get selected-label)
+                                                             annotations (concat-list-with-format state.query-parts
+                                                                                                  "==Section Start=="
+                                                                                                  "===="
+                                                                                                  "==Section End==")]
+                                                         (send-keys-to-selected-pane (.. annotations
+                                                                                         directive-text
+                                                                                         "\n"))))}})))))
+
+(set M.SendKeys (fn [opts]
+                  (if state.pane
+                      (let [context (get-visual-lines opts)]
+                        (input.open {:title " Varubrev> "
+                                     :on-submit (fn [lines]
+                                                  (let [text (concat-list lines)]
+                                                    (when (not= text "")
+                                                      (send-keys-to-selected-pane (compose-message context
+                                                                                                   text)))))}))
+                      (schedule-notify "varubrev: no pane selected — run Varubrev SetPane first"
+                                       vim.log.levels.WARN))))
 
 (set M.SendKeysOO
      (fn [opts]

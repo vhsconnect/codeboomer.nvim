@@ -2,6 +2,7 @@
 vim = vim
 local config = require("varubrev.config")
 local input = require("varubrev.input")
+local directives = require("varubrev.directives")
 local state = {pane = nil, ["query-parts"] = {}}
 local M = {}
 local function _1_(opts)
@@ -197,24 +198,54 @@ end
 M.Annotate = _21_
 local function _25_()
   if state.pane then
-    local function _26_(lines)
-      local text = concat_list(lines)
-      local annotations = concat_list_with_format(state["query-parts"], "==Section Start==", "====", "==Section End==")
-      if (text ~= "") then
-        return send_keys_to_selected_pane((annotations .. text))
-      else
-        return nil
+    local fzf = require("fzf-lua")
+    local all_directives = directives.list()
+    local lines
+    do
+      local tbl_26_ = {}
+      local i_27_ = 0
+      for _, d in ipairs(all_directives) do
+        local val_28_ = d.label
+        if (nil ~= val_28_) then
+          i_27_ = (i_27_ + 1)
+          tbl_26_[i_27_] = val_28_
+        else
+        end
       end
+      lines = tbl_26_
     end
-    return input.open({title = " SendWithDirective> ", ["on-submit"] = _26_})
+    local function _27_(selected)
+      local selected_label = selected[1]
+      local directive_text = directives.get(selected_label)
+      local annotations = concat_list_with_format(state["query-parts"], "==Section Start==", "====", "==Section End==")
+      return send_keys_to_selected_pane((annotations .. directive_text .. "\n"))
+    end
+    return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _27_}})
   else
     return schedule_notify("varubrev: no pane selected \226\128\148 run Varubrev SetPane first", vim.log.levels.WARN)
   end
 end
 M.SendWithDirective = _25_
 local function _29_(opts)
+  if state.pane then
+    local context = get_visual_lines(opts)
+    local function _30_(lines)
+      local text = concat_list(lines)
+      if (text ~= "") then
+        return send_keys_to_selected_pane(compose_message(context, text))
+      else
+        return nil
+      end
+    end
+    return input.open({title = " Varubrev> ", ["on-submit"] = _30_})
+  else
+    return schedule_notify("varubrev: no pane selected \226\128\148 run Varubrev SetPane first", vim.log.levels.WARN)
+  end
+end
+M.SendKeys = _29_
+local function _33_(opts)
   local context = get_visual_lines(opts)
-  local function _30_(lines)
+  local function _34_(lines)
     local text = concat_list(lines)
     if (text ~= "") then
       return run_one_off(compose_message(context, text))
@@ -222,11 +253,11 @@ local function _29_(opts)
       return nil
     end
   end
-  return input.open({title = " one-off (Enter to send)> ", ["submit-on-enter"] = true, ["on-submit"] = _30_})
+  return input.open({title = " one-off (Enter to send)> ", ["submit-on-enter"] = true, ["on-submit"] = _34_})
 end
-M.SendKeysOO = _29_
-local function _32_()
+M.SendKeysOO = _33_
+local function _36_()
   return choose_pane(parse_panes(shell(panes_command)))
 end
-M.SetPane = _32_
+M.SetPane = _36_
 return M
