@@ -9,6 +9,7 @@ A Neovim plugin for sending text and commands to tmux panes. Written in [Fennel]
 - Visual mode support — send code selections wrapped in context
 - Annotation workflow — accumulate multiple code selections for review before sending
 - Bracketed-paste support for proper multi-line handling
+- **One-off query mode** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane (useful for quick questions, single commands, or testing without context overhead)
 
 ## Installation
 
@@ -86,6 +87,24 @@ sent along with any accumulated annotations). Omitting `prompting.directives`
 keeps
 the built-ins as-is.
 
+`prompting.one_off_command` controls how `<leader>cc` (`:Varubrev SendKeysOO`)
+runs its one-shot query: a static argv list. The composed prompt is appended
+as the final argument when the command runs. When unset, it defaults to:
+
+```lua
+require("varubrev").setup({
+  prompting = {
+    one_off_command = {
+      "claude", "-p", "--output-format", "json", "--permission-mode", "acceptEdits",
+    },
+  },
+})
+```
+
+Point it at whatever the machine at hand provides — a plain binary, a
+container wrapper, a nix flake invocation, … Output that is JSON with a
+`result` field is shown as just the result; anything else is displayed raw.
+
 ## Commands
 
 ### `:Varubrev SendKeys [message]`
@@ -106,13 +125,20 @@ Opens fzf-lua to select a target tmux pane. Shows session, window, pane index, r
 
 ### `:Varubrev SendKeysOO`
 
-Runs a **one-shot** Claude Code query — no tmux pane and no session needed:
+Runs a **one-shot** query — spawns a single process for a quick task without maintaining a session or requiring a tmux pane:
 
 ```
 :'<,'>Varubrev SendKeysOO
 ```
 
-Opens the same input UI as `SendKeys` (a visual selection is included as context, with file and line numbers), then runs `claude-code -p` through `nix run` and shows the answer in a notification when it finishes.
+**When to use one-off mode:**
+- Quick questions or single commands that don't require conversational context
+- Testing or experimentation without session overhead
+- Running isolated tasks where you want a clean slate each time
+- Situations where you don't have or need a tmux pane running
+
+**How it works:**
+Opens the same input UI as `SendKeys` (a visual selection is included as context, with file and line numbers), then spawns a fresh process for your query and shows the answer in a notification when it finishes.
 
 - The input submits on `<CR>` and closes itself — `<C-j>` (insert mode) or `o` (normal mode) if you need a newline
 - The prompt is passed as an argv vector via `vim.system`, so quotes, `$`, backticks and newlines in your message are never interpreted by a shell
@@ -217,21 +243,34 @@ VARUBREV_PATH=$PWD ./test-varu
 
 ```
 .
-├── .nfnl.fnl          # nfnl configuration (compiler options, macros, orphan detection)
-├── dev.lua             # dev launcher (nvim -u dev.lua)
+├── .nfnl.fnl            # nfnl configuration (compiler options, macros, orphan detection)
+├── dev.lua               # dev launcher (nvim -u dev.lua)
+├── test-varu             # test script for local development
+├── test-input.lua        # test script for input UI
+├── .envrc                # direnv configuration
+├── .stylua.toml          # Lua styling configuration
 ├── plugin/
-│   └── varubrev.lua    # registers the :Varubrev user command
+│   └── varubrev.lua      # registers the :Varubrev user command
+├── ftplugin/
+│   └── fennel.lua        # Fennel filetype plugin
 ├── fnl/
+│   ├── .nfnl.fnl         # local nfnl configuration
+│   ├── test.fnl          # test utilities
 │   └── varubrev/
-│       ├── init.fnl    # main module (setup, SendKeys, SetPane)
-│       ├── config.fnl  # keymap defaults & setup
-│       └── input.fnl   # floating input UI
+│       ├── init.fnl      # main module (setup, SendKeys, SetPane)
+│       ├── config.fnl    # keymap defaults & setup
+│       ├── directives.fnl # directive definitions and handling
+│       └── input.fnl     # floating input UI
 └── lua/
-    ├── varubrev/
-    │   ├── init.lua    # ← compiled from fnl/varubrev/init.fnl
-    │   ├── config.lua  # ← compiled from fnl/varubrev/config.fnl
-    │   └── input.lua   # ← compiled from fnl/varubrev/input.fnl
-    └── nfnl/            # embedded nfnl runtime (not hand-edited)
+    ├── test.lua          # compiled test utilities
+    ├── nfnl/
+    │   └── nfnl/
+    │       └── fennel.lua # embedded Fennel runtime
+    └── varubrev/
+        ├── init.lua      # ← compiled from fnl/varubrev/init.fnl
+        ├── config.lua    # ← compiled from fnl/varubrev/config.fnl
+        ├── directives.lua # ← compiled from fnl/varubrev/directives.fnl
+        └── input.lua     # ← compiled from fnl/varubrev/input.fnl
 ```
 
 ### Trusting the repo
