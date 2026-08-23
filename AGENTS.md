@@ -1,0 +1,2 @@
+- check out ./prompts/keep-readme-current.md
+- prefer let bindings over inlining for bigger function definitions
