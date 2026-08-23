@@ -1,6 +1,6 @@
 # Keep README.md current
 
-You are maintaining `README.md` for varubrev.nvim. The README is
+You are maintaining `README.md` for codeboomer.nvim. The README is
 documentation-only; the source of truth is always the code. Your job is to
 bring the README back in sync with the code — not to rewrite it.
 
@@ -10,7 +10,7 @@ bring the README back in sync with the code — not to rewrite it.
    below before touching the README. Never document from memory or from the
    README's own claims.
 2. **`fnl/` is the source; `lua/` is generated.** Verify behavior in
-   `fnl/varubrev/*.fnl`. Never document something only visible in
+   `fnl/codeboomer/*.fnl`. Never document something only visible in
    `lua/*.lua` — if it isn't in `fnl/`, it doesn't exist.
 3. **Update in place.** Preserve the existing heading hierarchy, tone,
    table formats, and markdown style. Only change what is factually wrong
@@ -29,12 +29,12 @@ bring the README back in sync with the code — not to rewrite it.
 
 | File | What it defines |
 |------|-----------------|
-| `fnl/varubrev/init.fnl` | public API (`M.*` functions), the `:Varubrev` workflows, tmux interaction, message composition, annotation format, one-off query runtime behavior |
-| `fnl/varubrev/config.fnl` | `setup()` semantics, the `keymaps` table (action → mode/rhs/desc), built-in defaults (e.g. `default-one-off-command`), how opts are merged/folded |
-| `fnl/varubrev/directives.fnl` | built-in directive constants (`pushback-reasons`, `default-directives`), runtime lookup behavior |
-| `fnl/varubrev/input.fnl` | the floating input UI and its options (e.g. `submit-on-enter`) |
-| `plugin/varubrev.lua` | the exact `:Varubrev` subcommand set, completion, range/nargs handling |
-| `test-varu`, `dev.lua` | real-world `setup()` call shapes; dev launchers |
+| `fnl/codeboomer/init.fnl` | public API (`M.*` functions), the `:Codeboomer` workflows, tmux interaction, message composition, annotation format, one-off query runtime behavior |
+| `fnl/codeboomer/config.fnl` | `setup()` semantics, the `keymaps` table (action → mode/rhs/desc), built-in defaults (e.g. `default-one-off-command`), how opts are merged/folded |
+| `fnl/codeboomer/directives.fnl` | built-in directive constants (`pushback-reasons`, `default-directives`), runtime lookup behavior |
+| `fnl/codeboomer/input.fnl` | the floating input UI and its options (e.g. `submit-on-enter`) |
+| `plugin/codeboomer.lua` | the exact `:Codeboomer` subcommand set, completion, range/nargs handling |
+| `test-codeboomer`, `dev.lua` | real-world `setup()` call shapes; dev launchers |
 | `.nfnl.fnl`, `ftplugin/fennel.lua` | build/compile configuration referenced by the Development section |
 | `ls`/`find` output of the repo root | the authoritative Project structure tree |
 
@@ -44,7 +44,7 @@ Work top to bottom. For each section, verify against the named source and
 fix drift:
 
 - **Features** — every bullet must correspond to a real capability in
-  `init.fnl`/`plugin/varubrev.lua` (pane selection, visual-mode send,
+  `init.fnl`/`plugin/codeboomer.lua` (pane selection, visual-mode send,
   annotation accumulation, bracketed paste, one-off queries, directive
   picker, …). Add bullets for shipped-but-undocumented capabilities;
   remove bullets for removed ones.
@@ -69,8 +69,8 @@ fix drift:
     default. Also document the output-handling contract (JSON with a
     `result` field is unwrapped; other output shown raw) and note the
     60 s timeout if still hardcoded.
-- **Commands** — the set of `### :Varubrev <Name>` sections must equal
-  the `subcommands` table in `plugin/varubrev.lua`, no more, no less.
+- **Commands** — the set of `### :Codeboomer <Name>` sections must equal
+  the `subcommands` table in `plugin/codeboomer.lua`, no more, no less.
   For each, check argument/range behavior against how `init.fnl`
   consumes `opts` (`fargs`, `line1`/`line2`, `range`, visual-mode
   context capture). Keep the workflow descriptions (annotation
@@ -82,21 +82,21 @@ fix drift:
   (continuation runs only after a pane is chosen; aborting cancels).
 - **Development** — build explanation (nfnl compile-on-save, orphan
   detection), the `:Nfnl*` command list, `dev.lua` usage, and
-  `VARUBREV_PATH=$PWD ./test-varu` instructions must match the current
-  scripts. `test-varu`'s inline `setup()` example must reflect its
+  `CODEBOOMER_PATH=$PWD ./test-codeboomer` instructions must match the current
+  scripts. `test-codeboomer`'s inline `setup()` example must reflect its
   actual contents.
-- **Launcher sync (`dev.lua` and `test-varu`)** — these two files are
+- **Launcher sync (`dev.lua` and `test-codeboomer`)** — these two files are
   executable documentation: when the README's configuration examples or
   the plugin's option surface changes, update them in the same pass so
   all three stay in lockstep. Verify that (a) `dev.lua`'s `opts` table
-  and `test-varu`'s inline `setup(...)` use the current option shape
+  and `test-codeboomer`'s inline `setup(...)` use the current option shape
   (nested `keybindings`/`prompting`, correct key spellings), (b) every
   `setup()` call site in both files matches a documented, still-valid
   option, and (c) the README's Development section descriptions of
   these launchers match what the files actually do. If either file
-  sets an override (e.g. `one_off_command` in `test-varu`), the README
+  sets an override (e.g. `one_off_command` in `test-codeboomer`), the README
   example may differ, but both must be individually correct. Confirm
-  `sh -n test-varu` still passes after edits.
+  `sh -n test-codeboomer` still passes after edits.
 - **Project structure** — regenerate the tree from a real `find . -not
   -path '*/.git/*'` run. One line per file with a short comment; the
   `lua/` files must be marked as compiled from their `fnl/`

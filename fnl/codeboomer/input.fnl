@@ -1,4 +1,4 @@
-;; [nfnl] varubrev/input.fnl
+;; [nfnl] codeboomer/input.fnl
 ;; Multi-line editable input: a scratch buffer in a floating window.
 ;; Like vim.ui.input, but the callback receives a LIST of lines.
 ;; Default: no cancel and no key intercepts — the ONLY way out is closing
@@ -19,7 +19,7 @@
     (vim.api.nvim_win_close win true)))
 
 ;; accept both kebab-case (Fennel callers) and snake_case (Lua callers):
-;; hyphens survive compilation as string keys, so plugin/varubrev.lua would
+;; hyphens survive compilation as string keys, so plugin/codeboomer.lua would
 ;; otherwise need the awkward ["on-submit"] = syntax
 (fn open [{: on-submit
            :on_submit alt-on-submit

@@ -1,5 +1,5 @@
 -- test-input.lua — run: nvim -u dev.lua -l test-input.lua
-local input = require("varubrev.input")
+local input = require("codeboomer.input")
 
 local submitted, cancelled = nil, nil
 

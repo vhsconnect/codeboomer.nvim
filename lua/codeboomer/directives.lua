@@ -1,4 +1,4 @@
--- [nfnl] fnl/varubrev/directives.fnl
+-- [nfnl] fnl/codeboomer/directives.fnl
 vim = vim
 local M = {}
 local pushback_reasons = {"introducing bugs", "impacting readability", "impacting preformance heavily", "introducing security vulenerabilities", "result in data loss/inconsistency", "contradict original instruction"}
@@ -17,7 +17,7 @@ M.defaults = function()
   return tbl_26_
 end
 M.list = function()
-  local t_2_ = require("varubrev.config")
+  local t_2_ = require("codeboomer.config")
   if (nil ~= t_2_) then
     t_2_ = t_2_.config
   else

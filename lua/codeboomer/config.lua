@@ -1,8 +1,8 @@
--- [nfnl] fnl/varubrev/config.fnl
+-- [nfnl] fnl/codeboomer/config.fnl
 vim = vim
 local M = {}
-local directives = require("varubrev.directives")
-local keymaps = {send = {"n", "<cmd>Varubrev SendKeys<cr>", "varubrev: send message to pane"}, send_visual = {"x", ":Varubrev SendKeys<cr>", "varubrev: send selection to pane"}, pane = {"n", "<cmd>Varubrev SetPane<cr>", "varubrev: pick a tmux pane"}, send_with_directive = {"n", "<cmd>Varubrev SendWithDirective<cr>", "varubrev: Send Keys along with annotations"}, send_visualOO = {"x", ":Varubrev SendKeysOO<cr>", "varubrev: send one off action"}, annotate = {"x", ":Varubrev Annotate<cr>", "varubrev: annotate some text"}}
+local directives = require("codeboomer.directives")
+local keymaps = {send = {"n", "<cmd>Codeboomer SendKeys<cr>", "codeboomer: send message to pane"}, send_visual = {"x", ":Codeboomer SendKeys<cr>", "codeboomer: send selection to pane"}, pane = {"n", "<cmd>Codeboomer SetPane<cr>", "codeboomer: pick a tmux pane"}, send_with_directive = {"n", "<cmd>Codeboomer SendWithDirective<cr>", "codeboomer: Send Keys along with annotations"}, send_visualOO = {"x", ":Codeboomer SendKeysOO<cr>", "codeboomer: send one off action"}, annotate = {"x", ":Codeboomer Annotate<cr>", "codeboomer: annotate some text"}}
 local default_one_off_command = {"claude-code", "--model", "haiku", "--output-format", "json", "--permission-mode", "acceptEdits", "-p"}
 M.setup = function(opts)
   M.config = vim.tbl_deep_extend("force", (M.config or {}), (opts or {}))

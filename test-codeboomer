@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Set CODEBOOMER_PATH to the plugin directory, or default to this script's directory
+#CODEBOOMER_PATH="${CODEBOOMER_PATH:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+
+nvim \
+  --cmd "lua vim.opt.runtimepath:prepend('$CODEBOOMER_PATH')" \
+  --cmd "lua vim.g.mapleader = ' '" \
+  --cmd "lua vim.keymap.set({'n', 'x'}, '<Space>', '<Nop>')" \
+  --cmd "lua require('codeboomer').setup({keybindings={send='<leader>cs', send_visual='<leader>cs', send_visualOO='<leader>cc', send_with_directive='<leader>cd', pane='<leader>cp', annotate='<leader>ca'}, prompting={one_off_command={'nix','run','github:numtide/llm-agents.nix#claude-code','--','--model','haiku','--output-format','json','--permission-mode','acceptEdits','-p'}}})" \
+  "$@"

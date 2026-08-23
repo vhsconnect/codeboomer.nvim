@@ -1,4 +1,4 @@
--- [nfnl] fnl/varubrev/input.fnl
+-- [nfnl] fnl/codeboomer/input.fnl
 vim = vim
 local M = {}
 local function close_win(win)

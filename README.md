@@ -1,4 +1,4 @@
-# varubrev.nvim
+# codeboomer.nvim
 
 A Neovim plugin for sending text and commands to tmux panes. Written in [Fennel](https://fennel-lang.org/), compiled to Lua automatically via [nfnl](https://github.com/Olical/nfnl).
 
@@ -16,10 +16,10 @@ A Neovim plugin for sending text and commands to tmux panes. Written in [Fennel]
 ```lua
 -- lazy.nvim
 {
-  "vhsconnect/varubrev.nvim",
+  "vhsconnect/codeboomer.nvim",
   dependencies = { "ibhagwan/fzf-lua" },
   config = function()
-    require("varubrev").setup({
+    require("codeboomer").setup({
       -- Optional: customize keybindings (set to false to disable)
       keybindings = {
         pane = "<leader>cp",        -- pick a tmux pane
@@ -50,7 +50,7 @@ You can set up something like this
 Disable or customize any binding under `keybindings` in `setup()` (set to `false` to disable):
 
 ```lua
-require("varubrev").setup({
+require("codeboomer").setup({
   keybindings = {
     send = "<leader>cs",
     send_visual = "<leader>cs",
@@ -64,13 +64,13 @@ require("varubrev").setup({
 
 ### Prompting
 
-`<leader>cd` (`:Varubrev SendWithDirective`) picks a directive from a
+`<leader>cd` (`:Codeboomer SendWithDirective`) picks a directive from a
 fzf-lua menu — by default the two built-ins, `Review - converse` and
 `Review - execute`. Pass your own list under `prompting.directives` in
 `setup()` to add to or override it:
 
 ```lua
-require("varubrev").setup({
+require("codeboomer").setup({
   prompting = {
     directives = {
       -- a label matching a built-in overrides it in place
@@ -87,12 +87,12 @@ sent along with any accumulated annotations). Omitting `prompting.directives`
 keeps
 the built-ins as-is.
 
-`prompting.one_off_command` controls how `<leader>cc` (`:Varubrev SendKeysOO`)
+`prompting.one_off_command` controls how `<leader>cc` (`:Codeboomer SendKeysOO`)
 runs its one-shot query: a static argv list. The composed prompt is appended
 as the final argument when the command runs. When unset, it defaults to:
 
 ```lua
-require("varubrev").setup({
+require("codeboomer").setup({
   prompting = {
     one_off_command = {
       "claude", "-p", "--output-format", "json", "--permission-mode", "acceptEdits",
@@ -107,28 +107,28 @@ container wrapper, a nix flake invocation, … Output that is JSON with a
 
 ## Commands
 
-### `:Varubrev SendKeys [message]`
+### `:Codeboomer SendKeys [message]`
 
-Sends text to the tmux pane selected via `:Varubrev SetPane`.
+Sends text to the tmux pane selected via `:Codeboomer SetPane`.
 
 - Without arguments, prompts for input
 - With a message argument, sends it directly
 - From visual mode, sends the selection wrapped in a code fence with context (file and line numbers)
 
 ```
-:'<,'>Varubrev SendKeys what does this do
+:'<,'>Codeboomer SendKeys what does this do
 ```
 
-### `:Varubrev SetPane`
+### `:Codeboomer SetPane`
 
 Opens fzf-lua to select a target tmux pane. Shows session, window, pane index, running command, and current mode.
 
-### `:Varubrev SendKeysOO`
+### `:Codeboomer SendKeysOO`
 
 Runs a **one-shot** query — spawns a single process for a quick task without maintaining a session or requiring a tmux pane:
 
 ```
-:'<,'>Varubrev SendKeysOO
+:'<,'>Codeboomer SendKeysOO
 ```
 
 **When to use one-off mode:**
@@ -145,37 +145,37 @@ Opens the same input UI as `SendKeys` (a visual selection is included as context
 - Runs asynchronously with a 60s timeout — the editor never freezes while the LLM thinks
 - Failures surface the exit code and stderr in an `ERROR` notification
 
-### `:Varubrev Annotate`
+### `:Codeboomer Annotate`
 
 Adds the current selection to an accumulated query context. Use this to annotate multiple code sections before sending a directive.
 
-- Requires a pane to be selected first via `:Varubrev SetPane`
-- The selection is stored and will be included in the next `:Varubrev SendWithDirective` call
+- Requires a pane to be selected first via `:Codeboomer SetPane`
+- The selection is stored and will be included in the next `:Codeboomer SendWithDirective` call
 
 ```
-:'<,'>Varubrev Annotate
+:'<,'>Codeboomer Annotate
 ```
 
-### `:Varubrev SendWithDirective`
+### `:Codeboomer SendWithDirective`
 
 > [!warn] **Tentative API** — This command is experimental and subject to change in future versions.
 
-Opens fzf to select a pre-defined directive, then sends it along with all previously accumulated annotations from `:Varubrev Annotate`.
+Opens fzf to select a pre-defined directive, then sends it along with all previously accumulated annotations from `:Codeboomer Annotate`.
 
-- Requires a pane to be selected first via `:Varubrev SetPane`
+- Requires a pane to be selected first via `:Codeboomer SetPane`
 - Select from a list of pre-defined directives (see Configuration below for customizing)
 - After sending, the annotation context is preserved for additional queries
 
 ```vim
-:Varubrev SendWithDirective
+:Codeboomer SendWithDirective
 ```
 
 ## How it works
 
 ### Basic workflow
 
-1. Select a pane with `<leader>cp` or `:Varubrev SetPane`
-2. Send text with `<leader>cs` or `:Varubrev SendKeys`
+1. Select a pane with `<leader>cp` or `:Codeboomer SetPane`
+2. Send text with `<leader>cs` or `:Codeboomer SendKeys`
 3. For code selections, the plugin includes file path and line numbers in the message
 
 ### Annotation workflow
@@ -183,8 +183,8 @@ Opens fzf to select a pre-defined directive, then sends it along with all previo
 For more complex queries, you can build up context across multiple selections:
 
 1. Select a pane with `<leader>cp`
-2. Select code sections and run `<leader>ca` (or `:Varubrev Annotate`) to add annotations to your query
-3. When ready, run `<leader>cd` (or `:Varubrev SendWithDirective`) to send your directive along with all accumulated annotations
+2. Select code sections and run `<leader>ca` (or `:Codeboomer Annotate`) to add annotations to your query
+3. When ready, run `<leader>cd` (or `:Codeboomer SendWithDirective`) to send your directive along with all accumulated annotations
 
 This is useful for giving the LLM multiple code sections to consider before asking your question.
 
@@ -220,8 +220,8 @@ To develop on this plugin without installing it into your main Neovim config, us
 
 ```lua
 -- dev.lua  (run with: nvim -u dev.lua)
-vim.opt.runtimepath:append("/path/to/varubrev.nvim")
-require("varubrev").setup()
+vim.opt.runtimepath:append("/path/to/codeboomer.nvim")
+require("codeboomer").setup()
 ```
 
 **Update the path** in `dev.lua` to point at your local clone, then launch:
@@ -233,10 +233,10 @@ nvim -u dev.lua
 ```
 This gives you an isolated Neovim instance with the plugin loaded, nfnl active, and auto-compilation working — write any `.fnl` file and the corresponding `.lua` updates immediately.
 
-For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-varu`. It requires `VARUBREV_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>ca`):
+For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-codeboomer`. It requires `CODEBOOMER_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>ca`):
 
 ```bash
-VARUBREV_PATH=$PWD ./test-varu
+CODEBOOMER_PATH=$PWD ./test-codeboomer
 ```
 
 ### Project structure
@@ -245,18 +245,18 @@ VARUBREV_PATH=$PWD ./test-varu
 .
 ├── .nfnl.fnl            # nfnl configuration (compiler options, macros, orphan detection)
 ├── dev.lua               # dev launcher (nvim -u dev.lua)
-├── test-varu             # test script for local development
+├── test-codeboomer             # test script for local development
 ├── test-input.lua        # test script for input UI
 ├── .envrc                # direnv configuration
 ├── .stylua.toml          # Lua styling configuration
 ├── plugin/
-│   └── varubrev.lua      # registers the :Varubrev user command
+│   └── codeboomer.lua      # registers the :Codeboomer user command
 ├── ftplugin/
 │   └── fennel.lua        # Fennel filetype plugin
 ├── fnl/
 │   ├── .nfnl.fnl         # local nfnl configuration
 │   ├── test.fnl          # test utilities
-│   └── varubrev/
+│   └── codeboomer/
 │       ├── init.fnl      # main module (setup, SendKeys, SetPane)
 │       ├── config.fnl    # keymap defaults & setup
 │       ├── directives.fnl # directive definitions and handling
@@ -266,11 +266,11 @@ VARUBREV_PATH=$PWD ./test-varu
     ├── nfnl/
     │   └── nfnl/
     │       └── fennel.lua # embedded Fennel runtime
-    └── varubrev/
-        ├── init.lua      # ← compiled from fnl/varubrev/init.fnl
-        ├── config.lua    # ← compiled from fnl/varubrev/config.fnl
-        ├── directives.lua # ← compiled from fnl/varubrev/directives.fnl
-        └── input.lua     # ← compiled from fnl/varubrev/input.fnl
+    └── codeboomer/
+        ├── init.lua      # ← compiled from fnl/codeboomer/init.fnl
+        ├── config.lua    # ← compiled from fnl/codeboomer/config.fnl
+        ├── directives.lua # ← compiled from fnl/codeboomer/directives.fnl
+        └── input.lua     # ← compiled from fnl/codeboomer/input.fnl
 ```
 
 ### Trusting the repo

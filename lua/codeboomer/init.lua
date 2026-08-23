@@ -1,8 +1,8 @@
--- [nfnl] varubrev/init.fnl
+-- [nfnl] codeboomer/init.fnl
 vim = vim
-local config = require("varubrev.config")
-local input = require("varubrev.input")
-local directives = require("varubrev.directives")
+local config = require("codeboomer.config")
+local input = require("codeboomer.input")
+local directives = require("codeboomer.directives")
 local state = {pane = nil, ["query-parts"] = {}}
 local M = {}
 local function _1_(opts)
@@ -55,14 +55,14 @@ local function run_one_off(prompt)
         if (obj.code == 0) then
           return vim.notify(one_off_result((obj.stdout or "")), vim.log.levels.INFO)
         else
-          return vim.notify(("varubrev: one-off failed (exit " .. obj.code .. ")\n" .. (obj.stderr or "")), vim.log.levels.ERROR)
+          return vim.notify(("codeboomer: one-off failed (exit " .. obj.code .. ")\n" .. (obj.stderr or "")), vim.log.levels.ERROR)
         end
       end
       return promise(_9_)
     end
     return vim.system(vim.list_extend(vim.list_slice(cmd), {prompt}), {text = true, timeout = 60000}, _8_)
   else
-    return schedule_notify("varubrev: prompting.one_off_command not set \226\128\148 call setup() first", vim.log.levels.ERROR)
+    return schedule_notify("codeboomer: prompting.one_off_command not set \226\128\148 call setup() first", vim.log.levels.ERROR)
   end
 end
 local function parse_panes(x)
@@ -81,7 +81,7 @@ local function parse_panes(x)
   return tbl_26_
 end
 local function paste_text(pane_id, text)
-  local handle = io.popen(("tmux load-buffer -b varubrev-paste - && " .. "tmux paste-buffer -p -r -d -b varubrev-paste -t " .. pane_id), "w")
+  local handle = io.popen(("tmux load-buffer -b codeboomer-paste - && " .. "tmux paste-buffer -p -r -d -b codeboomer-paste -t " .. pane_id), "w")
   handle:write(text)
   return handle:close()
 end
@@ -133,7 +133,7 @@ local function choose_pane(panes, _3fthen)
   local function _16_(selected)
     local pane = by_display[selected[1]]
     state.pane = pane
-    schedule_notify(string.format("varubrev: pane %s (%s:%s.%s) selected", pane["pane-id"], pane["session-name"], pane["window-index"], pane["pane-index"]), vim.log.levels.INFO)
+    schedule_notify(string.format("codeboomer: pane %s (%s:%s.%s) selected", pane["pane-id"], pane["session-name"], pane["window-index"], pane["pane-index"]), vim.log.levels.INFO)
     if _3fthen then
       return _3fthen()
     else
@@ -281,7 +281,7 @@ local function _38_(opts)
         return nil
       end
     end
-    return input.open({title = " Varubrev> ", ["on-submit"] = _39_})
+    return input.open({title = " Codeboomer> ", ["on-submit"] = _39_})
   else
     local function _41_()
       local context = get_visual_lines(opts)
@@ -293,7 +293,7 @@ local function _38_(opts)
           return nil
         end
       end
-      return input.open({title = " Varubrev> ", ["on-submit"] = _42_})
+      return input.open({title = " Codeboomer> ", ["on-submit"] = _42_})
     end
     return choose_pane(parse_panes(shell(panes_command)), _41_)
   end

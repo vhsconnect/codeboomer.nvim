@@ -1,4 +1,4 @@
-local project_root = "/home/vhs/Repos/varubrev.nvim"
+local project_root = "/home/vhs/Repos/codeboomer.nvim"
 
 -- <leader> must be set BEFORE any <leader> mappings are created — the
 -- prefix is resolved when the map is defined, not when it is pressed.
@@ -12,25 +12,25 @@ vim.keymap.set({ "n", "x" }, "<Space>", "<Nop>")
 
 vim.opt.runtimepath:prepend(project_root)
 
-local function reload_varubrev()
+local function reload_codeboomer()
   -- 1. Recompile fnl/ -> lua/
   require("nfnl.api")["compile-all-files"](project_root)
 
-  -- 2. Drop cached varubrev modules so require() returns the fresh code
+  -- 2. Drop cached codeboomer modules so require() returns the fresh code
   for name in pairs(package.loaded) do
-    if name == "varubrev" or name:find("^varubrev%.") then
+    if name == "codeboomer" or name:find("^codeboomer%.") then
       package.loaded[name] = nil
     end
   end
 
-  -- 3. Re-source plugin/varubrev.lua (reset the load guard first)
-  vim.g.loaded_varubrev = nil
-  vim.cmd.source(project_root .. "/plugin/varubrev.lua")
+  -- 3. Re-source plugin/codeboomer.lua (reset the load guard first)
+  vim.g.loaded_codeboomer = nil
+  vim.cmd.source(project_root .. "/plugin/codeboomer.lua")
 
   -- 4. Re-run setup
-  require("varubrev").setup(opts)
+  require("codeboomer").setup(opts)
 
-  vim.notify("varubrev: reloaded", vim.log.levels.INFO)
+  vim.notify("codeboomer: reloaded", vim.log.levels.INFO)
 end
 
 local opts = {
@@ -44,8 +44,8 @@ local opts = {
   },
 }
 
-vim.api.nvim_create_user_command("VarubrevReload", reload_varubrev, {
-  desc = "Recompile (fnl->lua) and reload varubrev.nvim",
+vim.api.nvim_create_user_command("CodeboomerReload", reload_codeboomer, {
+  desc = "Recompile (fnl->lua) and reload codeboomer.nvim",
 })
 
-require("varubrev").setup(opts)
+require("codeboomer").setup(opts)

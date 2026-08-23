@@ -24,7 +24,7 @@
 
 (fn M.list []
   "Return the effective directives from the config"
-  (?. (require :varubrev.config) :config :prompting :directives))
+  (?. (require :codeboomer.config) :config :prompting :directives))
 
 (fn M.get [label]
   "Get a directive's text by its label from the config"

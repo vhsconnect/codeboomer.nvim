@@ -1,8 +1,8 @@
 (global vim vim)
 
-(local config (require :varubrev.config))
-(local input (require :varubrev.input))
-(local directives (require :varubrev.directives))
+(local config (require :codeboomer.config))
+(local input (require :codeboomer.input))
+(local directives (require :codeboomer.directives))
 
 (local state {:pane nil :query-parts {}})
 
@@ -52,11 +52,11 @@
                                     (vim.notify (one-off-result (or obj.stdout
                                                                     ""))
                                                 vim.log.levels.INFO)
-                                    (vim.notify (.. "varubrev: one-off failed (exit "
+                                    (vim.notify (.. "codeboomer: one-off failed (exit "
                                                     obj.code ")\n"
                                                     (or obj.stderr ""))
                                                 vim.log.levels.ERROR)))))
-        (schedule-notify "varubrev: prompting.one_off_command not set — call setup() first"
+        (schedule-notify "codeboomer: prompting.one_off_command not set — call setup() first"
                          vim.log.levels.ERROR))))
 
 (fn parse-panes [x]
@@ -91,8 +91,8 @@
   ;; the text in bracketed-paste control codes (when the app supports them)
   ;; so newlines are inserted literally; -r stops tmux from rewriting LF to
   ;; CR inside the paste; -d deletes the buffer after pasting.
-  (let [handle (io.popen (.. "tmux load-buffer -b varubrev-paste - && "
-                             "tmux paste-buffer -p -r -d -b varubrev-paste -t "
+  (let [handle (io.popen (.. "tmux load-buffer -b codeboomer-paste - && "
+                             "tmux paste-buffer -p -r -d -b codeboomer-paste -t "
                              pane-id) :w)]
     (handle:write text)
     (handle:close)))
@@ -128,7 +128,7 @@
                    :actions {:default (fn [selected]
                                         (let [pane (. by-display (. selected 1))]
                                           (set state.pane pane)
-                                          (schedule-notify (string.format "varubrev: pane %s (%s:%s.%s) selected"
+                                          (schedule-notify (string.format "codeboomer: pane %s (%s:%s.%s) selected"
                                                                           pane.pane-id
                                                                           pane.session-name
                                                                           pane.window-index
@@ -199,7 +199,7 @@
 (set M.SendKeys
      (fn [opts]
        (with-pan (let [context (get-visual-lines opts)]
-                   (input.open {:title " Varubrev> "
+                   (input.open {:title " Codeboomer> "
                                 :on-submit (fn [lines]
                                              (let [text (concat-list lines)]
                                                (when (not= text "")
