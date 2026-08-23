@@ -10,9 +10,12 @@
 ;; the selection to the message. Keys use underscores so Fennel and Lua
 ;; callers spell them identically.
 ;;
-;; The config is the runtime source of truth for directives: setup always
-;; folds the built-in ones in, with user-supplied entries overriding by
-;; label.
+;; The config is the runtime source of truth for prompting: setup folds
+;; the built-in directive list and the default one-off command in, with
+;; user-supplied values winning.
+;;
+;; prompting.one_off_command is a static argv list; the composed prompt is
+;; appended as the final argument when the command runs.
 
 (global vim vim)
 
@@ -38,22 +41,34 @@
                            ":Varubrev Annotate<cr>"
                            "varubrev: annotate some text"]})
 
+;; default one-off argv for SendKeysOO; the prompt is appended at runtime
+(local default-one-off-command [:claude-code
+                                :--model
+                                :haiku
+                                :--output-format
+                                :json
+                                :--permission-mode
+                                :acceptEdits
+                                :-p])
+
 (fn M.setup [opts]
   (set M.config (vim.tbl_deep_extend :force (or M.config {}) (or opts {})))
-  ;; Always fold the built-in directives into the config: a user entry
-  ;; with a duplicate label overrides the built-in in place, and entries
-  ;; with new labels are appended after them
-  (let [effective (directives.defaults)
-        index {}]
-    (each [i d (ipairs effective)]
-      (tset index d.label i))
-    (each [_ d (ipairs (or (?. opts :prompting :directives) []))]
-      (if (. index d.label)
-          (tset effective (. index d.label) d)
-          (table.insert effective d)))
-    (tset M.config :prompting (vim.tbl_deep_extend :force
-                                (or M.config.prompting {})
-                                {:directives effective})))
+  ;; Fold the built-in prompting defaults into the config: the default
+  ;; one-off argv is only set when the user didn't supply their own, and
+  ;; directive entries override the built-ins by label / append new ones
+  (let [prompting (or M.config.prompting {})]
+    (when (not prompting.one_off_command)
+      (set prompting.one_off_command (vim.list_slice default-one-off-command)))
+    (let [effective (directives.defaults)
+          index {}]
+      (each [i d (ipairs effective)]
+        (tset index d.label i))
+      (each [_ d (ipairs (or (?. opts :prompting :directives) []))]
+        (if (. index d.label)
+            (tset effective (. index d.label) d)
+            (table.insert effective d)))
+      (set prompting.directives effective))
+    (set M.config.prompting prompting))
   (each [k [mode rhs desc] (pairs keymaps)]
     (let [lhs (?. M.config :keybindings k)]
       (when lhs

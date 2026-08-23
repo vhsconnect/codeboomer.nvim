@@ -30,20 +30,6 @@
 (local panes-command
        "tmux list-panes -a -F '#{session_name}|#{session_id}|#{window_index}|#{pane_index}|#{pane_id}|#{pane_current_command}|#{pane_mode}|#{pane_active}|#{window_active}'")
 
-(fn one-off-command [prompt]
-  [:nix
-   :run
-   "github:numtide/llm-agents.nix#claude-code"
-   "--"
-   :--model
-   :haiku
-   :--output-format
-   :json
-   :--permission-mode
-   :acceptEdits
-   :-p
-   prompt])
-
 (fn one-off-result [stdout]
   ;; --output-format json wraps the answer in an object; show the .result
   ;; field and fall back to raw output when it isn't JSON
@@ -54,15 +40,24 @@
 
 (fn run-one-off [prompt]
   ;; async on purpose: a slow flake build / LLM round-trip must not
-  ;; freeze the editor, and a non-zero exit must surface stderr
-  (vim.system (one-off-command prompt) {:text true :timeout 60000}
-              (fn [obj]
-                (promise #(if (= obj.code 0)
-                              (vim.notify (one-off-result (or obj.stdout ""))
-                                          vim.log.levels.INFO)
-                              (vim.notify (.. "varubrev: one-off failed (exit "
-                                              obj.code ")\n" (or obj.stderr ""))
-                                          vim.log.levels.ERROR))))))
+  ;; freeze the editor, and a non-zero exit must surface stderr.
+  ;; argv comes from config.prompting.one_off_command (folded at setup);
+  ;; the composed prompt is appended as the final argument
+  (let [cmd (?. config :config :prompting :one_off_command)]
+    (if cmd
+        (vim.system (vim.list_extend (vim.list_slice cmd) [prompt])
+                    {:text true :timeout 60000}
+                    (fn [obj]
+                      (promise #(if (= obj.code 0)
+                                    (vim.notify (one-off-result (or obj.stdout
+                                                                    ""))
+                                                vim.log.levels.INFO)
+                                    (vim.notify (.. "varubrev: one-off failed (exit "
+                                                    obj.code ")\n"
+                                                    (or obj.stderr ""))
+                                                vim.log.levels.ERROR)))))
+        (schedule-notify "varubrev: prompting.one_off_command not set — call setup() first"
+                         vim.log.levels.ERROR))))
 
 (fn parse-panes [x]
   (let [pattern "([^|
@@ -201,28 +196,26 @@
                                                                                          "\n"))
                                                          (clear-annotations)))}})))))
 
-(set M.SendKeys (fn [opts]
-                  (if state.pane
-                      (let [context (get-visual-lines opts)]
-                        (input.open {:title " Varubrev> "
-                                     :on-submit (fn [lines]
-                                                  (let [text (concat-list lines)]
-                                                    (when (not= text "")
-                                                      (send-keys-to-selected-pane (compose-message context
-                                                                                                   text)))))}))
-                      (schedule-notify "varubrev: no pane selected — run Varubrev SetPane first"
-                                       vim.log.levels.WARN))))
+(set M.SendKeys
+     (fn [opts]
+       (with-pan (let [context (get-visual-lines opts)]
+                   (input.open {:title " Varubrev> "
+                                :on-submit (fn [lines]
+                                             (let [text (concat-list lines)]
+                                               (when (not= text "")
+                                                 (send-keys-to-selected-pane (compose-message context
+                                                                                              text)))))})))))
 
 (set M.SendKeysOO
      (fn [opts]
-       (let [context (get-visual-lines opts)]
-         (input.open {:title " one-off (Enter to send)> "
-                      :submit-on-enter true
-                      :on-submit (fn [lines]
-                                   (let [text (concat-list lines)]
-                                     (when (not= text "")
-                                       (run-one-off (compose-message context
-                                                                     text)))))}))))
+       (with-pan (let [context (get-visual-lines opts)]
+                   (input.open {:title " one-off (Enter to send)> "
+                                :submit-on-enter true
+                                :on-submit (fn [lines]
+                                             (let [text (concat-list lines)]
+                                               (when (not= text "")
+                                                 (run-one-off (compose-message context
+                                                                               text)))))})))))
 
 (set M.SetPane
      (fn []
