@@ -9,8 +9,9 @@
 (local M {})
 
 (macro with-pan [body]
-  `(if state.pane ,body
-       (choose-pane (parse-panes (shell panes-command))) ,body))
+  `(if state.pane
+       ,body
+       (choose-pane (parse-panes (shell panes-command)) (fn [] ,body))))
 
 (set M.setup (fn [opts]
                (config.setup opts)))
@@ -114,7 +115,7 @@
     (paste-text pane-id text)
     (shell (press-key-command pane-id :Enter))))
 
-(fn choose-pane [panes]
+(fn choose-pane [panes ?then]
   (let [fzf (require :fzf-lua)
         by-display {}
         lines (icollect [_ p (ipairs panes)]
@@ -137,7 +138,9 @@
                                                                           pane.session-name
                                                                           pane.window-index
                                                                           pane.pane-index)
-                                                           vim.log.levels.INFO)))}})))
+                                                           vim.log.levels.INFO)
+                                          ;; execute callback when passed
+                                          (when ?then (?then))))}})))
 
 (fn clear-annotations [] (set state.query-parts {}))
 
@@ -171,7 +174,6 @@
        (with-pan (let [context (get-visual-lines opts)]
                    (input.open {:title " Annotate> "
                                 :on-submit (fn [lines]
-
                                              (let [text (concat-list lines)]
                                                (when (not= text "")
                                                  (table.insert state.query-parts
