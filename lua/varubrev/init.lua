@@ -10,7 +10,6 @@ local function _1_(opts)
 end
 M.setup = _1_
 local promise = vim.schedule
-local sessions_command = "tmux list-session -F '#{session_name}|#{session_windows}|#{session_attached}'"
 local function schedule_notify(msg, level)
   local function _2_()
     return vim.notify(msg, level)
@@ -63,19 +62,6 @@ local function parse_panes(x)
   end
   return tbl_26_
 end
-local function parse_sessions(x)
-  local tbl_26_ = {}
-  local i_27_ = 0
-  for name, windows, attached in string.gmatch(x, "([^|]*)|([^|]*)|([^|]*)") do
-    local val_28_ = {name = name, windows = windows, session = attached}
-    if (nil ~= val_28_) then
-      i_27_ = (i_27_ + 1)
-      tbl_26_[i_27_] = val_28_
-    else
-    end
-  end
-  return tbl_26_
-end
 local function paste_text(pane_id, text)
   local handle = io.popen(("tmux load-buffer -b varubrev-paste - && " .. "tmux paste-buffer -p -r -d -b varubrev-paste -t " .. pane_id), "w")
   handle:write(text)
@@ -107,14 +93,14 @@ local function choose_pane(panes)
       local val_28_
       do
         local display
-        local function _10_()
+        local function _9_()
           if (p["pane-mode"] ~= "") then
             return ("[" .. p["pane-mode"] .. "]")
           else
             return ""
           end
         end
-        display = string.format("%s:%s.%s  %-10s %-6s%s", p["session-name"], p["window-index"], p["pane-index"], p["pane-current-command"], p["pane-id"], _10_())
+        display = string.format("%s:%s.%s  %-10s %-6s%s", p["session-name"], p["window-index"], p["pane-index"], p["pane-current-command"], p["pane-id"], _9_())
         by_display[display] = p
         val_28_ = display
       end
@@ -126,21 +112,17 @@ local function choose_pane(panes)
     end
     lines = tbl_26_
   end
-  local function _12_(selected)
+  local function _11_(selected)
     local pane = by_display[selected[1]]
     state.pane = pane
     return schedule_notify(string.format("varubrev: pane %s (%s:%s.%s) selected", pane["pane-id"], pane["session-name"], pane["window-index"], pane["pane-index"]), vim.log.levels.INFO)
   end
-  return fzf.fzf_exec(lines, {prompt = "Pick a Pane> ", actions = {default = _12_}})
+  return fzf.fzf_exec(lines, {prompt = "Pick a Pane> ", actions = {default = _11_}})
 end
-local function _13_()
-  return parse_sessions(shell(sessions_command))
+local function clear_annotations()
+  state["query-parts"] = {}
+  return nil
 end
-M.ParseSessions = _13_
-local function _14_()
-  return parse_panes(shell(panes_command))
-end
-M.ParsePanes = _14_
 M.RunOneOff = run_one_off
 local function concat_list(lines)
   return table.concat(lines, "\n")
@@ -149,16 +131,16 @@ local function concat_list_with_format(lines, beginning, sep, _end)
   return (beginning .. "\n" .. table.concat(lines, (sep .. "\n")) .. "\n" .. _end .. "\n")
 end
 local function get_visual_lines(opts)
-  local _16_
+  local _13_
   do
-    local t_15_ = opts
-    if (nil ~= t_15_) then
-      t_15_ = t_15_.range
+    local t_12_ = opts
+    if (nil ~= t_12_) then
+      t_12_ = t_12_.range
     else
     end
-    _16_ = t_15_
+    _13_ = t_12_
   end
-  if (_16_ == 2) then
+  if (_13_ == 2) then
     local path = vim.api.nvim_buf_get_name(0)
     local ok, region_lines = pcall(vim.fn.getregion, vim.fn.getpos("'<"), vim.fn.getpos("'>"), {type = vim.fn.visualmode()})
     local lines
@@ -179,10 +161,10 @@ local function compose_message(context, text)
     return text
   end
 end
-local function _21_(opts)
+local function _18_(opts)
   if state.pane then
     local context = get_visual_lines(opts)
-    local function _22_(lines)
+    local function _19_(lines)
       local text = concat_list(lines)
       if (text ~= "") then
         return table.insert(state["query-parts"], compose_message(context, text))
@@ -190,13 +172,24 @@ local function _21_(opts)
         return nil
       end
     end
-    return input.open({title = " Annotate> ", ["on-submit"] = _22_})
+    return input.open({title = " Annotate> ", ["on-submit"] = _19_})
+  elseif choose_pane(parse_panes(shell(panes_command))) then
+    local context = get_visual_lines(opts)
+    local function _21_(lines)
+      local text = concat_list(lines)
+      if (text ~= "") then
+        return table.insert(state["query-parts"], compose_message(context, text))
+      else
+        return nil
+      end
+    end
+    return input.open({title = " Annotate> ", ["on-submit"] = _21_})
   else
-    return schedule_notify("varubrev: no pane selected \226\128\148 run Varubrev SetPane first", vim.log.levels.WARN)
+    return nil
   end
 end
-M.Annotate = _21_
-local function _25_()
+M.Annotate = _18_
+local function _24_()
   if state.pane then
     local fzf = require("fzf-lua")
     local all_directives = directives.list()
@@ -214,22 +207,48 @@ local function _25_()
       end
       lines = tbl_26_
     end
-    local function _27_(selected)
+    local function _26_(selected)
       local selected_label = selected[1]
       local directive_text = directives.get(selected_label)
       local annotations = concat_list_with_format(state["query-parts"], "==Section Start==", "====", "==Section End==")
-      return send_keys_to_selected_pane((annotations .. directive_text .. "\n"))
+      send_keys_to_selected_pane((annotations .. directive_text .. "\n"))
+      return clear_annotations()
     end
-    return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _27_}})
+    return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _26_}})
+  elseif choose_pane(parse_panes(shell(panes_command))) then
+    local fzf = require("fzf-lua")
+    local all_directives = directives.list()
+    local lines
+    do
+      local tbl_26_ = {}
+      local i_27_ = 0
+      for _, d in ipairs(all_directives) do
+        local val_28_ = d.label
+        if (nil ~= val_28_) then
+          i_27_ = (i_27_ + 1)
+          tbl_26_[i_27_] = val_28_
+        else
+        end
+      end
+      lines = tbl_26_
+    end
+    local function _28_(selected)
+      local selected_label = selected[1]
+      local directive_text = directives.get(selected_label)
+      local annotations = concat_list_with_format(state["query-parts"], "==Section Start==", "====", "==Section End==")
+      send_keys_to_selected_pane((annotations .. directive_text .. "\n"))
+      return clear_annotations()
+    end
+    return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _28_}})
   else
-    return schedule_notify("varubrev: no pane selected \226\128\148 run Varubrev SetPane first", vim.log.levels.WARN)
+    return nil
   end
 end
-M.SendWithDirective = _25_
-local function _29_(opts)
+M.SendWithDirective = _24_
+local function _30_(opts)
   if state.pane then
     local context = get_visual_lines(opts)
-    local function _30_(lines)
+    local function _31_(lines)
       local text = concat_list(lines)
       if (text ~= "") then
         return send_keys_to_selected_pane(compose_message(context, text))
@@ -237,15 +256,15 @@ local function _29_(opts)
         return nil
       end
     end
-    return input.open({title = " Varubrev> ", ["on-submit"] = _30_})
+    return input.open({title = " Varubrev> ", ["on-submit"] = _31_})
   else
     return schedule_notify("varubrev: no pane selected \226\128\148 run Varubrev SetPane first", vim.log.levels.WARN)
   end
 end
-M.SendKeys = _29_
-local function _33_(opts)
+M.SendKeys = _30_
+local function _34_(opts)
   local context = get_visual_lines(opts)
-  local function _34_(lines)
+  local function _35_(lines)
     local text = concat_list(lines)
     if (text ~= "") then
       return run_one_off(compose_message(context, text))
@@ -253,11 +272,11 @@ local function _33_(opts)
       return nil
     end
   end
-  return input.open({title = " one-off (Enter to send)> ", ["submit-on-enter"] = true, ["on-submit"] = _34_})
+  return input.open({title = " one-off (Enter to send)> ", ["submit-on-enter"] = true, ["on-submit"] = _35_})
 end
-M.SendKeysOO = _33_
-local function _36_()
+M.SendKeysOO = _34_
+local function _37_()
   return choose_pane(parse_panes(shell(panes_command)))
 end
-M.SetPane = _36_
+M.SetPane = _37_
 return M

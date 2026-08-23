@@ -5,18 +5,6 @@ vim.g.loaded_varubrev = 1
 
 local subcommands = {}
 
-subcommands.ParseSessions = function()
-  require("varubrev").ParseSessions()
-end
-
-subcommands.ParsePanes = function()
-  require("varubrev").ParsePanes()
-end
-
-subcommands.Compose = function()
-  require("varubrev").Compose()
-end
-
 subcommands.SetPane = function()
   require("varubrev").SetPane()
 end

@@ -8,18 +8,14 @@
 
 (local M {})
 
-(macro when-pan [body]
-  `(if state.pane
-       ,body
-       (schedule-notify "varubrev: no pane selected — run Varubrev SetPane first"
-                        vim.log.levels.WARN)))
+(macro with-pan [body]
+  `(if state.pane ,body
+       (choose-pane (parse-panes (shell panes-command))) ,body))
 
 (set M.setup (fn [opts]
                (config.setup opts)))
 
 (local promise vim.schedule)
-(local sessions-command
-       "tmux list-session -F '#{session_name}|#{session_windows}|#{session_attached}'")
 
 (fn schedule-notify [msg level]
   (promise #(vim.notify msg level)))
@@ -92,10 +88,6 @@
        : pane-active
        : window-active})))
 
-(fn parse-sessions [x]
-  (icollect [(name windows attached) (string.gmatch x "([^|]*)|([^|]*)|([^|]*)")]
-    {: name : windows :session attached}))
-
 (fn paste-text [pane-id text]
   ;; send-keys -l delivers raw LF bytes, which TUI input fields (pi, Claude
   ;; Code, ...) drop — only CR counts as a key — so multi-line text arrived
@@ -147,8 +139,8 @@
                                                                           pane.pane-index)
                                                            vim.log.levels.INFO)))}})))
 
-(set M.ParseSessions (fn [] (parse-sessions (shell sessions-command))))
-(set M.ParsePanes (fn [] (parse-panes (shell panes-command))))
+(fn clear-annotations [] (set state.query-parts {}))
+
 (set M.RunOneOff run-one-off)
 
 (fn concat-list [lines]
@@ -176,9 +168,10 @@
 
 (set M.Annotate
      (fn [opts]
-       (when-pan (let [context (get-visual-lines opts)]
+       (with-pan (let [context (get-visual-lines opts)]
                    (input.open {:title " Annotate> "
                                 :on-submit (fn [lines]
+
                                              (let [text (concat-list lines)]
                                                (when (not= text "")
                                                  (table.insert state.query-parts
@@ -187,7 +180,7 @@
 
 (set M.SendWithDirective
      (fn []
-       (when-pan (let [fzf (require :fzf-lua)
+       (with-pan (let [fzf (require :fzf-lua)
                        all-directives (directives.list)
                        lines (icollect [_ d (ipairs all-directives)]
                                d.label)]
@@ -203,7 +196,8 @@
                                                                                                   "==Section End==")]
                                                          (send-keys-to-selected-pane (.. annotations
                                                                                          directive-text
-                                                                                         "\n"))))}})))))
+                                                                                         "\n"))
+                                                         (clear-annotations)))}})))))
 
 (set M.SendKeys (fn [opts]
                   (if state.pane
@@ -219,9 +213,6 @@
 
 (set M.SendKeysOO
      (fn [opts]
-       ;; one-shot query: no pane, no session — warn about neither.
-       ;; submit-on-enter: CR sends the prompt and closes the input
-       ;; window by itself (C-j still inserts a newline)
        (let [context (get-visual-lines opts)]
          (input.open {:title " one-off (Enter to send)> "
                       :submit-on-enter true

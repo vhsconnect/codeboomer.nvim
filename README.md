@@ -144,14 +144,6 @@ Opens fzf to select a pre-defined directive, then sends it along with all previo
 :Varubrev SendWithDirective
 ```
 
-### `:Varubrev ParseSessions` / `:Varubrev ParsePanes`
-
-Debug commands that return parsed tmux state as Lua tables.
-
-### `:Varubrev Compose`
-
-(Reserved for future use)
-
 ## How it works
 
 ### Basic workflow
@@ -213,8 +205,6 @@ nvim -u dev.lua
 
 
 ```
-
-
 This gives you an isolated Neovim instance with the plugin loaded, nfnl active, and auto-compilation working — write any `.fnl` file and the corresponding `.lua` updates immediately.
 
 For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-varu`. It requires `VARUBREV_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>ca`):
