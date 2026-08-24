@@ -1,0 +1,8 @@
+# Compiled Lua output — generated from fnl/ sources by nfnl.
+# Excluded from language statistics and collapsed in diffs.
+lua/codeboomer/*.lua linguist-generated
+lua/test.lua linguist-generated
+
+# Embedded nfnl/Fennel runtime — vendored third-party code.
+# Excluded from language statistics.
+lua/nfnl/** linguist-vendored
