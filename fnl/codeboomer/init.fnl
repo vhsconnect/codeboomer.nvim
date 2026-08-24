@@ -208,14 +208,14 @@
 
 (set M.SendKeysOO
      (fn [opts]
-       (with-pan (let [context (get-visual-lines opts)]
-                   (input.open {:title " one-off (Enter to send)> "
-                                :submit-on-enter true
-                                :on-submit (fn [lines]
-                                             (let [text (concat-list lines)]
-                                               (when (not= text "")
-                                                 (run-one-off (compose-message context
-                                                                               text)))))})))))
+       (let [context (get-visual-lines opts)]
+         (input.open {:title " one-off (Enter to send)> "
+                      :submit-on-enter true
+                      :on-submit (fn [lines]
+                                   (let [text (concat-list lines)]
+                                     (when (not= text "")
+                                       (run-one-off (compose-message context
+                                                                     text)))))}))))
 
 (set M.SetPane
      (fn []

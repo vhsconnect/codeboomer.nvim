@@ -300,36 +300,20 @@ local function _38_(opts)
 end
 M.SendKeys = _38_
 local function _45_(opts)
-  if state.pane then
-    local context = get_visual_lines(opts)
-    local function _46_(lines)
-      local text = concat_list(lines)
-      if (text ~= "") then
-        return run_one_off(compose_message(context, text))
-      else
-        return nil
-      end
+  local context = get_visual_lines(opts)
+  local function _46_(lines)
+    local text = concat_list(lines)
+    if (text ~= "") then
+      return run_one_off(compose_message(context, text))
+    else
+      return nil
     end
-    return input.open({title = " one-off (Enter to send)> ", ["submit-on-enter"] = true, ["on-submit"] = _46_})
-  else
-    local function _48_()
-      local context = get_visual_lines(opts)
-      local function _49_(lines)
-        local text = concat_list(lines)
-        if (text ~= "") then
-          return run_one_off(compose_message(context, text))
-        else
-          return nil
-        end
-      end
-      return input.open({title = " one-off (Enter to send)> ", ["submit-on-enter"] = true, ["on-submit"] = _49_})
-    end
-    return choose_pane(parse_panes(shell(panes_command)), _48_)
   end
+  return input.open({title = " one-off (Enter to send)> ", ["submit-on-enter"] = true, ["on-submit"] = _46_})
 end
 M.SendKeysOO = _45_
-local function _52_()
+local function _48_()
   return choose_pane(parse_panes(shell(panes_command)))
 end
-M.SetPane = _52_
+M.SetPane = _48_
 return M
