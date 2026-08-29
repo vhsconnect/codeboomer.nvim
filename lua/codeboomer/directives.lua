@@ -1,4 +1,4 @@
--- [nfnl] fnl/codeboomer/directives.fnl
+-- [nfnl] codeboomer/directives.fnl
 vim = vim
 local M = {}
 local pushback_reasons = {"introducing bugs", "impacting readability", "impacting preformance heavily", "introducing security vulenerabilities", "result in data loss/inconsistency", "contradict original instruction"}

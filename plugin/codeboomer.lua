@@ -9,24 +9,24 @@ subcommands.SetPane = function()
   require("codeboomer").SetPane()
 end
 
-subcommands.SendKeys = function(opts)
-  local codeboomer = require("codeboomer")
-  codeboomer.SendKeys(opts)
+subcommands.SendPrompt = function(opts)
+  require("codeboomer").SendPrompt(opts)
 end
 
-subcommands.SendKeysOO = function(opts)
-  local codeboomer = require("codeboomer")
-  codeboomer.SendKeysOO(opts)
+subcommands.SendSelection = function(opts)
+  require("codeboomer").SendSelection(opts)
+end
+
+subcommands.AskOneOff = function(opts)
+  require("codeboomer").AskOneOff(opts)
 end
 
 subcommands.Annotate = function(opts)
-  local codeboomer = require("codeboomer")
-  codeboomer.Annotate(opts)
+  require("codeboomer").Annotate(opts)
 end
 
-subcommands.SendWithDirective = function()
-  local codeboomer = require("codeboomer")
-  codeboomer.SendWithDirective()
+subcommands.FlushWithDirective = function()
+  require("codeboomer").FlushWithDirective()
 end
 
 vim.api.nvim_create_user_command("Codeboomer", function(opts)

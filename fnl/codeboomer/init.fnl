@@ -164,6 +164,43 @@
           context.line2 "\n" context.lines "\n" text "\n")
       text))
 
+(fn one-off-prompt [context text]
+  (if context
+      (compose-message context text)
+      (.. "regarding " (vim.api.nvim_buf_get_name 0) "\n" text "\n")))
+
+(set M.SetPane
+     (fn []
+       (choose-pane (parse-panes (shell panes-command)))))
+
+(set M.SendPrompt
+     (fn [opts]
+       (with-pan (let [context (get-visual-lines opts)]
+                   (input.open {:title " SendPrompt> "
+                                :on-submit (fn [lines]
+                                             (let [text (concat-list lines)]
+                                               (when (not= text "")
+                                                 (send-keys-to-selected-pane (compose-message context
+                                                                                              text)))))})))))
+
+;; Raw send
+(set M.SendSelection
+     (fn [opts]
+       (with-pan (let [context (get-visual-lines opts)]
+                   (when context
+                     (send-keys-to-selected-pane context.lines))))))
+
+(set M.AskOneOff
+     (fn [opts]
+       (let [context (get-visual-lines opts)]
+         (input.open {:title " AskOneOff (Enter to send)> "
+                      :submit-on-enter true
+                      :on-submit (fn [lines]
+                                   (let [text (concat-list lines)]
+                                     (when (not= text "")
+                                       (run-one-off (one-off-prompt context
+                                                                    text)))))}))))
+
 (set M.Annotate
      (fn [opts]
        (with-pan (let [context (get-visual-lines opts)]
@@ -175,7 +212,7 @@
                                                                (compose-message context
                                                                                 text)))))})))))
 
-(set M.SendWithDirective
+(set M.FlushWithDirective
      (fn []
        (with-pan (let [fzf (require :fzf-lua)
                        all-directives (directives.list)
@@ -195,30 +232,5 @@
                                                                                          directive-text
                                                                                          "\n"))
                                                          (clear-annotations)))}})))))
-
-(set M.SendKeys
-     (fn [opts]
-       (with-pan (let [context (get-visual-lines opts)]
-                   (input.open {:title " Codeboomer> "
-                                :on-submit (fn [lines]
-                                             (let [text (concat-list lines)]
-                                               (when (not= text "")
-                                                 (send-keys-to-selected-pane (compose-message context
-                                                                                              text)))))})))))
-
-(set M.SendKeysOO
-     (fn [opts]
-       (let [context (get-visual-lines opts)]
-         (input.open {:title " one-off (Enter to send)> "
-                      :submit-on-enter true
-                      :on-submit (fn [lines]
-                                   (let [text (concat-list lines)]
-                                     (when (not= text "")
-                                       (run-one-off (compose-message context
-                                                                     text)))))}))))
-
-(set M.SetPane
-     (fn []
-       (choose-pane (parse-panes (shell panes-command)))))
 
 M

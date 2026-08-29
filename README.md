@@ -1,15 +1,15 @@
 # codeboomer.nvim
 
-A Neovim plugin for sending text and commands to tmux panes. Written in [Fennel](https://fennel-lang.org/), compiled to Lua automatically via [nfnl](https://github.com/Olical/nfnl).
+A Neovim plugin for sending text and commands to tmux panes. Useful for sending text blocks to an AI agent along with some comments or instructions.
 
 ## Features
 
 - Send text from Neovim to any tmux pane
 - Fuzzy-finder interface (via fzf-lua) to select target panes
-- Visual mode support — send code selections wrapped in context
+- Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Annotation workflow — accumulate multiple code selections for review before sending
 - Bracketed-paste support for proper multi-line handling
-- **One-off query mode** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane (useful for quick questions, single commands, or testing without context overhead)
+- **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane (useful for quick questions, single commands, or testing without context overhead)
 
 ## Installation
 
@@ -22,8 +22,8 @@ A Neovim plugin for sending text and commands to tmux panes. Written in [Fennel]
     require("codeboomer").setup({
       -- Optional: customize keybindings (set to false to disable)
       keybindings = {
-        pane = "<leader>cp",        -- pick a tmux pane
-        send = "<leader>cs",        -- send text to pane
+        pane = "<leader>cp",            -- pick a tmux pane
+        send_prompt = "<leader>cs",     -- send a prompt to the pane
       },
     })
   end,
@@ -39,32 +39,31 @@ You can set up something like this
 
 | Mode | Binding | Description |
 |------|---------|-------------|
-| Normal | `<leader>cs` | Send a message to the selected pane |
-| Visual | `<leader>cs` | Send the selection to the pane |
-| Visual | `<leader>cc` | Send a one-off query to Claude (no session) |
-| Normal | `<leader>cp` | Pick a tmux pane to send messages to |
-| Normal | `<leader>ca` | Annotate text (adds to query context) |
-| Visual | `<leader>ca` | Annotate selection (adds to query context) |
-| Normal | `<leader>cd` | Send with directive (includes accumulated annotations) |
+| Normal + Visual | `<leader>cs` | `SendPrompt` — open the prompt; the selection is included as context when invoked visually |
+| Visual | `<leader>cr` | `SendSelection` — send the selection to the pane as-is, then press Enter |
+| Normal + Visual | `<leader>cc` | `AskOneOff` — run a one-off query; the answer is shown in a notification |
+| Normal | `<leader>cp` | `SetPane` — pick a tmux pane to send messages to |
+| Visual | `<leader>ca` | `Annotate` — add the selection (plus an optional note) to the query context |
+| Normal | `<leader>cd` | `FlushWithDirective` — flush accumulated annotations with a directive |
 
 Disable or customize any binding under `keybindings` in `setup()` (set to `false` to disable):
 
 ```lua
 require("codeboomer").setup({
   keybindings = {
-    send = "<leader>cs",
-    send_visual = "<leader>cs",
-    send_visualOO = "<leader>cc",
+    send_prompt = "<leader>cs",
+    send_selection = "<leader>cr",
+    ask_one_off = "<leader>cc",
+    flush_with_directive = "<leader>cd",
     pane = "<leader>cp",
     annotate = "<leader>ca",
-    send_with_directive = "<leader>cd",
   },
 })
 ```
 
 ### Prompting
 
-`<leader>cd` (`:Codeboomer SendWithDirective`) picks a directive from a
+`<leader>cd` (`:Codeboomer FlushWithDirective`) picks a directive from a
 fzf-lua menu — by default the two built-ins, `Review - converse` and
 `Review - execute`. Pass your own list under `prompting.directives` in
 `setup()` to add to or override it:
@@ -87,7 +86,7 @@ sent along with any accumulated annotations). Omitting `prompting.directives`
 keeps
 the built-ins as-is.
 
-`prompting.one_off_command` controls how `<leader>cc` (`:Codeboomer SendKeysOO`)
+`prompting.one_off_command` controls how `<leader>cc` (`:Codeboomer AskOneOff`)
 runs its one-shot query: a static argv list. The composed prompt is appended
 as the final argument when the command runs. When unset, it defaults to:
 
@@ -95,7 +94,8 @@ as the final argument when the command runs. When unset, it defaults to:
 require("codeboomer").setup({
   prompting = {
     one_off_command = {
-      "claude", "-p", "--output-format", "json", "--permission-mode", "acceptEdits",
+      "claude-code", "--model", "haiku", "--output-format", "json",
+      "--permission-mode", "acceptEdits", "-p",
     },
   },
 })
@@ -107,28 +107,38 @@ container wrapper, a nix flake invocation, … Output that is JSON with a
 
 ## Commands
 
-### `:Codeboomer SendKeys [message]`
+### `:Codeboomer SendPrompt`
 
-Sends text to the tmux pane selected via `:Codeboomer SetPane`.
+Opens the input UI and sends the composed message to the selected pane.
 
-- Without arguments, prompts for input
-- With a message argument, sends it directly
-- From visual mode, sends the selection wrapped in a code fence with context (file and line numbers)
+- With a visual range, the selection is included as context (`regarding <file> lines X to Y`), followed by the typed text
+- Without a range, only the typed text is sent
 
 ```
-:'<,'>Codeboomer SendKeys what does this do
+:'<,'>Codeboomer SendPrompt
+```
+
+### `:Codeboomer SendSelection`
+
+Sends the visual selection to the selected pane **as-is** — no prompt, no context header. The lines are pasted with tmux bracketed paste and `Enter` is pressed.
+
+- Requires a pane (picked first if none is selected)
+- Requires a visual range
+
+```
+:'<,'>Codeboomer SendSelection
 ```
 
 ### `:Codeboomer SetPane`
 
 Opens fzf-lua to select a target tmux pane. Shows session, window, pane index, running command, and current mode.
 
-### `:Codeboomer SendKeysOO`
+### `:Codeboomer AskOneOff`
 
 Runs a **one-shot** query — spawns a single process for a quick task without maintaining a session or requiring a tmux pane:
 
 ```
-:'<,'>Codeboomer SendKeysOO
+:Codeboomer AskOneOff
 ```
 
 **When to use one-off mode:**
@@ -138,7 +148,7 @@ Runs a **one-shot** query — spawns a single process for a quick task without m
 - Situations where you don't have or need a tmux pane running
 
 **How it works:**
-Opens the same input UI as `SendKeys` (a visual selection is included as context, with file and line numbers), then spawns a fresh process for your query and shows the answer in a notification when it finishes.
+Opens the same input UI as `SendPrompt`, then spawns a fresh process for your query and shows the answer in a notification when it finishes. Works with or without a visual selection: with one, the selection is included as context (file and line numbers); without one, the current file name is sent as context instead.
 
 - The input submits on `<CR>` and closes itself — `<C-j>` (insert mode) or `o` (normal mode) if you need a newline
 - The prompt is passed as an argv vector via `vim.system`, so quotes, `$`, backticks and newlines in your message are never interpreted by a shell
@@ -150,13 +160,13 @@ Opens the same input UI as `SendKeys` (a visual selection is included as context
 Adds the current selection to an accumulated query context. Use this to annotate multiple code sections before sending a directive.
 
 - Requires a pane to be selected first via `:Codeboomer SetPane`
-- The selection is stored and will be included in the next `:Codeboomer SendWithDirective` call
+- The selection is stored and will be included in the next `:Codeboomer FlushWithDirective` call
 
 ```
 :'<,'>Codeboomer Annotate
 ```
 
-### `:Codeboomer SendWithDirective`
+### `:Codeboomer FlushWithDirective`
 
 > [!warn] **Tentative API** — This command is experimental and subject to change in future versions.
 
@@ -164,10 +174,10 @@ Opens fzf to select a pre-defined directive, then sends it along with all previo
 
 - Requires a pane to be selected first via `:Codeboomer SetPane`
 - Select from a list of pre-defined directives (see Configuration below for customizing)
-- After sending, the annotation context is preserved for additional queries
+- After sending, the annotation context is cleared
 
 ```vim
-:Codeboomer SendWithDirective
+:Codeboomer FlushWithDirective
 ```
 
 ## How it works
@@ -175,8 +185,8 @@ Opens fzf to select a pre-defined directive, then sends it along with all previo
 ### Basic workflow
 
 1. Select a pane with `<leader>cp` or `:Codeboomer SetPane`
-2. Send text with `<leader>cs` or `:Codeboomer SendKeys`
-3. For code selections, the plugin includes file path and line numbers in the message
+2. Send a prompt with `<leader>cs` (`:Codeboomer SendPrompt`), or send the selection as-is with `<leader>cr` (`:Codeboomer SendSelection`)
+3. For prompts sent with a selection, the plugin includes file path and line numbers in the message
 
 ### Annotation workflow
 
@@ -184,7 +194,7 @@ For more complex queries, you can build up context across multiple selections:
 
 1. Select a pane with `<leader>cp`
 2. Select code sections and run `<leader>ca` (or `:Codeboomer Annotate`) to add annotations to your query
-3. When ready, run `<leader>cd` (or `:Codeboomer SendWithDirective`) to send your directive along with all accumulated annotations
+3. When ready, run `<leader>cd` (or `:Codeboomer FlushWithDirective`) to send your directive along with all accumulated annotations
 
 This is useful for giving the LLM multiple code sections to consider before asking your question.
 
@@ -233,7 +243,7 @@ nvim -u dev.lua
 ```
 This gives you an isolated Neovim instance with the plugin loaded, nfnl active, and auto-compilation working — write any `.fnl` file and the corresponding `.lua` updates immediately.
 
-For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-codeboomer`. It requires `CODEBOOMER_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>ca`):
+For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-codeboomer`. It requires `CODEBOOMER_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cr`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>ca`):
 
 ```bash
 CODEBOOMER_PATH=$PWD ./test-codeboomer
@@ -257,7 +267,7 @@ CODEBOOMER_PATH=$PWD ./test-codeboomer
 │   ├── .nfnl.fnl         # local nfnl configuration
 │   ├── test.fnl          # test utilities
 │   └── codeboomer/
-│       ├── init.fnl      # main module (setup, SendKeys, SetPane)
+│       ├── init.fnl      # main module (commands, tmux interaction)
 │       ├── config.fnl    # keymap defaults & setup
 │       ├── directives.fnl # directive definitions and handling
 │       └── input.fnl     # floating input UI

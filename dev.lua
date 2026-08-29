@@ -35,10 +35,10 @@ end
 
 local opts = {
   keybindings = {
-    send = "<leader>cs",
-    send_visual = "<leader>cs",
-    send_visualOO = "<leader>cc",
-    send_with_directive = "<leader>cd",
+    send_prompt = "<leader>cs",
+    send_selection = "<leader>cr",
+    ask_one_off = "<leader>cc",
+    flush_with_directive = "<leader>cd",
     pane = "<leader>cp",
     annotate = "<leader>ca",
   },

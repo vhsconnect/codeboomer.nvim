@@ -1,14 +1,14 @@
 ;; [nfnl] codeboomer/config.fnl
 ;; setup merges the user's opts into the config and applies the keymaps:
-;;   (setup {:keybindings {:send "<leader>cs"
-;;                         :send_visual "<leader>cs"
+;;   (setup {:keybindings {:send_prompt "<leader>cs"
+;;                         :send_selection "<leader>cr"
 ;;                         :pane "<leader>cp"}
 ;;           :prompting {:directives [{:label "..." :text "..."}]}})
 ;;
-;; send_visual's rhs is a bare ":" (not <cmd>) so Vim auto-inserts the
-;; '<,'> range; the Codeboomer command's range handling uses it to prepend
-;; the selection to the message. Keys use underscores so Fennel and Lua
-;; callers spell them identically.
+;; rhs values for commands that read a selection are a bare ":" (not
+;; <cmd>) so Vim auto-inserts the '<,'> range in visual mode; in normal
+;; mode the same rhs simply runs the command without a range. Keys use
+;; underscores so Fennel and Lua callers spell them identically.
 ;;
 ;; The config is the runtime source of truth for prompting: setup folds
 ;; the built-in directive list and the default one-off command in, with
@@ -22,26 +22,26 @@
 (local M {})
 (local directives (require :codeboomer.directives))
 
-(local keymaps {:send [:n
-                       "<cmd>Codeboomer SendKeys<cr>"
-                       "codeboomer: send message to pane"]
-                :send_visual [:x
-                              ":Codeboomer SendKeys<cr>"
-                              "codeboomer: send selection to pane"]
+(local keymaps {:send_prompt [[:n :x]
+                              ":Codeboomer SendPrompt<cr>"
+                              "codeboomer: send prompt to pane"]
+                :send_selection [:x
+                                 ":Codeboomer SendSelection<cr>"
+                                 "codeboomer: send selection to pane as-is"]
+                :ask_one_off [[:n :x]
+                              ":Codeboomer AskOneOff<cr>"
+                              "codeboomer: run one-off query, reply shown here"]
+                :flush_with_directive [:n
+                                       "<cmd>Codeboomer FlushWithDirective<cr>"
+                                       "codeboomer: flush annotations with directive to pane"]
                 :pane [:n
                        "<cmd>Codeboomer SetPane<cr>"
                        "codeboomer: pick a tmux pane"]
-                :send_with_directive [:n
-                                      "<cmd>Codeboomer SendWithDirective<cr>"
-                                      "codeboomer: Send Keys along with annotations"]
-                :send_visualOO [:x
-                                ":Codeboomer SendKeysOO<cr>"
-                                "codeboomer: send one off action"]
                 :annotate [:x
                            ":Codeboomer Annotate<cr>"
                            "codeboomer: annotate some text"]})
 
-;; default one-off argv for SendKeysOO; the prompt is appended at runtime
+;; default one-off argv for AskOneOff; the prompt is appended at runtime
 (local default-one-off-command [:claude-code
                                 :--model
                                 :haiku

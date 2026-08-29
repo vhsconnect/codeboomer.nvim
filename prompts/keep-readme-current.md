@@ -51,9 +51,9 @@ fix drift:
 - **Installation** — the lazy.nvim snippet must use the current `setup()`
   option shape.
 - **Configuration → Keybindings** — the Mode/Binding/Description table
-  must match the `keymaps` table in `config.fnl` (all six actions: `send`,
-  `send_visual`, `send_visualOO`, `pane`, `annotate`,
-  `send_with_directive`) and the real rhs of each mapping. The example
+  must match the `keymaps` table in `config.fnl` (all six actions:
+  `send_prompt`, `send_selection`, `ask_one_off`, `pane`, `annotate`,
+  `flush_with_directive`) and the real rhs of each mapping. The example
   snippet must nest options under `keybindings = { ... }` with exactly
   these key names. Document `false`-to-disable.
 - **Configuration → Prompting** —
@@ -77,7 +77,8 @@ fix drift:
   `==Section Start==` / `====` / `==Section End==` format) verbatim with
   `concat-list-with-format`.
 - **How it works** — the two workflows (basic, annotation) must match
-  `M.SendKeys` / `M.Annotate` / `M.SendWithDirective` control flow,
+  `M.SendPrompt` / `M.SendSelection` / `M.Annotate` /
+  `M.FlushWithDirective` control flow,
   including the pick-a-pane-first behavior of the `with-pan` macro
   (continuation runs only after a pane is chosen; aborting cancels).
 - **Development** — build explanation (nfnl compile-on-save, orphan

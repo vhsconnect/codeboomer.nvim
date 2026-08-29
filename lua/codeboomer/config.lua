@@ -1,8 +1,8 @@
--- [nfnl] fnl/codeboomer/config.fnl
+-- [nfnl] codeboomer/config.fnl
 vim = vim
 local M = {}
 local directives = require("codeboomer.directives")
-local keymaps = {send = {"n", "<cmd>Codeboomer SendKeys<cr>", "codeboomer: send message to pane"}, send_visual = {"x", ":Codeboomer SendKeys<cr>", "codeboomer: send selection to pane"}, pane = {"n", "<cmd>Codeboomer SetPane<cr>", "codeboomer: pick a tmux pane"}, send_with_directive = {"n", "<cmd>Codeboomer SendWithDirective<cr>", "codeboomer: Send Keys along with annotations"}, send_visualOO = {"x", ":Codeboomer SendKeysOO<cr>", "codeboomer: send one off action"}, annotate = {"x", ":Codeboomer Annotate<cr>", "codeboomer: annotate some text"}}
+local keymaps = {send_prompt = {{"n", "x"}, ":Codeboomer SendPrompt<cr>", "codeboomer: send prompt to pane"}, send_selection = {"x", ":Codeboomer SendSelection<cr>", "codeboomer: send selection to pane as-is"}, ask_one_off = {{"n", "x"}, ":Codeboomer AskOneOff<cr>", "codeboomer: run one-off query, reply shown here"}, flush_with_directive = {"n", "<cmd>Codeboomer FlushWithDirective<cr>", "codeboomer: flush annotations with directive to pane"}, pane = {"n", "<cmd>Codeboomer SetPane<cr>", "codeboomer: pick a tmux pane"}, annotate = {"x", ":Codeboomer Annotate<cr>", "codeboomer: annotate some text"}}
 local default_one_off_command = {"claude-code", "--model", "haiku", "--output-format", "json", "--permission-mode", "acceptEdits", "-p"}
 M.setup = function(opts)
   M.config = vim.tbl_deep_extend("force", (M.config or {}), (opts or {}))
