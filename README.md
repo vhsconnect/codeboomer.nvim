@@ -1,15 +1,15 @@
 # codeboomer.nvim
 
-A Neovim plugin for sending text and commands to tmux panes. Useful for sending text blocks to an AI agent along with some comments or instructions.
+A Neovim plugin for sending text and commands to tmux panes. Useful for sending text blocks to a repl or an AI agent along with some comments or instructions. 
 
 ## Features
 
 - Send text from Neovim to any tmux pane
-- Fuzzy-finder interface (via fzf-lua) to select target panes
+- Fuzzy-finder interface (via fzf-lua) to select target panes, showing each pane's last output line and working directory, with a live content preview
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Annotation workflow — accumulate multiple code selections for review before sending
 - Bracketed-paste support for proper multi-line handling
-- **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane (useful for quick questions, single commands, or testing without context overhead)
+- **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane (useful for quick questions and one-shot tasks)
 
 ## Installation
 
@@ -34,8 +34,7 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 
 ### Keybindings
 
-The plugin sets up no default keybindings:
-You can set up something like this
+The plugin sets up no default keybindings; configure them like this:
 
 | Mode | Binding | Description |
 |------|---------|-------------|
@@ -83,8 +82,7 @@ require("codeboomer").setup({
 
 Each entry needs a `label` (shown in the fzf menu) and a `text` (the message
 sent along with any accumulated annotations). Omitting `prompting.directives`
-keeps
-the built-ins as-is.
+keeps the built-ins as-is.
 
 `prompting.one_off_command` controls how `<leader>cc` (`:Codeboomer AskOneOff`)
 runs its one-shot query: a static argv list. The composed prompt is appended
@@ -131,29 +129,20 @@ Sends the visual selection to the selected pane **as-is** — no prompt, no cont
 
 ### `:Codeboomer SetPane`
 
-Opens fzf-lua to select a target tmux pane. Shows session, window, pane index, running command, and current mode.
+Opens fzf-lua to select a target tmux pane. Each entry shows the running
+command, location, working directory, mode, and last output line; a live
+preview shows the pane's recent content.
 
 ### `:Codeboomer AskOneOff`
 
-Runs a **one-shot** query — spawns a single process for a quick task without maintaining a session or requiring a tmux pane:
+Runs a one-shot query — a single process, no session or pane needed. The
+answer is shown in a notification. Works with or without a visual selection
+(included as context when present; without one, the current file name is
+sent instead).
 
-```
-:Codeboomer AskOneOff
-```
-
-**When to use one-off mode:**
-- Quick questions or single commands that don't require conversational context
-- Testing or experimentation without session overhead
-- Running isolated tasks where you want a clean slate each time
-- Situations where you don't have or need a tmux pane running
-
-**How it works:**
-Opens the same input UI as `SendPrompt`, then spawns a fresh process for your query and shows the answer in a notification when it finishes. Works with or without a visual selection: with one, the selection is included as context (file and line numbers); without one, the current file name is sent as context instead.
-
-- The input submits on `<CR>` and closes itself — `<C-j>` (insert mode) or `o` (normal mode) if you need a newline
-- The prompt is passed as an argv vector via `vim.system`, so quotes, `$`, backticks and newlines in your message are never interpreted by a shell
-- Runs asynchronously with a 60s timeout — the editor never freezes while the LLM thinks
-- Failures surface the exit code and stderr in an `ERROR` notification
+- The input submits on `<CR>` — `<C-j>` (insert mode) or `o` (normal mode) for a newline
+- Runs asynchronously via `vim.system` (no shell interpretation, 60s timeout);
+  failures surface the exit code and stderr in a notification
 
 ### `:Codeboomer Annotate`
 
@@ -186,7 +175,6 @@ Opens fzf to select a pre-defined directive, then sends it along with all previo
 
 1. Select a pane with `<leader>cp` or `:Codeboomer SetPane`
 2. Send a prompt with `<leader>cs` (`:Codeboomer SendPrompt`), or send the selection as-is with `<leader>cr` (`:Codeboomer SendSelection`)
-3. For prompts sent with a selection, the plugin includes file path and line numbers in the message
 
 ### Annotation workflow
 
@@ -196,21 +184,15 @@ For more complex queries, you can build up context across multiple selections:
 2. Select code sections and run `<leader>ca` (or `:Codeboomer Annotate`) to add annotations to your query
 3. When ready, run `<leader>cd` (or `:Codeboomer FlushWithDirective`) to send your directive along with all accumulated annotations
 
-This is useful for giving the LLM multiple code sections to consider before asking your question.
-
-The plugin uses tmux's bracketed-paste mode (`paste-buffer -p`) so multi-line text preserves line breaks in TUI applications.
-
 ## Development
 
 This plugin is written in **Fennel** and compiled to Lua using **nfnl** (embedded directly in the repo under `lua/nfnl/`).
 
 ### How the build works
 
-1. You edit `.fnl` files under `fnl/`.
-2. **nfnl** watches for `BufWritePost` on `.fnl` files and auto-compiles them to `.lua` under `lua/`.
-3. The `.lua` files are never hand-edited — they are generated and contain an `[nfnl]` header comment for protection.
-
-There is no separate build step. Save a `.fnl` file and the corresponding `.lua` is recompiled instantly.
+Edit `.fnl` files under `fnl/`; **nfnl** auto-compiles them to `.lua` under
+`lua/` on save. The `.lua` files are generated (marked by an `[nfnl]` header)
+and never hand-edited.
 
 ### nfnl commands
 
@@ -238,8 +220,6 @@ require("codeboomer").setup()
 
 ```bash
 nvim -u dev.lua
-
-
 ```
 This gives you an isolated Neovim instance with the plugin loaded, nfnl active, and auto-compilation working — write any `.fnl` file and the corresponding `.lua` updates immediately.
 
@@ -247,40 +227,6 @@ For testing the repo's copy against your **regular** Neovim config (it is prepen
 
 ```bash
 CODEBOOMER_PATH=$PWD ./test-codeboomer
-```
-
-### Project structure
-
-```
-.
-├── .nfnl.fnl            # nfnl configuration (compiler options, macros, orphan detection)
-├── dev.lua               # dev launcher (nvim -u dev.lua)
-├── test-codeboomer             # test script for local development
-├── test-input.lua        # test script for input UI
-├── .envrc                # direnv configuration
-├── .stylua.toml          # Lua styling configuration
-├── plugin/
-│   └── codeboomer.lua      # registers the :Codeboomer user command
-├── ftplugin/
-│   └── fennel.lua        # Fennel filetype plugin
-├── fnl/
-│   ├── .nfnl.fnl         # local nfnl configuration
-│   ├── test.fnl          # test utilities
-│   └── codeboomer/
-│       ├── init.fnl      # main module (commands, tmux interaction)
-│       ├── config.fnl    # keymap defaults & setup
-│       ├── directives.fnl # directive definitions and handling
-│       └── input.fnl     # floating input UI
-└── lua/
-    ├── test.lua          # compiled test utilities
-    ├── nfnl/
-    │   └── nfnl/
-    │       └── fennel.lua # embedded Fennel runtime
-    └── codeboomer/
-        ├── init.lua      # ← compiled from fnl/codeboomer/init.fnl
-        ├── config.lua    # ← compiled from fnl/codeboomer/config.fnl
-        ├── directives.lua # ← compiled from fnl/codeboomer/directives.fnl
-        └── input.lua     # ← compiled from fnl/codeboomer/input.fnl
 ```
 
 ### Trusting the repo
