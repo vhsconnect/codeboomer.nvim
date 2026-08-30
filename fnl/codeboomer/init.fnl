@@ -28,7 +28,10 @@
     output))
 
 (local panes-command
-       "tmux list-panes -a -F '#{session_name}|#{session_id}|#{window_index}|#{pane_index}|#{pane_id}|#{pane_current_command}|#{pane_mode}|#{pane_active}|#{window_active}'")
+       "tmux list-panes -a -F '#{session_name}|#{session_id}|#{window_index}|#{pane_index}|#{pane_id}|#{pane_current_command}|#{pane_mode}|#{pane_active}|#{window_active}|#{pane_current_path}'")
+
+(local last-lines-command
+       "tmux list-panes -a -F '#{pane_id}' | while read -r p; do printf '%s\\t' \"$p\"; tmux capture-pane -p -t \"$p\" -S -5 -E -1 2>/dev/null | sed -e '/^[[:space:]]*$/d' | tail -n 1; echo; done")
 
 (fn one-off-result [stdout]
   ;; --output-format json wraps the answer in an object; show the .result
@@ -69,11 +72,12 @@
 ]*)|([^|
 ]*)|([^|
 ]*)|([^|
+]*)|([^|
 ]*)"
         result (string.gmatch x pattern)]
     (icollect [(session-name session-id window-index pane-index pane-id
                              pane-current-command pane-mode pane-active
-                             window-active) result]
+                             window-active pane-current-path) result]
       {: session-name
        : session-id
        : window-index
@@ -82,7 +86,23 @@
        : pane-current-command
        : pane-mode
        : pane-active
-       : window-active})))
+       : window-active
+       : pane-current-path})))
+
+(fn parse-last-lines [x]
+  (let [result {}]
+    (each [line (string.gmatch x "[^\n]+")]
+      (let [sep (string.find line "\t" 1 true)]
+        (when sep
+          (tset result (string.sub line 1 (- sep 1))
+                (vim.trim (string.sub line (+ sep 1)))))))
+    result))
+
+(fn shorten-path [path]
+  (let [home (os.getenv :HOME)]
+    (if (and home (= 1 (string.find path home 1 true)))
+        (.. "~" (string.sub path (+ 1 (length home))))
+        path)))
 
 (fn paste-text [pane-id text]
   ;; send-keys -l delivers raw LF bytes, which TUI input fields (pi, Claude
@@ -110,21 +130,43 @@
     (paste-text pane-id text)
     (shell (press-key-command pane-id :Enter))))
 
+(local last-line-max-length 80)
+
+(fn pane-display [p last-line]
+  (let [location (string.format "%s:%s.%s" p.session-name p.window-index
+                                p.pane-index)
+        short-line (if (> (length last-line) last-line-max-length)
+                       (.. (string.sub last-line 1 last-line-max-length) "…")
+                       last-line)
+        mode (if (not= p.pane-mode "") (.. "[" p.pane-mode "] ") "")]
+    ;; the pane-id leads the line so the fzf preview can grab it as
+    ;; field {1}; it is hidden from the list itself via --with-nth below
+    (string.format "%-6s %-11s %-18s %-30s %s%s" p.pane-id
+                   p.pane-current-command location
+                   (shorten-path p.pane-current-path) mode short-line)))
+
+(local pane-preview-command
+       ;; {1} is fzf's first field of the highlighted entry — the pane-id
+       "tmux capture-pane -p -t {1} -S -40")
+
 (fn choose-pane [panes ?then]
   (let [fzf (require :fzf-lua)
+        last-lines (parse-last-lines (shell last-lines-command))
         by-display {}
         lines (icollect [_ p (ipairs panes)]
-                (let [display (string.format "%s:%s.%s  %-10s %-6s%s"
-                                             p.session-name p.window-index
-                                             p.pane-index p.pane-current-command
-                                             p.pane-id
-                                             (if (not= p.pane-mode "")
-                                                 (.. "[" p.pane-mode "]")
-                                                 ""))]
+                (let [display (pane-display p (. last-lines p.pane-id))]
                   (tset by-display display p)
                   display))]
     (fzf.fzf_exec lines
                   {:prompt "Pick a Pane> "
+                   :preview pane-preview-command
+                   ;; hide the pane-id from the visible entries — fzf
+                   ;; extracts {1} from the original (untransformed) line,
+                   ;; so the preview still receives it
+                   :fzf_opts {:--with-nth :2..}
+                   :winopts {:preview {:wrap false
+                                       :layout :vertical
+                                       :vertical "down:45%:follow"}}
                    :actions {:default (fn [selected]
                                         (let [pane (. by-display (. selected 1))]
                                           (set state.pane pane)
