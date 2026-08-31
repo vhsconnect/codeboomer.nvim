@@ -219,16 +219,15 @@
                                                              opts.line2 false)))]
       {: lines :line1 opts.line1 :line2 opts.line2 :file path})))
 
+;; with a selection: name the file and the line range; without one:
+;; still name the current buffer so the receiving agent knows which file
+;; the prompt refers to — raw, unwrapped text is SendSelection's job
 (fn compose-message [context text]
   (if context
       (.. "regarding " context.file " lines " context.line1 " to "
           context.line2 "\n" context.lines "\n" text "\n")
-      text))
-
-(fn one-off-prompt [context text]
-  (if context
-      (compose-message context text)
-      (.. "regarding " (vim.api.nvim_buf_get_name 0) "\n" text "\n")))
+      (let [file (vim.api.nvim_buf_get_name 0)]
+        (.. "regarding " file "\n" text "\n"))))
 
 (set M.SetPane
      (fn []
@@ -262,8 +261,8 @@
                                                          (let [text (concat-list lines)]
                                                            (when (not= text "")
                                                              (run-one-off cmd
-                                                                          (one-off-prompt context
-                                                                                          text)))))}))]
+                                                                          (compose-message context
+                                                                                           text)))))}))]
                      (if (= 0 (length commands))
                          (schedule-notify "codeboomer: prompting.one_off_commands not set — call setup() first"
                                           vim.log.levels.ERROR)

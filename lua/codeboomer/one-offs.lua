@@ -1,4 +1,4 @@
--- [nfnl] codeboomer/one-offs.fnl
+-- [nfnl] fnl/codeboomer/one-offs.fnl
 vim = vim
 local M = {}
 local default_one_offs = {{label = "claude-code (haiku)", argv = {"claude-code", "--model", "haiku", "--output-format", "json", "--permission-mode", "acceptEdits", "-p"}}}

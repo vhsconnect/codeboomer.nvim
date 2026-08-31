@@ -124,7 +124,7 @@ container wrapper, a nix flake invocation, … Output that is JSON with a
 Opens the input UI and sends the composed message to the selected pane.
 
 - With a visual range, the selection is included as context (`regarding <file> lines X to Y`), followed by the typed text
-- Without a range, only the typed text is sent
+- Without a range, the current file name is sent as context (`regarding <file>`), followed by the typed text — use `SendSelection` for raw, unwrapped text
 
 ```
 :'<,'>Codeboomer SendPrompt
@@ -168,6 +168,7 @@ sent instead).
 Adds the current selection to an accumulated query context. Use this to annotate multiple code sections before sending a directive.
 
 - Requires a pane to be selected first via `:Codeboomer SetPane`
+- With a visual range, the selection is included as context (`regarding <file> lines X to Y`); without one, the current file name is sent instead
 - The selection is stored and will be included in the next `:Codeboomer FlushWithDirective` call
 
 ```

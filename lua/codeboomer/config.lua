@@ -1,4 +1,4 @@
--- [nfnl] codeboomer/config.fnl
+-- [nfnl] fnl/codeboomer/config.fnl
 vim = vim
 local M = {}
 local directives = require("codeboomer.directives")
