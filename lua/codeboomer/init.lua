@@ -3,18 +3,18 @@ vim = vim
 local config = require("codeboomer.config")
 local input = require("codeboomer.input")
 local directives = require("codeboomer.directives")
+local one_offs = require("codeboomer.one-offs")
 local state = {pane = nil, ["query-parts"] = {}}
 local M = {}
 local function _1_(opts)
   return config.setup(opts)
 end
 M.setup = _1_
-local promise = vim.schedule
 local function schedule_notify(msg, level)
   local function _2_()
     return vim.notify(msg, level)
   end
-  return promise(_2_)
+  return vim.schedule(_2_)
 end
 local function shell(command)
   local handle = io.popen(command)
@@ -32,39 +32,20 @@ local function one_off_result(stdout)
     return stdout
   end
 end
-local function run_one_off(prompt)
-  local cmd
-  do
-    local t_4_ = config
-    if (nil ~= t_4_) then
-      t_4_ = t_4_.config
-    else
-    end
-    if (nil ~= t_4_) then
-      t_4_ = t_4_.prompting
-    else
-    end
-    if (nil ~= t_4_) then
-      t_4_ = t_4_.one_off_command
-    else
-    end
-    cmd = t_4_
-  end
-  if cmd then
-    local function _8_(obj)
-      local function _9_()
-        if (obj.code == 0) then
-          return vim.notify(one_off_result((obj.stdout or "")), vim.log.levels.INFO)
-        else
-          return vim.notify(("codeboomer: one-off failed (exit " .. obj.code .. ")\n" .. (obj.stderr or "")), vim.log.levels.ERROR)
-        end
+local function run_one_off(cmd, prompt)
+  local argv = vim.list_slice((cmd.argv or {}))
+  local timeout = (cmd.timeout or 60000)
+  local function _4_(obj)
+    local function _5_()
+      if (obj.code == 0) then
+        return vim.notify(one_off_result((obj.stdout or "")), vim.log.levels.INFO)
+      else
+        return vim.notify(("codeboomer: one-off failed (exit " .. obj.code .. ")\n" .. (obj.stderr or "")), vim.log.levels.ERROR)
       end
-      return promise(_9_)
     end
-    return vim.system(vim.list_extend(vim.list_slice(cmd), {prompt}), {text = true, timeout = 60000}, _8_)
-  else
-    return schedule_notify("codeboomer: prompting.one_off_command not set \226\128\148 call setup() first", vim.log.levels.ERROR)
+    return vim.schedule(_5_)
   end
+  return vim.system(vim.list_extend(argv, {prompt}), {text = true, timeout = timeout}, _4_)
 end
 local function parse_panes(x)
   local pattern = "([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)"
@@ -161,7 +142,7 @@ local function choose_pane(panes, _3fthen)
     end
     lines = tbl_26_
   end
-  local function _19_(selected)
+  local function _14_(selected)
     local pane = by_display[selected[1]]
     state.pane = pane
     schedule_notify(string.format("codeboomer: pane %s (%s:%s.%s) selected", pane["pane-id"], pane["session-name"], pane["window-index"], pane["pane-index"]), vim.log.levels.INFO)
@@ -171,7 +152,56 @@ local function choose_pane(panes, _3fthen)
       return nil
     end
   end
-  return fzf.fzf_exec(lines, {prompt = "Pick a Pane> ", preview = pane_preview_command, fzf_opts = {["--with-nth"] = "2.."}, winopts = {preview = {layout = "vertical", vertical = "down:45%:follow", wrap = false}}, actions = {default = _19_}})
+  return fzf.fzf_exec(lines, {prompt = "Pick a Pane> ", preview = pane_preview_command, fzf_opts = {["--with-nth"] = "2.."}, winopts = {preview = {layout = "vertical", vertical = "down:45%:follow", wrap = false}}, actions = {default = _14_}})
+end
+local one_off_argv_max_length = 80
+local function one_off_display(c)
+  local argv = table.concat(c.argv, " ")
+  local short_argv
+  if (#argv > one_off_argv_max_length) then
+    short_argv = (string.sub(argv, 1, one_off_argv_max_length) .. "\226\128\166")
+  else
+    short_argv = argv
+  end
+  local timeout
+  if c.timeout then
+    timeout = string.format(" (%ds)", math.floor((c.timeout / 1000)))
+  else
+    timeout = ""
+  end
+  return string.format("%-22s %s%s", c.label, short_argv, timeout)
+end
+local function choose_one_off(commands, _3fthen)
+  local fzf = require("fzf-lua")
+  local by_display = {}
+  local lines
+  do
+    local tbl_26_ = {}
+    local i_27_ = 0
+    for _, c in ipairs(commands) do
+      local val_28_
+      do
+        local display = one_off_display(c)
+        by_display[display] = c
+        val_28_ = display
+      end
+      if (nil ~= val_28_) then
+        i_27_ = (i_27_ + 1)
+        tbl_26_[i_27_] = val_28_
+      else
+      end
+    end
+    lines = tbl_26_
+  end
+  local function _19_(selected)
+    local cmd = by_display[selected[1]]
+    if _3fthen then
+      return _3fthen(cmd)
+    else
+      return nil
+    end
+  end
+  return fzf.fzf_exec(lines, {prompt = "Pick a One-off> ", actions = {default = _19_}})
 end
 local function clear_annotations()
   state["query-parts"] = {}
@@ -278,21 +308,35 @@ end
 M.SendSelection = _36_
 local function _41_(opts)
   local context = get_visual_lines(opts)
-  local function _42_(lines)
-    local text = concat_list(lines)
-    if (text ~= "") then
-      return run_one_off(one_off_prompt(context, text))
+  local commands = (one_offs.list() or {})
+  local ask
+  local function _42_(cmd)
+    local function _43_(lines)
+      local text = concat_list(lines)
+      if (text ~= "") then
+        return run_one_off(cmd, one_off_prompt(context, text))
+      else
+        return nil
+      end
+    end
+    return input.open({title = string.format(" AskOneOff: %s (Enter to send)> ", cmd.label), ["submit-on-enter"] = true, ["on-submit"] = _43_})
+  end
+  ask = _42_
+  if (0 == #commands) then
+    return schedule_notify("codeboomer: prompting.one_off_commands not set \226\128\148 call setup() first", vim.log.levels.ERROR)
+  else
+    if (1 == #commands) then
+      return ask(commands[1])
     else
-      return nil
+      return choose_one_off(commands, ask)
     end
   end
-  return input.open({title = " AskOneOff (Enter to send)> ", ["submit-on-enter"] = true, ["on-submit"] = _42_})
 end
 M.AskOneOff = _41_
-local function _44_(opts)
+local function _47_(opts)
   if state.pane then
     local context = get_visual_lines(opts)
-    local function _45_(lines)
+    local function _48_(lines)
       local text = concat_list(lines)
       if (text ~= "") then
         return table.insert(state["query-parts"], compose_message(context, text))
@@ -300,11 +344,11 @@ local function _44_(opts)
         return nil
       end
     end
-    return input.open({title = " Annotate> ", ["on-submit"] = _45_})
+    return input.open({title = " Annotate> ", ["on-submit"] = _48_})
   else
-    local function _47_()
+    local function _50_()
       local context = get_visual_lines(opts)
-      local function _48_(lines)
+      local function _51_(lines)
         local text = concat_list(lines)
         if (text ~= "") then
           return table.insert(state["query-parts"], compose_message(context, text))
@@ -312,13 +356,13 @@ local function _44_(opts)
           return nil
         end
       end
-      return input.open({title = " Annotate> ", ["on-submit"] = _48_})
+      return input.open({title = " Annotate> ", ["on-submit"] = _51_})
     end
-    return choose_pane(parse_panes(shell(panes_command)), _47_)
+    return choose_pane(parse_panes(shell(panes_command)), _50_)
   end
 end
-M.Annotate = _44_
-local function _51_()
+M.Annotate = _47_
+local function _54_()
   if state.pane then
     local fzf = require("fzf-lua")
     local all_directives = directives.list()
@@ -336,16 +380,16 @@ local function _51_()
       end
       lines = tbl_26_
     end
-    local function _53_(selected)
+    local function _56_(selected)
       local selected_label = selected[1]
       local directive_text = directives.get(selected_label)
       local annotations = concat_list_with_format(state["query-parts"], "==Section Start==", "====", "==Section End==")
       send_keys_to_selected_pane((annotations .. directive_text .. "\n"))
       return clear_annotations()
     end
-    return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _53_}})
+    return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _56_}})
   else
-    local function _54_()
+    local function _57_()
       local fzf = require("fzf-lua")
       local all_directives = directives.list()
       local lines
@@ -362,17 +406,17 @@ local function _51_()
         end
         lines = tbl_26_
       end
-      local function _56_(selected)
+      local function _59_(selected)
         local selected_label = selected[1]
         local directive_text = directives.get(selected_label)
         local annotations = concat_list_with_format(state["query-parts"], "==Section Start==", "====", "==Section End==")
         send_keys_to_selected_pane((annotations .. directive_text .. "\n"))
         return clear_annotations()
       end
-      return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _56_}})
+      return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _59_}})
     end
-    return choose_pane(parse_panes(shell(panes_command)), _54_)
+    return choose_pane(parse_panes(shell(panes_command)), _57_)
   end
 end
-M.FlushWithDirective = _51_
+M.FlushWithDirective = _54_
 return M

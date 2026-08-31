@@ -9,7 +9,7 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Annotation workflow — accumulate multiple code selections for review before sending
 - Bracketed-paste support for proper multi-line handling
-- **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane (useful for quick questions and one-shot tasks)
+- **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane; define any number of user-named one-off commands and pick one with fzf when there is more than one
 
 ## Installation
 
@@ -84,22 +84,36 @@ Each entry needs a `label` (shown in the fzf menu) and a `text` (the message
 sent along with any accumulated annotations). Omitting `prompting.directives`
 keeps the built-ins as-is.
 
-`prompting.one_off_command` controls how `<leader>cc` (`:Codeboomer AskOneOff`)
-runs its one-shot query: a static argv list. The composed prompt is appended
-as the final argument when the command runs. When unset, it defaults to:
+`prompting.one_off_commands` defines the one-off commands `<leader>cc`
+(`:Codeboomer AskOneOff`) can run: a list of entries, each with a `label`
+(shown in the fzf picker and the input title) and a static `argv` list. The
+composed prompt is appended to `argv` as the final argument when the command
+runs. Entries may also set `timeout` (milliseconds; 60000 by default). When
+unset, the list defaults to a single built-in entry:
 
 ```lua
 require("codeboomer").setup({
   prompting = {
-    one_off_command = {
-      "claude-code", "--model", "haiku", "--output-format", "json",
-      "--permission-mode", "acceptEdits", "-p",
+    one_off_commands = {
+      -- a label matching a built-in overrides it in place
+      { label = "claude-code (haiku)",
+        argv = { "claude-code", "--model", "haiku", "--output-format", "json",
+                 "--permission-mode", "acceptEdits", "-p" } },
+      -- new labels are appended after the built-ins
+      { label = "Deep",
+        argv = { "claude-code", "--model", "opus", "--output-format", "json", "-p" },
+        timeout = 300000 },
+      { label = "Local", argv = { "ollama", "run", "qwen2.5-coder" } },
     },
   },
 })
 ```
 
-Point it at whatever the machine at hand provides — a plain binary, a
+When more than one command is defined, `AskOneOff` opens an fzf picker
+(each entry shows its label, argv, and a non-default timeout) before the
+input UI; a single configured command runs directly without a picker.
+
+Point entries at whatever the machine at hand provides — a plain binary, a
 container wrapper, a nix flake invocation, … Output that is JSON with a
 `result` field is shown as just the result; anything else is displayed raw.
 
@@ -140,9 +154,14 @@ answer is shown in a notification. Works with or without a visual selection
 (included as context when present; without one, the current file name is
 sent instead).
 
-- The input submits on `<CR>` — `<C-j>` (insert mode) or `o` (normal mode) for a newline
-- Runs asynchronously via `vim.system` (no shell interpretation, 60s timeout);
-  failures surface the exit code and stderr in a notification
+- If more than one one-off command is configured (see
+  `prompting.one_off_commands`), an fzf picker — label plus argv per entry —
+  opens first; a single configured command runs directly
+- The input title shows the chosen command's label and submits on `<CR>` —
+  `<C-j>` (insert mode) or `o` (normal mode) for a newline
+- Runs asynchronously via `vim.system` (no shell interpretation, per-entry
+  `timeout` defaulting to 60 s); failures surface the exit code and stderr
+  in a notification
 
 ### `:Codeboomer Annotate`
 

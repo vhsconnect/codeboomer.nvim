@@ -1,26 +1,8 @@
-;; [nfnl] codeboomer/config.fnl
-;; setup merges the user's opts into the config and applies the keymaps:
-;;   (setup {:keybindings {:send_prompt "<leader>cs"
-;;                         :send_selection "<leader>cr"
-;;                         :pane "<leader>cp"}
-;;           :prompting {:directives [{:label "..." :text "..."}]}})
-;;
-;; rhs values for commands that read a selection are a bare ":" (not
-;; <cmd>) so Vim auto-inserts the '<,'> range in visual mode; in normal
-;; mode the same rhs simply runs the command without a range. Keys use
-;; underscores so Fennel and Lua callers spell them identically.
-;;
-;; The config is the runtime source of truth for prompting: setup folds
-;; the built-in directive list and the default one-off command in, with
-;; user-supplied values winning.
-;;
-;; prompting.one_off_command is a static argv list; the composed prompt is
-;; appended as the final argument when the command runs.
-
 (global vim vim)
 
 (local M {})
 (local directives (require :codeboomer.directives))
+(local one-offs (require :codeboomer.one-offs))
 
 (local keymaps {:send_prompt [[:n :x]
                               ":Codeboomer SendPrompt<cr>"
@@ -41,33 +23,28 @@
                            ":Codeboomer Annotate<cr>"
                            "codeboomer: annotate some text"]})
 
-;; default one-off argv for AskOneOff; the prompt is appended at runtime
-(local default-one-off-command [:claude-code
-                                :--model
-                                :haiku
-                                :--output-format
-                                :json
-                                :--permission-mode
-                                :acceptEdits
-                                :-p])
+(fn fold-by-label [defaults entries]
+  ;; entries override the built-ins by label and append new labels —
+  ;; shared by the directive and one-off command lists
+  (let [effective (vim.list_slice defaults)
+        index {}]
+    (each [i entry (ipairs effective)]
+      (tset index entry.label i))
+    (each [_ entry (ipairs (or entries []))]
+      (if (. index entry.label)
+          (tset effective (. index entry.label) entry)
+          (table.insert effective entry)))
+    effective))
 
 (fn M.setup [opts]
   (set M.config (vim.tbl_deep_extend :force (or M.config {}) (or opts {})))
-  ;; Fold the built-in prompting defaults into the config: the default
-  ;; one-off argv is only set when the user didn't supply their own, and
-  ;; directive entries override the built-ins by label / append new ones
+  ;; Fold the built-in prompting defaults into the config: one_off_commands
+  ;; and directives override the built-ins by label / append new labels.
   (let [prompting (or M.config.prompting {})]
-    (when (not prompting.one_off_command)
-      (set prompting.one_off_command (vim.list_slice default-one-off-command)))
-    (let [effective (directives.defaults)
-          index {}]
-      (each [i d (ipairs effective)]
-        (tset index d.label i))
-      (each [_ d (ipairs (or (?. opts :prompting :directives) []))]
-        (if (. index d.label)
-            (tset effective (. index d.label) d)
-            (table.insert effective d)))
-      (set prompting.directives effective))
+    (set prompting.one_off_commands
+         (fold-by-label (one-offs.defaults) prompting.one_off_commands))
+    (set prompting.directives
+         (fold-by-label (directives.defaults) prompting.directives))
     (set M.config.prompting prompting))
   (each [k [mode rhs desc] (pairs keymaps)]
     (let [lhs (?. M.config :keybindings k)]

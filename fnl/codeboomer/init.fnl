@@ -3,6 +3,7 @@
 (local config (require :codeboomer.config))
 (local input (require :codeboomer.input))
 (local directives (require :codeboomer.directives))
+(local one-offs (require :codeboomer.one-offs))
 
 (local state {:pane nil :query-parts {}})
 
@@ -16,10 +17,8 @@
 (set M.setup (fn [opts]
                (config.setup opts)))
 
-(local promise vim.schedule)
-
 (fn schedule-notify [msg level]
-  (promise #(vim.notify msg level)))
+  (vim.schedule #(vim.notify msg level)))
 
 (fn shell [command]
   (let [handle (io.popen command)
@@ -41,26 +40,19 @@
         (. parsed :result)
         stdout)))
 
-(fn run-one-off [prompt]
-  ;; async on purpose: a slow flake build / LLM round-trip must not
-  ;; freeze the editor, and a non-zero exit must surface stderr.
-  ;; argv comes from config.prompting.one_off_command (folded at setup);
-  ;; the composed prompt is appended as the final argument
-  (let [cmd (?. config :config :prompting :one_off_command)]
-    (if cmd
-        (vim.system (vim.list_extend (vim.list_slice cmd) [prompt])
-                    {:text true :timeout 60000}
-                    (fn [obj]
-                      (promise #(if (= obj.code 0)
-                                    (vim.notify (one-off-result (or obj.stdout
-                                                                    ""))
-                                                vim.log.levels.INFO)
-                                    (vim.notify (.. "codeboomer: one-off failed (exit "
-                                                    obj.code ")\n"
-                                                    (or obj.stderr ""))
-                                                vim.log.levels.ERROR)))))
-        (schedule-notify "codeboomer: prompting.one_off_command not set — call setup() first"
-                         vim.log.levels.ERROR))))
+(fn run-one-off [cmd prompt]
+  (let [argv (vim.list_slice (or cmd.argv []))
+        timeout (or cmd.timeout 60000)]
+    (vim.system (vim.list_extend argv [prompt]) {:text true : timeout}
+                (fn [obj]
+                  (vim.schedule #(if (= obj.code 0)
+                                     (vim.notify (one-off-result (or obj.stdout
+                                                                     ""))
+                                                 vim.log.levels.INFO)
+                                     (vim.notify (.. "codeboomer: one-off failed (exit "
+                                                     obj.code ")\n"
+                                                     (or obj.stderr ""))
+                                                 vim.log.levels.ERROR)))))))
 
 (fn parse-panes [x]
   (let [pattern "([^|
@@ -179,6 +171,33 @@
                                           ;; execute callback when passed
                                           (when ?then (?then))))}})))
 
+(local one-off-argv-max-length 80)
+
+(fn one-off-display [c]
+  (let [argv (table.concat c.argv " ")
+        short-argv (if (> (length argv) one-off-argv-max-length)
+                       (.. (string.sub argv 1 one-off-argv-max-length) "…")
+                       argv)
+        ;; surface a non-default timeout so long-running entries stand out
+        timeout (if c.timeout
+                    (string.format " (%ds)" (math.floor (/ c.timeout 1000)))
+                    "")]
+    (string.format "%-22s %s%s" c.label short-argv timeout)))
+
+(fn choose-one-off [commands ?then]
+  (let [fzf (require :fzf-lua)
+        by-display {}
+        lines (icollect [_ c (ipairs commands)]
+                (let [display (one-off-display c)]
+                  (tset by-display display c)
+                  display))]
+    (fzf.fzf_exec lines
+                  {:prompt "Pick a One-off> "
+                   :actions {:default (fn [selected]
+                                        (let [cmd (. by-display (. selected 1))]
+                                          ;; execute callback when passed
+                                          (when ?then (?then cmd))))}})))
+
 (fn clear-annotations [] (set state.query-parts {}))
 
 (set M.RunOneOff run-one-off)
@@ -232,16 +251,27 @@
                    (when context
                      (send-keys-to-selected-pane context.lines))))))
 
-(set M.AskOneOff
-     (fn [opts]
-       (let [context (get-visual-lines opts)]
-         (input.open {:title " AskOneOff (Enter to send)> "
-                      :submit-on-enter true
-                      :on-submit (fn [lines]
-                                   (let [text (concat-list lines)]
-                                     (when (not= text "")
-                                       (run-one-off (one-off-prompt context
-                                                                    text)))))}))))
+(set M.AskOneOff (fn [opts]
+                   (let [context (get-visual-lines opts)
+                         commands (or (one-offs.list) [])
+                         ask (fn [cmd]
+                               (input.open {:title (string.format " AskOneOff: %s (Enter to send)> "
+                                                                  cmd.label)
+                                            :submit-on-enter true
+                                            :on-submit (fn [lines]
+                                                         (let [text (concat-list lines)]
+                                                           (when (not= text "")
+                                                             (run-one-off cmd
+                                                                          (one-off-prompt context
+                                                                                          text)))))}))]
+                     (if (= 0 (length commands))
+                         (schedule-notify "codeboomer: prompting.one_off_commands not set — call setup() first"
+                                          vim.log.levels.ERROR)
+                         ;; a single configured command runs directly — the picker only
+                         ;; appears when there is an actual choice to make
+                         (if (= 1 (length commands))
+                             (ask (. commands 1))
+                             (choose-one-off commands ask))))))
 
 (set M.Annotate
      (fn [opts]
