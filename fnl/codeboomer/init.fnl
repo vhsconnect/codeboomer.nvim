@@ -283,6 +283,44 @@
                                                                (compose-message context
                                                                                 text)))))})))))
 
+; ;; persists an annotation as a comment thread anchored to the selection:
+; ;; {context} is get-visual-lines' map (or nil without a selection), {text} is
+; ;; the raw annotation body. not wired into M.Annotate yet — the db/git modules
+; ;; are required lazily so merely loading codeboomer never touches the db
+; (fn save-annotation [context text]
+;   (let [git (require :codeboomer.git)
+;         sqlite (require :codeboomer.sqlite)
+;         root (git.repo-root)
+;         email (git.user-email)]
+;     (if (and root email)
+;         (let [name (git.user-name)
+;               branch-name (git.branch-name) ; "HEAD" when detached
+;               sha (git.head-sha)
+;               repo-id (or (?. (sqlite.repo:where {:path root}) :id)
+;                           (sqlite.repo:insert {:path root}))
+;               branch-id (or (?. (sqlite.branch:where {:name branch-name
+;                                                       :repo_id repo-id}) :id)
+;                             (sqlite.branch:insert {:name branch-name
+;                                                    :head_commit_sha sha
+;                                                    :repo_id repo-id}))
+;               user-id (or (?. (sqlite.user:where {:email email}) :id)
+;                           (sqlite.user:insert {:name name :email email}))
+;               path (or (?. context :file) (vim.api.nvim_buf_get_name 0))
+;               thread-id (sqlite.threads:insert {:branch_id branch-id
+;                                                 :file_path path
+;                                                 :line_start (?. context :line1)
+;                                                 :line_end (?. context :line2)
+;                                                 :code_snapshot (?. context :lines)
+;                                                 :anchor_commit_sha sha
+;                                                 :status :open
+;                                                 :created_by user-id})]
+;           (sqlite.comments:insert {:thread_id thread-id
+;                                    :author_id user-id
+;                                    :body text})
+;           thread-id)
+;         (schedule-notify "codeboomer: cannot save annotation — no git repo or user.email configured"
+;                          vim.log.levels.ERROR))))
+;
 (set M.FlushWithDirective
      (fn []
        (with-pan (let [fzf (require :fzf-lua)

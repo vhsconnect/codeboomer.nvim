@@ -1,5 +1,3 @@
-(global vim vim)
-
 (local sqlite (require :sqlite))
 (local tbl (require :sqlite.tbl))
 
@@ -19,30 +17,35 @@
 (local user-schema
        {:id true :name :text :email {:type :text :required true :unique true}})
 
-(local repo-schema {:id true :path {:type :text :unique true} :name :text})
-
-;; session ;;
-(local branch-schema {:id true
-                      :name :text
-                      :head_commit_sha :text
-                      :repo_id {:type :integer
-                                :reference :repo.id
-                                :on_delete :cascade}})
+(local repo-schema {:id true :path {:type :text :unique true}})
 
 (local commit-schema {:id true
-                      :branch_id {:type :integer :reference :branch.id}
-                      :is_head :integer
-                      :hash :text})
+                      :hash {:type :text :required true :unique true}
+                      :repo {:type :integer
+                             :reference :repo.id
+                             :on_delete :cascade}})
+
+(local session-schema {:id true
+                       :name :text
+                       :branch :text
+                       :head_commit {:type :integer
+                                     :reference :commit.id
+                                     :on_delete :cascade}
+                       :repo_id {:type :integer
+                                 :reference :repo.id
+                                 :on_delete :cascade}})
 
 (local thread-schema {:id true
                       :session_id {:type :integer
                                    :reference :session.id
                                    :on_delete :cascade}
-                      :file_path :text
+                      :file_path {:type :text :required true}
                       :line_start :integer
                       :line_end :integer
                       :code_snapshot :text
-                      :anchor_commit_sha :text
+                      :anchor_commit {:type :integer
+                                      :reference :commit.id
+                                      :on_delete :cascade}
                       :status {:type :text :required true}
                       :created_by {:type :integer
                                    :reference :user.id
@@ -55,7 +58,10 @@
                        :thread_id {:type :integer
                                    :reference :comment_thread.id
                                    :on_delete :cascade}
-                       :body :text
+                       :body {:type :text :required true}
+                       :commit {:type :integer
+                                :reference :commit.id
+                                :on_delete :cascade}
                        :author_id {:type :integer
                                    :reference :user.id
                                    :on_delete :cascade}
@@ -65,9 +71,9 @@
 
 (local user (tbl :user user-schema db))
 (local repo (tbl :repo repo-schema db))
-(local branch (tbl :branch branch-schema db))
-(local commit (tbl :session commit-schema db))
-(local threads (tbl :comment_thread thread-schema db))
+(local session (tbl :session session-schema db))
+(local commit (tbl :commit commit-schema db))
+(local thread (tbl :comment_thread thread-schema db))
 (local comments (tbl :comment comment-schema db))
 
 ;; soft deletes: rows keep deleted_at set; filter in lua because the where
@@ -82,9 +88,9 @@
 (local M {: db
           : user
           : repo
-          : branch
+          : session
           : commit
-          : threads
+          : thread
           : comments
           : assert-valid-status
           : active-rows})
