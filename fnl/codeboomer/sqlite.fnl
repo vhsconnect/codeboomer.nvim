@@ -10,9 +10,16 @@
                           :foreign_keys :ON
                           :auto_vacuum :INCREMENTAL}}))
 
-(local user-schema {:id true :name :text :email :text})
+;; sqlite has no enum type and the schema dsl has no CHECK constraint,
+;; so thread status is validated app-side
+(fn assert-valid-status [status]
+  (assert (or (= status :open) (= status :resolved))
+          (.. "invalid thread status: " (tostring status))))
 
-(local repo-schema {:id true :path :text :name :text})
+(local user-schema
+       {:id true :name :text :email {:type :text :required true :unique true}})
+
+(local repo-schema {:id true :path {:type :text :unique true} :name :text})
 
 (local branch-schema {:id true
                       :name :text
@@ -21,27 +28,22 @@
                                 :reference :repo.id
                                 :on_delete :cascade}})
 
-(local comment-thread-schema {:id true
-                              :repo_id {:type :integer
-                                        :reference :repo.id
-                                        :on_delete :cascade}
-                              :branch_id {:type :integer
-                                          :reference :branch.id
-                                          :on_delete :cascade}
-                              :file_path :text
-                              :line_start :integer
-                              :line_end :integer
-                              :code_snapshot :text
-                              :anchor_commit_sha :text
-                              ;make this an enum (open, resolved)
-                              :status :text
-                              :created_by {:type :integer
-                                           :reference :user.id
-                                           :on_delete :cascade}
-                              :created_at {:type :date
-                                           :default (sqlite.lib.strftime "%s"
-                                                                         :now)}
-                              :deleted_at :date})
+(local thread-schema {:id true
+                      :branch_id {:type :integer
+                                  :reference :branch.id
+                                  :on_delete :cascade}
+                      :file_path :text
+                      :line_start :integer
+                      :line_end :integer
+                      :code_snapshot :text
+                      :anchor_commit_sha :text
+                      :status {:type :text :required true}
+                      :created_by {:type :integer
+                                   :reference :user.id
+                                   :on_delete :cascade}
+                      :created_at {:type :integer
+                                   :default (sqlite.lib.strftime "%s" :now)}
+                      :deleted_at :integer})
 
 (local comment-schema {:id true
                        :thread_id {:type :integer
@@ -51,23 +53,32 @@
                        :author_id {:type :integer
                                    :reference :user.id
                                    :on_delete :cascade}
-                       :created_at {:type :date
+                       :created_at {:type :integer
                                     :default (sqlite.lib.strftime "%s" :now)}
-                       :created_by {:type :integer
-                                    :reference :user.id
-                                    :on_delete :cascade}
-                       :deleted_at :date})
+                       :deleted_at :integer})
 
 (local user (tbl :user user-schema db))
 (local repo (tbl :repo repo-schema db))
 (local branch (tbl :branch branch-schema db))
-(local comments-thread (tbl :comment_thread comment-thread-schema db))
+(local threads (tbl :comment_thread thread-schema db))
 (local comments (tbl :comment comment-schema db))
 
-(branch:remove)
+;; soft deletes: rows keep deleted_at set; filter in lua because the where
+;; dsl can't express "is null" (strings bind as equality unless prefixed < or >)
+(fn active-rows [rows]
+  (let [out []]
+    (each [_ row (ipairs rows)]
+      (when (= row.deleted_at nil)
+        (table.insert out row)))
+    out))
 
-(repo:where {:id 1})
-(branch:get {:where {:repo 1}})
-(comments:count)
-(comments:each (fn [row] (print row.content)))
-(comments:each (fn [row] (print row.content)))
+(local M {: db
+          : user
+          : repo
+          : branch
+          : threads
+          : comments
+          : assert-valid-status
+          : active-rows})
+
+M
