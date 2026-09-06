@@ -21,6 +21,7 @@
 
 (local repo-schema {:id true :path {:type :text :unique true} :name :text})
 
+;; session ;;
 (local branch-schema {:id true
                       :name :text
                       :head_commit_sha :text
@@ -28,10 +29,15 @@
                                 :reference :repo.id
                                 :on_delete :cascade}})
 
+(local commit-schema {:id true
+                      :branch_id {:type :integer :reference :branch.id}
+                      :is_head :integer
+                      :hash :text})
+
 (local thread-schema {:id true
-                      :branch_id {:type :integer
-                                  :reference :branch.id
-                                  :on_delete :cascade}
+                      :session_id {:type :integer
+                                   :reference :session.id
+                                   :on_delete :cascade}
                       :file_path :text
                       :line_start :integer
                       :line_end :integer
@@ -60,6 +66,7 @@
 (local user (tbl :user user-schema db))
 (local repo (tbl :repo repo-schema db))
 (local branch (tbl :branch branch-schema db))
+(local commit (tbl :session commit-schema db))
 (local threads (tbl :comment_thread thread-schema db))
 (local comments (tbl :comment comment-schema db))
 
@@ -76,6 +83,7 @@
           : user
           : repo
           : branch
+          : commit
           : threads
           : comments
           : assert-valid-status
