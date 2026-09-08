@@ -29,7 +29,7 @@
                        :name :text
                        :branch :text
                        :head_commit {:type :integer
-                                     :reference :commit.id
+                                     :reference :git_commit.id
                                      :on_delete :cascade}
                        :repo_id {:type :integer
                                  :reference :repo.id
@@ -44,7 +44,7 @@
                       :line_end :integer
                       :code_snapshot :text
                       :anchor_commit {:type :integer
-                                      :reference :commit.id
+                                      :reference :git_commit.id
                                       :on_delete :cascade}
                       :status {:type :text :required true}
                       :created_by {:type :integer
@@ -59,9 +59,9 @@
                                    :reference :comment_thread.id
                                    :on_delete :cascade}
                        :body {:type :text :required true}
-                       :commit {:type :integer
-                                :reference :commit.id
-                                :on_delete :cascade}
+                       :commit_id {:type :integer
+                                   :reference :git_commit.id
+                                   :on_delete :cascade}
                        :author_id {:type :integer
                                    :reference :user.id
                                    :on_delete :cascade}
@@ -72,7 +72,7 @@
 (local user (tbl :user user-schema db))
 (local repo (tbl :repo repo-schema db))
 (local session (tbl :session session-schema db))
-(local commit (tbl :commit commit-schema db))
+(local commit (tbl :git_commit commit-schema db))
 (local thread (tbl :comment_thread thread-schema db))
 (local comments (tbl :comment comment-schema db))
 

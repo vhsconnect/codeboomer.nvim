@@ -1,10 +1,11 @@
--- [nfnl] codeboomer/init.fnl
+-- [nfnl] fnl/codeboomer/init.fnl
 vim = vim
 local config = require("codeboomer.config")
 local input = require("codeboomer.input")
 local directives = require("codeboomer.directives")
+local review = require("codeboomer.review")
 local one_offs = require("codeboomer.one-offs")
-local state = {pane = nil, ["query-parts"] = {}}
+local state = {pane = nil, ["query-parts"] = {}, ["session-id"] = nil}
 local M = {}
 local function _1_(opts)
   return config.setup(opts)
@@ -332,6 +333,35 @@ local function _46_(opts)
     local context = get_visual_lines(opts)
     local function _47_(lines)
       local text = concat_list(lines)
+      if state["session-id"] then
+        review["user-comment"](state["session-id"], context.file, context.line1, context.line2, context.lines, text)
+      else
+        local sessions_2_auto = (review["get-sessions"]() or {})
+        local case_48_ = #sessions_2_auto
+        if (case_48_ == 0) then
+          state["session-id"] = review["create-session"]()
+          review["user-comment"](state["session-id"], context.file, context.line1, context.line2, context.lines, text)
+        elseif (case_48_ == 1) then
+          local _50_
+          do
+            local t_49_ = sessions_2_auto
+            if (nil ~= t_49_) then
+              t_49_ = t_49_[1]
+            else
+            end
+            if (nil ~= t_49_) then
+              t_49_ = t_49_.id
+            else
+            end
+            _50_ = t_49_
+          end
+          state["session-id"] = _50_
+          review["user-comment"](state["session-id"], context.file, context.line1, context.line2, context.lines, text)
+        else
+          local __3_auto = case_48_
+          error("Multiple session not implemented")
+        end
+      end
       if (text ~= "") then
         return table.insert(state["query-parts"], compose_message(context, text))
       else
@@ -340,23 +370,52 @@ local function _46_(opts)
     end
     return input.open({title = " Annotate> ", ["on-submit"] = _47_})
   else
-    local function _49_()
+    local function _56_()
       local context = get_visual_lines(opts)
-      local function _50_(lines)
+      local function _57_(lines)
         local text = concat_list(lines)
+        if state["session-id"] then
+          review["user-comment"](state["session-id"], context.file, context.line1, context.line2, context.lines, text)
+        else
+          local sessions_2_auto = (review["get-sessions"]() or {})
+          local case_58_ = #sessions_2_auto
+          if (case_58_ == 0) then
+            state["session-id"] = review["create-session"]()
+            review["user-comment"](state["session-id"], context.file, context.line1, context.line2, context.lines, text)
+          elseif (case_58_ == 1) then
+            local _60_
+            do
+              local t_59_ = sessions_2_auto
+              if (nil ~= t_59_) then
+                t_59_ = t_59_[1]
+              else
+              end
+              if (nil ~= t_59_) then
+                t_59_ = t_59_.id
+              else
+              end
+              _60_ = t_59_
+            end
+            state["session-id"] = _60_
+            review["user-comment"](state["session-id"], context.file, context.line1, context.line2, context.lines, text)
+          else
+            local __3_auto = case_58_
+            error("Multiple session not implemented")
+          end
+        end
         if (text ~= "") then
           return table.insert(state["query-parts"], compose_message(context, text))
         else
           return nil
         end
       end
-      return input.open({title = " Annotate> ", ["on-submit"] = _50_})
+      return input.open({title = " Annotate> ", ["on-submit"] = _57_})
     end
-    return choose_pane(parse_panes(shell(panes_command)), _49_)
+    return choose_pane(parse_panes(shell(panes_command)), _56_)
   end
 end
 M.Annotate = _46_
-local function _53_()
+local function _67_()
   if state.pane then
     local fzf = require("fzf-lua")
     local all_directives = directives.list()
@@ -374,16 +433,16 @@ local function _53_()
       end
       lines = tbl_26_
     end
-    local function _55_(selected)
+    local function _69_(selected)
       local selected_label = selected[1]
       local directive_text = directives.get(selected_label)
       local annotations = concat_list_with_format(state["query-parts"], "==Section Start==", "====", "==Section End==")
       send_keys_to_selected_pane((annotations .. directive_text .. "\n"))
       return clear_annotations()
     end
-    return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _55_}})
+    return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _69_}})
   else
-    local function _56_()
+    local function _70_()
       local fzf = require("fzf-lua")
       local all_directives = directives.list()
       local lines
@@ -400,17 +459,17 @@ local function _53_()
         end
         lines = tbl_26_
       end
-      local function _58_(selected)
+      local function _72_(selected)
         local selected_label = selected[1]
         local directive_text = directives.get(selected_label)
         local annotations = concat_list_with_format(state["query-parts"], "==Section Start==", "====", "==Section End==")
         send_keys_to_selected_pane((annotations .. directive_text .. "\n"))
         return clear_annotations()
       end
-      return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _58_}})
+      return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _72_}})
     end
-    return choose_pane(parse_panes(shell(panes_command)), _56_)
+    return choose_pane(parse_panes(shell(panes_command)), _70_)
   end
 end
-M.FlushWithDirective = _53_
+M.FlushWithDirective = _67_
 return M

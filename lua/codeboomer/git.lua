@@ -1,4 +1,4 @@
--- [nfnl] codeboomer/git.fnl
+-- [nfnl] fnl/codeboomer/git.fnl
 vim = vim
 local M = {}
 local function run(root, ...)
