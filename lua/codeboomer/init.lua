@@ -1,4 +1,4 @@
--- [nfnl] fnl/codeboomer/init.fnl
+-- [nfnl] codeboomer/init.fnl
 vim = vim
 local config = require("codeboomer.config")
 local input = require("codeboomer.input")

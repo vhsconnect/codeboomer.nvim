@@ -8,7 +8,7 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - Fuzzy-finder interface (via fzf-lua) to select target panes, showing each pane's last output line and working directory, with a live content preview
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Annotation workflow — accumulate multiple code selections for review before sending
-- **Review comments pane (`Comments`)** — toggle a side split that shows the comment thread under the cursor; it blanks as soon as the cursor leaves the thread's lines, and commented ranges get per-thread colored `✎` gutter marks
+- **Review comments panes (`Comments`)** — toggle per-tab side splits that show the comment thread under the cursor; they blank as soon as the cursor leaves the thread's lines, and commented ranges get per-thread colored `✎` gutter marks
 - Bracketed-paste support for proper multi-line handling
 - **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane; define any number of user-named one-off commands and pick one with fzf when there is more than one
 
@@ -181,26 +181,33 @@ Adds the current selection to an accumulated query context. Use this to annotate
 
 ### `:Codeboomer Comments`
 
-Toggles a review-comments side pane — a plain vertical split on the right
-that follows the window it was opened from. While the cursor sits inside a
-comment thread's line range the pane shows that thread's comments; as soon
-as the cursor leaves every thread's lines the pane goes blank.
+Toggles the review-comments side panes — plain vertical splits on the
+right, one per tabpage, each driven by the active window of its tab.
+While the cursor sits inside a comment thread's line range that tab's
+pane shows the thread's comments; as soon as the cursor leaves every
+thread's lines the pane goes blank.
 
 - Threads come from the current review session (the same one
   `:Codeboomer Annotate` writes to); with no session yet the pane opens empty
+- While the review is active every tab entered spawns its own pane;
+  toggling off closes them all. Within a tab, window switches and cursor
+  moves re-render the pane from the focused window (the pane itself and
+  floating windows never drive it)
 - Overlapping threads are shown together, one block per thread (header line
   plus every comment body)
-- New annotations show up immediately while the pane is open
-- Commented ranges are marked in the followed buffer's gutter (a `✎`
-  sign per commented line) for as long as the pane is open; each thread
+- New annotations show up immediately while panes are open
+- Commented ranges are marked in the driving buffer's gutter (a `✎`
+  sign per commented line) for as long as the review is active; each thread
   gets its own theme-derived color (cycled from `Title`, `Special`,
   `String`, `Function`), overlapping ranges show two consecutive marks
-  (the sign column is forced to `auto:2` meanwhile and restored on close)
+  (the sign column is forced to `auto:2` on driving windows and restored
+  when the review ends). Markers live only on the active tab: switching
+  tabs collapses the previous tab's marks and re-places the entering
+  tab's (one small re-query per switch)
 - When the cursor touches several overlapping threads the pane stacks
   one block per thread, separated by a `─` rule; block headers are tinted
   with the thread's gutter color
-- Closing the followed window closes the pane; toggling re-anchors it to the
-  current window
+- Close a single pane with `:q`; toggle off to end the review everywhere
 
 ```vim
 :Codeboomer Comments
