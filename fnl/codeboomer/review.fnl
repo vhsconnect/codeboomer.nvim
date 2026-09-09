@@ -43,6 +43,37 @@
 (fn M.get-sessions []
   (sqlite.session:get {:where {:repo_id (with-repo)}}))
 
+;; the one review session a pane should mirror: nil when none exists yet,
+;; its id when there is exactly one — the multi-session case keeps the
+;; same "not implemented" policy as init's with-session macro
+(fn M.active-session-id []
+  (let [sessions (or (M.get-sessions) [])]
+    (case (length sessions)
+      0 nil
+      1 (?. sessions 1 :id)
+      _ (error "Multiple session not implemented"))))
+
+;; active (not soft-deleted) threads of a session anchored to one file,
+;; ordered top-to-bottom by their position in the file
+(fn M.threads-for [session-id file-path]
+  (let [rows (sqlite.active-rows (or (sqlite.thread:get {:where {:session_id session-id
+                                                                 :file_path file-path}})
+                                     []))]
+    (table.sort rows (fn [a b] (< (or a.line_start 0) (or b.line_start 0))))
+    rows))
+
+;; active (not soft-deleted) comments of one thread, oldest first —
+;; created_at has second resolution, id breaks ties
+(fn M.comments-for [thread-id]
+  (let [rows (sqlite.active-rows (or (sqlite.comments:get {:where {:thread_id thread-id}})
+                                     []))]
+    (table.sort rows (fn [a b]
+                       (let [ta (or a.created_at 0) tb (or b.created_at 0)]
+                         (if (= ta tb)
+                             (< (or a.id 0) (or b.id 0))
+                             (< ta tb)))))
+    rows))
+
 (fn M.create-session []
   (let [repo-id (with-repo)]
     (sqlite.session:insert {:name :session1

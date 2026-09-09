@@ -3,7 +3,7 @@ vim = vim
 local M = {}
 local directives = require("codeboomer.directives")
 local one_offs = require("codeboomer.one-offs")
-local keymaps = {send_prompt = {{"n", "x"}, ":Codeboomer SendPrompt<cr>", "codeboomer: send prompt to pane"}, send_selection = {"x", ":Codeboomer SendSelection<cr>", "codeboomer: send selection to pane as-is"}, ask_one_off = {{"n", "x"}, ":Codeboomer AskOneOff<cr>", "codeboomer: run one-off query, reply shown here"}, flush_with_directive = {"n", "<cmd>Codeboomer FlushWithDirective<cr>", "codeboomer: flush annotations with directive to pane"}, pane = {"n", "<cmd>Codeboomer SetPane<cr>", "codeboomer: pick a tmux pane"}, annotate = {"x", ":Codeboomer Annotate<cr>", "codeboomer: annotate some text"}}
+local keymaps = {send_prompt = {{"n", "x"}, ":Codeboomer SendPrompt<cr>", "codeboomer: send prompt to pane"}, send_selection = {"x", ":Codeboomer SendSelection<cr>", "codeboomer: send selection to pane as-is"}, ask_one_off = {{"n", "x"}, ":Codeboomer AskOneOff<cr>", "codeboomer: run one-off query, reply shown here"}, flush_with_directive = {"n", "<cmd>Codeboomer FlushWithDirective<cr>", "codeboomer: flush annotations with directive to pane"}, pane = {"n", "<cmd>Codeboomer SetPane<cr>", "codeboomer: pick a tmux pane"}, annotate = {"x", ":Codeboomer Annotate<cr>", "codeboomer: annotate some text"}, comments = {"n", "<cmd>Codeboomer Comments<cr>", "codeboomer: toggle the review comments pane"}}
 local function fold_by_label(defaults, entries)
   local effective = vim.list_slice(defaults)
   local index = {}

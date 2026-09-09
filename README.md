@@ -8,6 +8,7 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - Fuzzy-finder interface (via fzf-lua) to select target panes, showing each pane's last output line and working directory, with a live content preview
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Annotation workflow — accumulate multiple code selections for review before sending
+- **Review comments pane (`Comments`)** — toggle a side split that shows the comment thread under the cursor; it blanks as soon as the cursor leaves the thread's lines, and commented ranges get per-thread colored `✎` gutter marks
 - Bracketed-paste support for proper multi-line handling
 - **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane; define any number of user-named one-off commands and pick one with fzf when there is more than one
 
@@ -43,6 +44,7 @@ The plugin sets up no default keybindings; configure them like this:
 | Normal + Visual | `<leader>cc` | `AskOneOff` — run a one-off query; the answer is shown in a notification |
 | Normal | `<leader>cp` | `SetPane` — pick a tmux pane to send messages to |
 | Visual | `<leader>ca` | `Annotate` — add the selection (plus an optional note) to the query context |
+| Normal | `<leader>cm` | `Comments` — toggle the review comments side pane |
 | Normal | `<leader>cd` | `FlushWithDirective` — flush accumulated annotations with a directive |
 
 Disable or customize any binding under `keybindings` in `setup()` (set to `false` to disable):
@@ -56,6 +58,7 @@ require("codeboomer").setup({
     flush_with_directive = "<leader>cd",
     pane = "<leader>cp",
     annotate = "<leader>ca",
+    comments = "<leader>cm",
   },
 })
 ```
@@ -170,9 +173,37 @@ Adds the current selection to an accumulated query context. Use this to annotate
 - Requires a pane to be selected first via `:Codeboomer SetPane`
 - With a visual range, the selection is included as context (`regarding <file> lines X to Y`); without one, the current file name is sent instead
 - The selection is stored and will be included in the next `:Codeboomer FlushWithDirective` call
+- The selection (plus note) is also recorded as a comment thread in the review session's database — `:Codeboomer Comments` displays these later
 
 ```
 :'<,'>Codeboomer Annotate
+```
+
+### `:Codeboomer Comments`
+
+Toggles a review-comments side pane — a plain vertical split on the right
+that follows the window it was opened from. While the cursor sits inside a
+comment thread's line range the pane shows that thread's comments; as soon
+as the cursor leaves every thread's lines the pane goes blank.
+
+- Threads come from the current review session (the same one
+  `:Codeboomer Annotate` writes to); with no session yet the pane opens empty
+- Overlapping threads are shown together, one block per thread (header line
+  plus every comment body)
+- New annotations show up immediately while the pane is open
+- Commented ranges are marked in the followed buffer's gutter (a `✎`
+  sign per commented line) for as long as the pane is open; each thread
+  gets its own theme-derived color (cycled from `Title`, `Special`,
+  `String`, `Function`), overlapping ranges show two consecutive marks
+  (the sign column is forced to `auto:2` meanwhile and restored on close)
+- When the cursor touches several overlapping threads the pane stacks
+  one block per thread, separated by a `─` rule; block headers are tinted
+  with the thread's gutter color
+- Closing the followed window closes the pane; toggling re-anchors it to the
+  current window
+
+```vim
+:Codeboomer Comments
 ```
 
 ### `:Codeboomer FlushWithDirective`
@@ -243,7 +274,7 @@ nvim -u dev.lua
 ```
 This gives you an isolated Neovim instance with the plugin loaded, nfnl active, and auto-compilation working — write any `.fnl` file and the corresponding `.lua` updates immediately.
 
-For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-codeboomer`. It requires `CODEBOOMER_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cr`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>ca`):
+For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-codeboomer`. It requires `CODEBOOMER_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cr`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>ca`, `<leader>cm`):
 
 ```bash
 CODEBOOMER_PATH=$PWD ./test-codeboomer

@@ -21,7 +21,10 @@
                        "codeboomer: pick a tmux pane"]
                 :annotate [:x
                            ":Codeboomer Annotate<cr>"
-                           "codeboomer: annotate some text"]})
+                           "codeboomer: annotate some text"]
+                :comments [:n
+                           "<cmd>Codeboomer Comments<cr>"
+                           "codeboomer: toggle the review comments pane"]})
 
 (fn fold-by-label [defaults entries]
   ;; entries override the built-ins by label and append new labels —

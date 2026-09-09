@@ -41,6 +41,7 @@ local opts = {
     flush_with_directive = "<leader>cd",
     pane = "<leader>cp",
     annotate = "<leader>ca",
+    comments = "<leader>cm",
   },
 }
 

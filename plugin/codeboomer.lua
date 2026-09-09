@@ -25,6 +25,10 @@ subcommands.Annotate = function(opts)
   require("codeboomer").Annotate(opts)
 end
 
+subcommands.Comments = function()
+  require("codeboomer.sidebar").toggle()
+end
+
 subcommands.FlushWithDirective = function()
   require("codeboomer").FlushWithDirective()
 end

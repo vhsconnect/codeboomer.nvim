@@ -292,12 +292,17 @@
                    (input.open {:title " Annotate> "
                                 :on-submit (fn [lines]
                                              (let [text (concat-list lines)]
-                                               (with-session (review.user-comment state.session-id
-                                                                                  context.file
-                                                                                  context.line1
-                                                                                  context.line2
-                                                                                  context.lines
-                                                                                  text))
+                                               (with-session (do
+                                                              (review.user-comment state.session-id
+                                                                                   context.file
+                                                                                   context.line1
+                                                                                   context.line2
+                                                                                   context.lines
+                                                                                   text)
+                                                              ;; let an open review pane pick the
+                                                              ;; fresh thread up
+                                                              (vim.api.nvim_exec_autocmds :User
+                                                                                         {:pattern :CodeboomerAnnotated})))
                                                (when (not= text "")
                                                  (table.insert state.query-parts
                                                                (compose-message context

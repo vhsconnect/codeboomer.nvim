@@ -71,6 +71,49 @@ end
 M["get-sessions"] = function()
   return sqlite.session:get({where = {repo_id = with_repo()}})
 end
+M["active-session-id"] = function()
+  local sessions = (M["get-sessions"]() or {})
+  local case_13_ = #sessions
+  if (case_13_ == 0) then
+    return nil
+  elseif (case_13_ == 1) then
+    local t_14_ = sessions
+    if (nil ~= t_14_) then
+      t_14_ = t_14_[1]
+    else
+    end
+    if (nil ~= t_14_) then
+      t_14_ = t_14_.id
+    else
+    end
+    return t_14_
+  else
+    local _ = case_13_
+    return error("Multiple session not implemented")
+  end
+end
+M["threads-for"] = function(session_id, file_path)
+  local rows = sqlite["active-rows"]((sqlite.thread:get({where = {session_id = session_id, file_path = file_path}}) or {}))
+  local function _18_(a, b)
+    return ((a.line_start or 0) < (b.line_start or 0))
+  end
+  table.sort(rows, _18_)
+  return rows
+end
+M["comments-for"] = function(thread_id)
+  local rows = sqlite["active-rows"]((sqlite.comments:get({where = {thread_id = thread_id}}) or {}))
+  local function _19_(a, b)
+    local ta = (a.created_at or 0)
+    local tb = (b.created_at or 0)
+    if (ta == tb) then
+      return ((a.id or 0) < (b.id or 0))
+    else
+      return (ta < tb)
+    end
+  end
+  table.sort(rows, _19_)
+  return rows
+end
 M["create-session"] = function()
   local repo_id = with_repo()
   return sqlite.session:insert({name = "session1", branch = git["branch-name"](), head_commit = with_commit(repo_id), repo_id = repo_id})

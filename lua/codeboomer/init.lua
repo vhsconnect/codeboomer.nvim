@@ -335,12 +335,14 @@ local function _46_(opts)
       local text = concat_list(lines)
       if state["session-id"] then
         review["user-comment"](state["session-id"], context.file, context.line1, context.line2, context.lines, text)
+        vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerAnnotated"})
       else
         local sessions_2_auto = (review["get-sessions"]() or {})
         local case_48_ = #sessions_2_auto
         if (case_48_ == 0) then
           state["session-id"] = review["create-session"]()
           review["user-comment"](state["session-id"], context.file, context.line1, context.line2, context.lines, text)
+          vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerAnnotated"})
         elseif (case_48_ == 1) then
           local _50_
           do
@@ -357,6 +359,7 @@ local function _46_(opts)
           end
           state["session-id"] = _50_
           review["user-comment"](state["session-id"], context.file, context.line1, context.line2, context.lines, text)
+          vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerAnnotated"})
         else
           local __3_auto = case_48_
           error("Multiple session not implemented")
@@ -376,12 +379,14 @@ local function _46_(opts)
         local text = concat_list(lines)
         if state["session-id"] then
           review["user-comment"](state["session-id"], context.file, context.line1, context.line2, context.lines, text)
+          vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerAnnotated"})
         else
           local sessions_2_auto = (review["get-sessions"]() or {})
           local case_58_ = #sessions_2_auto
           if (case_58_ == 0) then
             state["session-id"] = review["create-session"]()
             review["user-comment"](state["session-id"], context.file, context.line1, context.line2, context.lines, text)
+            vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerAnnotated"})
           elseif (case_58_ == 1) then
             local _60_
             do
@@ -398,6 +403,7 @@ local function _46_(opts)
             end
             state["session-id"] = _60_
             review["user-comment"](state["session-id"], context.file, context.line1, context.line2, context.lines, text)
+            vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerAnnotated"})
           else
             local __3_auto = case_58_
             error("Multiple session not implemented")
