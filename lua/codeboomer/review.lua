@@ -72,37 +72,73 @@ M["get-sessions"] = function()
   return sqlite.session:get({where = {repo_id = with_repo()}})
 end
 M["active-session-id"] = function()
-  local sessions = (M["get-sessions"]() or {})
-  local case_13_ = #sessions
-  if (case_13_ == 0) then
-    return nil
-  elseif (case_13_ == 1) then
-    local t_14_ = sessions
-    if (nil ~= t_14_) then
-      t_14_ = t_14_[1]
-    else
+  local root = git["repo-root"]()
+  if root then
+    local repo_id
+    do
+      local t_13_ = sqlite.repo:get({where = {path = root}})
+      if (nil ~= t_13_) then
+        t_13_ = t_13_[1]
+      else
+      end
+      if (nil ~= t_13_) then
+        t_13_ = t_13_.id
+      else
+      end
+      repo_id = t_13_
     end
-    if (nil ~= t_14_) then
-      t_14_ = t_14_.id
+    if repo_id then
+      local sessions = (sqlite.session:get({where = {repo_id = repo_id}}) or {})
+      local case_16_ = #sessions
+      if (case_16_ == 0) then
+        return nil
+      elseif (case_16_ == 1) then
+        local t_17_ = sessions
+        if (nil ~= t_17_) then
+          t_17_ = t_17_[1]
+        else
+        end
+        if (nil ~= t_17_) then
+          t_17_ = t_17_.id
+        else
+        end
+        return t_17_
+      else
+        local _ = case_16_
+        return error("Multiple session not implemented")
+      end
     else
+      return nil
     end
-    return t_14_
   else
-    local _ = case_13_
-    return error("Multiple session not implemented")
+    return nil
   end
 end
 M["threads-for"] = function(session_id, file_path)
   local rows = sqlite["active-rows"]((sqlite.thread:get({where = {session_id = session_id, file_path = file_path}}) or {}))
-  local function _18_(a, b)
+  local function _23_(a, b)
     return ((a.line_start or 0) < (b.line_start or 0))
   end
-  table.sort(rows, _18_)
+  table.sort(rows, _23_)
+  return rows
+end
+M["threads-for-session"] = function(session_id)
+  local rows = sqlite["active-rows"]((sqlite.thread:get({where = {session_id = session_id}}) or {}))
+  local function _24_(a, b)
+    local pa = (a.file_path or "")
+    local pb = (b.file_path or "")
+    if (pa == pb) then
+      return ((a.line_start or 0) < (b.line_start or 0))
+    else
+      return (pa < pb)
+    end
+  end
+  table.sort(rows, _24_)
   return rows
 end
 M["comments-for"] = function(thread_id)
   local rows = sqlite["active-rows"]((sqlite.comments:get({where = {thread_id = thread_id}}) or {}))
-  local function _19_(a, b)
+  local function _26_(a, b)
     local ta = (a.created_at or 0)
     local tb = (b.created_at or 0)
     if (ta == tb) then
@@ -111,7 +147,7 @@ M["comments-for"] = function(thread_id)
       return (ta < tb)
     end
   end
-  table.sort(rows, _19_)
+  table.sort(rows, _26_)
   return rows
 end
 M["create-session"] = function()

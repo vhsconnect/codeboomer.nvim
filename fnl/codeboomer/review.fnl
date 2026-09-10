@@ -45,13 +45,20 @@
 
 ;; the one review session a pane should mirror: nil when none exists yet,
 ;; its id when there is exactly one — the multi-session case keeps the
-;; same "not implemented" policy as init's with-session macro
+;; same "not implemented" policy as init's with-session macro.
+;; Read-only: an unknown repo yields nil instead of registering the
+;; repo, so the sidebar's startup load never writes to the DB
 (fn M.active-session-id []
-  (let [sessions (or (M.get-sessions) [])]
-    (case (length sessions)
-      0 nil
-      1 (?. sessions 1 :id)
-      _ (error "Multiple session not implemented"))))
+  (let [root (git.repo-root)]
+    (when root
+      (let [repo-id (?. (sqlite.repo:get {:where {:path root}}) 1 :id)]
+        (when repo-id
+          (let [sessions (or (sqlite.session:get {:where {:repo_id repo-id}})
+                             [])]
+            (case (length sessions)
+              0 nil
+              1 (?. sessions 1 :id)
+              _ (error "Multiple session not implemented"))))))))
 
 ;; active (not soft-deleted) threads of a session anchored to one file,
 ;; ordered top-to-bottom by their position in the file
@@ -60,6 +67,20 @@
                                                                  :file_path file-path}})
                                      []))]
     (table.sort rows (fn [a b] (< (or a.line_start 0) (or b.line_start 0))))
+    rows))
+
+;; active threads of a session across ALL its files, ordered by file
+;; path then top-to-bottom within a file — the sidebar turns this into
+;; its path → threads map in one load
+(fn M.threads-for-session [session-id]
+  (let [rows (sqlite.active-rows (or (sqlite.thread:get {:where {:session_id session-id}})
+                                     []))]
+    (table.sort rows (fn [a b]
+                       (let [pa (or a.file_path "")
+                             pb (or b.file_path "")]
+                         (if (= pa pb)
+                             (< (or a.line_start 0) (or b.line_start 0))
+                             (< pa pb)))))
     rows))
 
 ;; active (not soft-deleted) comments of one thread, oldest first —

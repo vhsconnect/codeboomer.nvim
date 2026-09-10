@@ -3,6 +3,11 @@ if vim.g.loaded_codeboomer then
 end
 vim.g.loaded_codeboomer = 1
 
+-- the review sidebar attaches its gutter-marker hooks at load time;
+-- markers render regardless of the Comments toggle, so it must load
+-- with the plugin, not on first :Codeboomer use
+require("codeboomer.sidebar")
+
 local subcommands = {}
 
 subcommands.SetPane = function()

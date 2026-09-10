@@ -1,11 +1,12 @@
--- headless smoke test for the per-tab review-comments sidebar pane
+-- headless smoke test for the ephemeral review-comments pane
 -- run: nvim --headless -u NONE --cmd "set rtp^=..." -c "luafile test-sidebar.lua"
 -- (cwd = repo root; the shell wrapper widens thread 2 to overlap thread 1
 -- and restores it afterwards; DB reads only)
 --
--- headless -c scripts never process input or fire deferred CursorMoved,
--- so cursor moves are followed by explicit `doautocmd` calls — the same
--- callback paths real interaction takes.
+-- the pane opens only after the cursor RESTS ~100 ms inside a thread's
+-- range (the debounce), so every cursor move below is followed by a
+-- vim.wait — headless -c scripts never process real input, and the same
+-- callback paths real interaction takes are driven with `doautocmd`.
 local api = vim.api
 local fails = 0
 
@@ -18,18 +19,23 @@ local function check(desc, cond)
   end
 end
 
-local function move(win, line)
+-- move + wait out the 100 ms rest delay so the debounce timer fires
+local function rest(win, line)
   api.nvim_win_set_cursor(win, { line, 0 })
   vim.cmd("doautocmd CursorMoved")
+  vim.wait(300)
 end
 
 -- target file: thread #1 at 3-3, thread #2 widened to 1-69 by the wrapper
 vim.cmd("edit fnl/codeboomer/init.fnl")
 local code_win = api.nvim_get_current_win()
+local code_buf = api.nvim_win_get_buf(code_win)
 local tab1 = api.nvim_get_current_tabpage()
 
 local sidebar = require("codeboomer.sidebar")
-sidebar.toggle()
+-- -c chunks run BEFORE VimEnter, and os.exit kills nvim before the main
+-- loop would fire it — trigger the startup thread-map load by hand
+vim.cmd("doautocmd VimEnter")
 
 local function find_pane(tab)
   for _, w in ipairs(api.nvim_tabpage_list_wins(tab)) do
@@ -38,15 +44,6 @@ local function find_pane(tab)
       return b, w
     end
   end
-end
-local pane_buf, pane_win = find_pane(tab1)
-check("pane window opened", pane_win ~= nil)
-check("cursor stayed in code window", api.nvim_get_current_win() == code_win)
-check("pane is nofile + unmodifiable", vim.bo[pane_buf].buftype == "nofile"
-  and vim.bo[pane_buf].modifiable == false)
-
-local function pane_lines()
-  return api.nvim_buf_get_lines(pane_buf, 0, -1, false)
 end
 
 local ns = api.nvim_create_namespace("codeboomer-review-pane")
@@ -59,20 +56,25 @@ local function sign_rows(buf)
   return rows
 end
 
-local code_buf = api.nvim_win_get_buf(code_win)
-local marks = api.nvim_buf_get_extmarks(code_buf, ns, 0, -1, { details = true })
--- expected mark count straight from the DB — the dev DB keeps growing
--- as the plugin gets used, so no hardcoded totals
+-- expected coverage straight from the DB — the dev DB keeps growing as
+-- the plugin gets used, so nothing is hardcoded
 local review = require("codeboomer.review")
 local ok, sid = pcall(function() return review["active-session-id"]() end)
 local threads = (ok and sid)
   and review["threads-for"](sid, api.nvim_buf_get_name(code_buf)) or {}
+
+-- union of commented lines — one mark per line, overlaps included once
+local covered = {}
 local expected_marks = 0
 for _, t in ipairs(threads) do
-  expected_marks = expected_marks + (t.line_end - t.line_start + 1)
+  for l = t.line_start, t.line_end do
+    if not covered[l] then
+      covered[l] = true
+      expected_marks = expected_marks + 1
+    end
+  end
 end
--- DB threads covering a line — the dev DB grows as the plugin is used,
--- so coverage expectations must be computed, never hardcoded
+
 local function covering(line)
   local n = 0
   for _, t in ipairs(threads) do
@@ -80,131 +82,123 @@ local function covering(line)
   end
   return n
 end
-check(("one mark per commented line (%d)"):format(expected_marks), #marks == expected_marks)
-check("signcolumn widened to auto:2", vim.wo[code_win].signcolumn == "auto:2")
+
+-- ── gutter markers: always visible, independent of the toggle ─────
+check("marks placed at startup", #sign_rows(code_buf) == expected_marks)
+check("signcolumn left alone", vim.wo[code_win].signcolumn == "auto")
 local three = {}
-for _, m in ipairs(marks) do
+for _, m in ipairs(api.nvim_buf_get_extmarks(code_buf, ns, 0, -1, { details = true })) do
   if m[2] + 1 == 3 then three[#three + 1] = m end
 end
-check(("line 3 carries one symbol per covering thread (%d)"):format(covering(3)),
-  #three == covering(3) and covering(3) >= 2)
-local all_crayons = true
-for _, m in ipairs(three) do
-  if m[4].sign_text ~= "✎ " then all_crayons = false end
-end
-check("symbols are crayons", #three >= 2 and all_crayons)
-check("overlap colors differ (theme groups)",
-  #three >= 2 and three[1][4].sign_hl_group ~= three[2][4].sign_hl_group)
-check("earlier thread wins the left slot",
-  #three >= 2 and three[1][4].priority > three[2][4].priority)
+check(("overlap line 3 carries ONE symbol (%d covering)"):format(covering(3)),
+  #three == 1 and covering(3) >= 2)
+check("symbol is a crayon", three[1] and three[1][4].sign_text == "✎ ")
 
--- a wiped buffer keeps a single empty line
-local function pane_blank()
-  local lines = pane_lines()
-  return #lines == 1 and lines[1] == ""
+-- ── the pane: opens on rest, collapses off range ──────────────────
+-- park the cursor on an un-commented line before toggling on
+rest(code_win, 100)
+sidebar.toggle()
+check("toggle on off-range: no pane", find_pane(tab1) == nil)
+
+-- toggle-on while resting inside a range opens the pane immediately —
+-- an explicit enable needn't wait out the rest delay
+rest(code_win, 3)
+sidebar.toggle()
+sidebar.toggle()
+check("toggle on inside a range opens immediately", find_pane(tab1) ~= nil)
+
+-- a plain cursor move into a range does wait out the debounce
+rest(code_win, 100)
+api.nvim_win_set_cursor(code_win, { 3, 0 })
+vim.cmd("doautocmd CursorMoved")
+check("no pane before the rest delay elapses", find_pane(tab1) == nil)
+vim.wait(300)
+
+local pane_buf, pane_win = find_pane(tab1)
+check("pane opened after resting on line 3", pane_win ~= nil)
+check("cursor stayed in code window", api.nvim_get_current_win() == code_win)
+check("pane is nofile + unmodifiable", vim.bo[pane_buf].buftype == "nofile"
+  and vim.bo[pane_buf].modifiable == false)
+
+local function pane_lines()
+  return api.nvim_buf_get_lines(pane_buf, 0, -1, false)
 end
 
 local function has_rule(lines)
   for _, l in ipairs(lines) do
-    local stripped = l:gsub("─", "")
-    if stripped == "" and #l > 0 then return true end
+    if l:gsub("─", "") == "" and #l > 0 then return true end
   end
   return false
 end
 
-move(code_win, 100)
-check("line 100 -> blank pane", pane_blank())
-
--- cursor on line 3: touches BOTH overlapping threads -> both blocks
-move(code_win, 3)
 local both = pane_lines()
-check("line 3 -> pane shows both threads", not pane_blank())
-check("blocks separated by a rule line", has_rule(both) and #both > 3)
+check("line 3 -> pane shows both overlapping threads", #both > 3 and has_rule(both))
 print("      pane: " .. table.concat(both, " / "))
 
--- a line covered by exactly one thread must render a single block
+-- a line covered by exactly one thread renders a single block
 local single = nil
 for l = 12, 69 do
   if covering(l) == 1 then single = l break end
 end
 if single then
-  move(code_win, single)
+  rest(code_win, single)
   check(("line %d -> single thread, no separator"):format(single),
-    not has_rule(pane_lines()) and not pane_blank())
+    not has_rule(pane_lines()))
 end
 
-move(code_win, 200)
-check("line 200 -> pane blank again", pane_blank())
+-- off every range: the split collapses (not blanks)
+rest(code_win, 100)
+check("line 100 -> pane collapsed", find_pane(tab1) == nil)
+check("marks survive pane collapse", #sign_rows(code_buf) == expected_marks)
 
--- ── per-tab behavior ──────────────────────────────────────────────
-move(code_win, 3) -- leave tab 1 showing thread content
+-- ── the toggle gates the pane only ────────────────────────────────
+sidebar.toggle() -- off
+rest(code_win, 3)
+check("toggle off: resting in a range opens nothing", find_pane(tab1) == nil)
+check("toggle off: marks stay", #sign_rows(code_buf) == expected_marks)
+sidebar.toggle() -- back on
+
+-- ── one pane globally, following the cursor across tabs ──────────
+rest(code_win, 3)
+check("pane back in tab 1", find_pane(tab1) ~= nil)
 vim.cmd("tabnew")
 vim.cmd("doautocmd TabEnter")
 local tab2 = api.nvim_get_current_tabpage()
-check("second tab spawned its own pane", tab2 ~= tab1 and find_pane(tab2) ~= nil)
-
--- a threadless file in tab 2 keeps its pane blank and tab 1's marks intact
 vim.cmd("edit README.md")
 vim.cmd("doautocmd BufEnter")
-local pane2_buf = find_pane(tab2)
-local l2 = api.nvim_buf_get_lines(pane2_buf, 0, -1, false)
-check("tab 2 pane blank for threadless file", #l2 == 1 and l2[1] == "")
-check("leaving a tab collapses its markers", #sign_rows(code_buf) == 0)
+vim.wait(300)
+check("threadless file: no pane in tab 2", find_pane(tab2) == nil)
+check("entering tab 2 collapsed tab 1's pane", find_pane(tab1) == nil)
+check("README carries no marks", #sign_rows(api.nvim_win_get_buf(api.nvim_get_current_win())) == 0)
 
--- back to tab 1: its pane re-renders from the tab's active window
-vim.cmd("tabnext")
-vim.cmd("doautocmd TabEnter")
-vim.cmd("doautocmd WinEnter")
-check("tab 1 pane re-renders on return", not pane_blank())
-check("markers re-placed on return", #sign_rows(code_buf) == expected_marks)
-
--- ── the same file driven from a second tab must not double marks ──
-vim.cmd("tabnext 2")
-vim.cmd("doautocmd TabEnter")
+-- same file from tab 2: its own pane opens, still exactly one
 vim.cmd("edit fnl/codeboomer/init.fnl")
 vim.cmd("doautocmd BufEnter")
-local dup = api.nvim_buf_get_extmarks(code_buf, ns, 0, -1, {})
-check("no duplicated marks for shared buffer", #dup == expected_marks)
-local three2 = {}
-for _, m in ipairs(dup) do
-  if m[2] + 1 == 3 then three2[#three2 + 1] = m end
-end
-check("mark count per covering line unchanged after shared drive",
-  #three2 == covering(3))
+rest(api.nvim_get_current_win(), 3)
+check("pane opens in tab 2", find_pane(tab2) ~= nil)
+check("shared buffer not double-marked", #sign_rows(code_buf) == expected_marks)
 
--- closing the active tab's pane collapses its markers; the buffer
--- keeps no residual set
-local _, pane2_win = find_pane(api.nvim_get_current_tabpage())
-api.nvim_win_close(pane2_win, true)
-check("closing a tab's pane collapses its markers",
-  #api.nvim_buf_get_extmarks(code_buf, ns, 0, -1, {}) == 0)
-
-vim.cmd("tabnext 1")
-vim.cmd("doautocmd TabEnter")
+-- back to tab 1 (cursor still resting in a range there): the pane
+-- moves back with focus
+vim.cmd("tabnext")
 vim.cmd("doautocmd WinEnter")
-check("markers re-placed after the other pane closed",
-  #sign_rows(code_buf) == expected_marks)
+vim.wait(300)
+check("pane follows focus back to tab 1", find_pane(tab1) ~= nil)
+check("tab 2 left without a pane", find_pane(tab2) == nil)
 
--- toggle off closes every pane in every tab
-sidebar.toggle()
-local remaining = 0
-for _, t in ipairs(api.nvim_list_tabpages()) do
-  if find_pane(t) then remaining = remaining + 1 end
-end
-check("toggle off closed all panes", remaining == 0)
-check("gutter marks cleared on close", #sign_rows(code_buf) == 0)
-check("signcolumn restored", vim.wo[code_win].signcolumn == "auto")
-check("augroup cleared", not pcall(function()
-  return api.nvim_get_autocmds({ group = "codeboomer-review-pane" })
-end))
+-- ── closing by hand collapses; resting reopens ────────────────────
+local _, pane1_win = find_pane(tab1)
+api.nvim_win_close(pane1_win, true)
+check("pane closed by :q stays closed", find_pane(tab1) == nil)
+rest(code_win, 3)
+check("pane reopens after resting again", find_pane(tab1) ~= nil)
 
--- reopen, and prove any window in the tab can drive the pane
+-- ── toggle off collapses everywhere, markers keep their hooks ─────
 sidebar.toggle()
-check("pane reopens", find_pane(api.nvim_get_current_tabpage()) ~= nil)
-vim.cmd("vsplit")
-vim.cmd("doautocmd WinEnter")
-local other = api.nvim_get_current_win()
-check("second split in tab drives pane", vim.wo[other].signcolumn == "auto:2")
+check("toggle off collapsed the pane", find_pane(tab1) == nil and find_pane(tab2) == nil)
+check("marks survive toggle off", #sign_rows(code_buf) == expected_marks)
+check("augroup kept for markers",
+  pcall(function() return api.nvim_get_autocmds({ group = "codeboomer-review-pane" }) end))
 
 print(fails == 0 and "ALL PASS" or (fails .. " FAILURES"))
 os.exit(fails == 0 and 0 or 1, true)

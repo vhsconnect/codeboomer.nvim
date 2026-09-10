@@ -8,7 +8,7 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - Fuzzy-finder interface (via fzf-lua) to select target panes, showing each pane's last output line and working directory, with a live content preview
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Annotation workflow — accumulate multiple code selections for review before sending
-- **Review comments panes (`Comments`)** — toggle per-tab side splits that show the comment thread under the cursor; they blank as soon as the cursor leaves the thread's lines, and commented ranges get per-thread colored `✎` gutter marks
+- **Review comments (`Comments`)** — commented ranges carry colored `✎` gutter marks (visible whenever a review session exists), and with `Comments` toggled on a side split follows the cursor: rest it inside a commented range and the thread's comments appear, move off and the split collapses
 - Bracketed-paste support for proper multi-line handling
 - **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane; define any number of user-named one-off commands and pick one with fzf when there is more than one
 
@@ -44,7 +44,7 @@ The plugin sets up no default keybindings; configure them like this:
 | Normal + Visual | `<leader>cc` | `AskOneOff` — run a one-off query; the answer is shown in a notification |
 | Normal | `<leader>cp` | `SetPane` — pick a tmux pane to send messages to |
 | Visual | `<leader>ca` | `Annotate` — add the selection (plus an optional note) to the query context |
-| Normal | `<leader>cm` | `Comments` — toggle the review comments side pane |
+| Normal | `<leader>cm` | `Comments` — toggle the review comments pane |
 | Normal | `<leader>cd` | `FlushWithDirective` — flush accumulated annotations with a directive |
 
 Disable or customize any binding under `keybindings` in `setup()` (set to `false` to disable):
@@ -173,7 +173,7 @@ Adds the current selection to an accumulated query context. Use this to annotate
 - Requires a pane to be selected first via `:Codeboomer SetPane`
 - With a visual range, the selection is included as context (`regarding <file> lines X to Y`); without one, the current file name is sent instead
 - The selection is stored and will be included in the next `:Codeboomer FlushWithDirective` call
-- The selection (plus note) is also recorded as a comment thread in the review session's database — `:Codeboomer Comments` displays these later
+- The selection (plus note) is also recorded as a comment thread in the review session's database — commented ranges get `✎` gutter marks, and `:Codeboomer Comments` shows a thread's comments when the cursor rests inside its range
 
 ```
 :'<,'>Codeboomer Annotate
@@ -181,33 +181,28 @@ Adds the current selection to an accumulated query context. Use this to annotate
 
 ### `:Codeboomer Comments`
 
-Toggles the review-comments side panes — plain vertical splits on the
-right, one per tabpage, each driven by the active window of its tab.
-While the cursor sits inside a comment thread's line range that tab's
-pane shows the thread's comments; as soon as the cursor leaves every
-thread's lines the pane goes blank.
+Toggles the review-comments pane feature. While it is on, resting the
+cursor (~100 ms) inside a comment thread's line range opens a side
+split on the right showing that thread's comments; moving off every
+thread's lines collapses the split again. At most one pane exists at a
+time and it follows the cursor across windows and tabpages.
 
 - Threads come from the current review session (the same one
-  `:Codeboomer Annotate` writes to); with no session yet the pane opens empty
-- While the review is active every tab entered spawns its own pane;
-  toggling off closes them all. Within a tab, window switches and cursor
-  moves re-render the pane from the focused window (the pane itself and
-  floating windows never drive it)
-- Overlapping threads are shown together, one block per thread (header line
-  plus every comment body)
-- New annotations show up immediately while panes are open
-- Commented ranges are marked in the driving buffer's gutter (a `✎`
-  sign per commented line) for as long as the review is active; each thread
-  gets its own theme-derived color (cycled from `Title`, `Special`,
-  `String`, `Function`), overlapping ranges show two consecutive marks
-  (the sign column is forced to `auto:2` on driving windows and restored
-  when the review ends). Markers live only on the active tab: switching
-  tabs collapses the previous tab's marks and re-places the entering
-  tab's (one small re-query per switch)
-- When the cursor touches several overlapping threads the pane stacks
-  one block per thread, separated by a `─` rule; block headers are tinted
-  with the thread's gutter color
-- Close a single pane with `:q`; toggle off to end the review everywhere
+  `:Codeboomer Annotate` writes to); the whole thread map is loaded
+  once at startup and reloaded whenever a new annotation lands
+- The `✎` gutter marks are independent of the toggle: they render in
+  every open buffer that carries session threads — one mark per
+  commented line, colored by thread (theme groups `Title`, `Special`,
+  `String`, `Function` cycled); the sign column is never modified
+- When the cursor rests on several overlapping threads the pane stacks
+  one block per thread, separated by a `─` rule; block headers are
+  tinted with the thread's mark color
+- The pane opens only after the cursor rests ~100 ms on a line, so
+  sweeping across range boundaries doesn't flicker the split; toggling
+  on while already resting inside a range opens it immediately
+- Closing the pane (`:q`) just collapses it — it reopens the next time
+  the cursor rests inside a range
+- Toggling off stops panes from opening; the gutter marks stay
 
 ```vim
 :Codeboomer Comments
