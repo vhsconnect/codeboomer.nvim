@@ -60,6 +60,11 @@
               1 (?. sessions 1 :id)
               _ (error "Multiple session not implemented"))))))))
 
+;; sha of a git_commit row — the GitHub reviews API anchors reviews
+;; with the commit SHA, not our local row id
+(fn M.commit-sha [commit-id]
+  (?. (sqlite.commit:get {:where {:id commit-id}}) 1 :hash))
+
 ;; active (not soft-deleted) threads of a session anchored to one file,
 ;; ordered top-to-bottom by their position in the file
 (fn M.threads-for [session-id file-path]

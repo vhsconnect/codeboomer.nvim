@@ -13,6 +13,16 @@
   ;; e.g. "/home/vhs/Repos/codeboomer.nvim" — the dir containing .git
   (vim.fs.root 0 :.git))
 
+;; every configured remote as {:name ... :url ...}, fetch lines only —
+;; a repo can carry several (e.g. a self-hosted origin plus github)
+(fn M.remotes []
+  (let [root (M.repo-root)]
+    (when root
+      (let [out (run root :remote :-v)]
+        (icollect [line (string.gmatch (or out "") "[^\n]+")]
+          (let [(name url kind) (string.match line "(%S+)%s+(%S+)%s+%((%a+)%)")]
+            (when (= kind "fetch") {: name : url})))))))
+
 (fn M.branch-name []
   ;; "HEAD" means detached; nil means not in a repo
   (let [root (M.repo-root)]

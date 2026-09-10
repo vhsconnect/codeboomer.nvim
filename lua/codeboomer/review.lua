@@ -114,17 +114,29 @@ M["active-session-id"] = function()
     return nil
   end
 end
+M["commit-sha"] = function(commit_id)
+  local t_23_ = sqlite.commit:get({where = {id = commit_id}})
+  if (nil ~= t_23_) then
+    t_23_ = t_23_[1]
+  else
+  end
+  if (nil ~= t_23_) then
+    t_23_ = t_23_.hash
+  else
+  end
+  return t_23_
+end
 M["threads-for"] = function(session_id, file_path)
   local rows = sqlite["active-rows"]((sqlite.thread:get({where = {session_id = session_id, file_path = file_path}}) or {}))
-  local function _23_(a, b)
+  local function _26_(a, b)
     return ((a.line_start or 0) < (b.line_start or 0))
   end
-  table.sort(rows, _23_)
+  table.sort(rows, _26_)
   return rows
 end
 M["threads-for-session"] = function(session_id)
   local rows = sqlite["active-rows"]((sqlite.thread:get({where = {session_id = session_id}}) or {}))
-  local function _24_(a, b)
+  local function _27_(a, b)
     local pa = (a.file_path or "")
     local pb = (b.file_path or "")
     if (pa == pb) then
@@ -133,12 +145,12 @@ M["threads-for-session"] = function(session_id)
       return (pa < pb)
     end
   end
-  table.sort(rows, _24_)
+  table.sort(rows, _27_)
   return rows
 end
 M["comments-for"] = function(thread_id)
   local rows = sqlite["active-rows"]((sqlite.comments:get({where = {thread_id = thread_id}}) or {}))
-  local function _26_(a, b)
+  local function _29_(a, b)
     local ta = (a.created_at or 0)
     local tb = (b.created_at or 0)
     if (ta == tb) then
@@ -147,7 +159,7 @@ M["comments-for"] = function(thread_id)
       return (ta < tb)
     end
   end
-  table.sort(rows, _26_)
+  table.sort(rows, _29_)
   return rows
 end
 M["create-session"] = function()

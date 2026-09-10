@@ -1,4 +1,4 @@
--- [nfnl] codeboomer/sidebar.fnl
+-- [nfnl] fnl/codeboomer/sidebar.fnl
 vim = vim
 local review = require("codeboomer.review")
 local M = {}
