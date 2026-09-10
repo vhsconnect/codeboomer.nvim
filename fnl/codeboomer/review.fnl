@@ -20,10 +20,7 @@
     (if (. entry? 1) (?. entry? 1 :id)
         (sqlite.commit:insert {:hash commit-hash :repo repo-id}))))
 
-(fn prn-debug [x] (print x) x)
-
 (fn M.user-comment [session-id file-path line-start line-end code body]
-  ;; we can optimize this later
   (let [user-id (with-user)
         repo-id (with-repo)
         commit-id (with-commit repo-id)
@@ -36,8 +33,9 @@
                                          :status :open
                                          :created_by user-id})]
     (sqlite.comments:insert {:thread_id thread-id
-                             :author_id (prn-debug user-id)
+                             :author_id user-id
                              : body
+                             :source "user"
                              :commit_id commit-id})))
 
 (fn M.get-sessions []
@@ -64,6 +62,36 @@
 ;; with the commit SHA, not our local row id
 (fn M.commit-sha [commit-id]
   (?. (sqlite.commit:get {:where {:id commit-id}}) 1 :hash))
+
+;; the delivery outbox: my nvim-authored annotations whose flag
+;; (:sent or :posted) is still 0, oldest first, each paired with its
+;; thread for context. Agent/github-sourced rows and other authors
+;; never enter an outbox — they arrived from where they'd be going.
+;; Empty bodies are skipped: they were never part of a flush.
+(fn M.pending-annotations [session-id flag]
+  (if (not session-id)
+      []
+      (let [me (with-user)
+            out []]
+        (each [_ t (ipairs (M.threads-for-session session-id))]
+          (each [_ c (ipairs (M.comments-for (or t.id 0)))]
+            (when (and (= (or c.author_id 0) me)
+                       (= (or c.source "user") "user")
+                       (= 0 (or (. c flag) 0))
+                       (not= "" (or c.body "")))
+              (table.insert out {:thread t :comment c}))))
+        out)))
+
+;; flip a delivery flag to 1 — raw SQL through with_open (the table
+;; helpers have no update-by-id-list, and raw statements need an open
+;; connection); the flag is whitelisted, ids come from our own queries
+(fn M.mark-annotations [flag ids]
+  (when (vim.tbl_contains [:sent :posted] flag)
+    (sqlite.db:with_open
+      (fn [d]
+        (each [_ id (ipairs ids)]
+          (d:execute (string.format "update comment set %s = 1 where id = %d"
+                                    (tostring flag) (or id 0))))))))
 
 ;; active (not soft-deleted) threads of a session anchored to one file,
 ;; ordered top-to-bottom by their position in the file

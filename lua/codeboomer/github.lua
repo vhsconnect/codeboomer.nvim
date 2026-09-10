@@ -1,4 +1,4 @@
--- [nfnl] codeboomer/github.fnl
+-- [nfnl] fnl/codeboomer/github.fnl
 vim = vim
 local git = require("codeboomer.git")
 local review = require("codeboomer.review")
@@ -80,45 +80,40 @@ M["pr-for-branch"] = function(_3fbranch, _3fthen)
     return vim.system({"gh", "pr", "view", branch, "--repo", slug, "--json", "number,url"}, {text = true}, _9_)
   end
 end
-local function review_comment(t)
-  local bodies
-  do
-    local tbl_26_ = {}
-    local i_27_ = 0
-    for _, c in ipairs(review["comments-for"]((t.id or 0))) do
-      local val_28_ = (c.body or "")
-      if (nil ~= val_28_) then
-        i_27_ = (i_27_ + 1)
-        tbl_26_[i_27_] = val_28_
-      else
-      end
-    end
-    bodies = tbl_26_
+local function rel_path(path)
+  local root = git["repo-root"]()
+  if (root and path and (1 == path:find((root .. "/"), 1, true))) then
+    return path:sub((2 + #root))
+  else
+    return (path or "")
   end
-  local pr_comment = {path = (t.file_path or ""), line = (t.line_end or (t.line_start or 1)), body = table.concat(bodies, "\n\n")}
+end
+local function pr_comment(t, c)
+  local item = {path = rel_path(t.file_path), line = (t.line_end or (t.line_start or 1)), body = (c.body or "")}
   if (t.line_start and t.line_end and (t.line_start < t.line_end)) then
-    pr_comment.start_line = t.line_start
+    item.start_line = t.line_start
   else
   end
-  return pr_comment
+  return item
 end
-local function group_by_commit(threads)
+local function group_pending(pending)
   local groups = {}
-  for _, t in ipairs(threads) do
-    local sha = (review["commit-sha"]((t.anchor_commit or 0)) or "?")
+  for _, a in ipairs(pending) do
+    local sha = (review["commit-sha"]((a.thread.anchor_commit or 0)) or "?")
+    local entry = {item = pr_comment(a.thread, a.comment), id = a.comment.id}
     local bucket = (groups[sha] or {})
-    table.insert(bucket, t)
+    table.insert(bucket, entry)
     groups[sha] = bucket
   end
   return groups
 end
-local function post_review(slug, pr_number, event, sha, threads)
+local function post_review(slug, pr_number, event, sha, entries)
   local comments
   do
     local tbl_26_ = {}
     local i_27_ = 0
-    for _, t in ipairs(threads) do
-      local val_28_ = review_comment(t)
+    for _, e in ipairs(entries) do
+      local val_28_ = e.item
       if (nil ~= val_28_) then
         i_27_ = (i_27_ + 1)
         tbl_26_[i_27_] = val_28_
@@ -127,46 +122,61 @@ local function post_review(slug, pr_number, event, sha, threads)
     end
     comments = tbl_26_
   end
-  local payload = {body = string.format("codeboomer review \226\128\148 %d thread(s)", #comments), event = event, comments = comments}
+  local ids
+  do
+    local tbl_26_ = {}
+    local i_27_ = 0
+    for _, e in ipairs(entries) do
+      local val_28_ = e.id
+      if (nil ~= val_28_) then
+        i_27_ = (i_27_ + 1)
+        tbl_26_[i_27_] = val_28_
+      else
+      end
+    end
+    ids = tbl_26_
+  end
+  local payload = {body = string.format("codeboomer review \226\128\148 %d annotation(s)", #comments), event = event, comments = comments}
   if (sha ~= "?") then
     payload.commit_id = sha
   else
   end
-  local function _17_(obj)
+  local function _18_(obj)
     if (obj.code == 0) then
       local res = vim.json.decode((obj.stdout or "{}"))
-      local or_18_ = res.html_url
-      if not or_18_ then
-        local function _20_()
-          local t_19_ = res
-          if (nil ~= t_19_) then
-            t_19_ = t_19_.id
+      review["mark-annotations"]("posted", ids)
+      local or_19_ = res.html_url
+      if not or_19_ then
+        local function _21_()
+          local t_20_ = res
+          if (nil ~= t_20_) then
+            t_20_ = t_20_.id
           else
           end
-          return t_19_
+          return t_20_
         end
-        or_18_ = tostring(_20_())
+        or_19_ = tostring(_21_())
       end
-      return notify(string.format("codeboomer: posted %d comment(s) \226\128\148 %s", #comments, or_18_), vim.log.levels.INFO)
+      return notify(string.format("codeboomer: posted %d annotation(s) \226\128\148 %s", #comments, or_19_), vim.log.levels.INFO)
     else
       return notify(string.format("codeboomer: gh api failed (exit %d)\n%s", obj.code, (obj.stderr or "")), vim.log.levels.ERROR)
     end
   end
-  return vim.system({"gh", "api", string.format("repos/%s/pulls/%s/reviews", slug, pr_number), "--input", "-"}, {input = vim.json.encode(payload), text = true}, _17_)
+  return vim.system({"gh", "api", string.format("repos/%s/pulls/%s/reviews", slug, pr_number), "--input", "-"}, {input = vim.json.encode(payload), text = true}, _18_)
 end
 M["post-threads"] = function(_3fopts)
   local opts = (_3fopts or {})
   local ok, sid_default = pcall(review["active-session-id"])
   local sid
-  local or_23_ = opts["session-id"]
-  if not or_23_ then
+  local or_24_ = opts["session-id"]
+  if not or_24_ then
     if ok then
-      or_23_ = sid_default
+      or_24_ = sid_default
     else
-      or_23_ = nil
+      or_24_ = nil
     end
   end
-  sid = or_23_
+  sid = or_24_
   local branch = (opts.branch or git["branch-name"]())
   local slug = github_slug()
   if not ok then
@@ -176,21 +186,21 @@ M["post-threads"] = function(_3fopts)
   elseif not sid then
     return notify("codeboomer: no review session to post", vim.log.levels.WARN)
   else
-    local threads = review["threads-for-session"](sid)
-    if (0 == #threads) then
-      return notify("codeboomer: session has no threads", vim.log.levels.WARN)
+    local pending = review["pending-annotations"](sid, "posted")
+    if (0 == #pending) then
+      return notify("codeboomer: nothing to post \226\128\148 no unposted annotations", vim.log.levels.WARN)
     else
-      local function _25_(pr)
+      local function _26_(pr)
         if pr then
-          for sha, ts in pairs(group_by_commit(threads)) do
-            post_review(slug, pr.number, (opts.event or "COMMENT"), sha, ts)
+          for sha, entries in pairs(group_pending(pending)) do
+            post_review(slug, pr.number, (opts.event or "COMMENT"), sha, entries)
           end
           return nil
         else
           return notify(("codeboomer: no open PR for " .. (branch or "?")), vim.log.levels.WARN)
         end
       end
-      return M["pr-for-branch"](branch, _25_)
+      return M["pr-for-branch"](branch, _26_)
     end
   end
 end

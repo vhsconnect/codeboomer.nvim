@@ -1,7 +1,8 @@
 -- headless smoke test for the ephemeral review-comments pane
 -- run: nvim --headless -u NONE --cmd "set rtp^=..." -c "luafile test-sidebar.lua"
--- (cwd = repo root; the shell wrapper widens thread 2 to overlap thread 1
--- and restores it afterwards; DB reads only)
+-- (cwd = repo root; SELF-SEEDING: creates a session and two overlapping
+-- threads through the real write path, and wipes them again at the end —
+-- the DB is expected to start empty and is left empty)
 --
 -- the pane opens only after the cursor RESTS ~100 ms inside a thread's
 -- range (the debounce), so every cursor move below is followed by a
@@ -26,11 +27,18 @@ local function rest(win, line)
   vim.wait(300)
 end
 
--- target file: thread #1 at 3-3, thread #2 widened to 1-69 by the wrapper
+-- target file: thread #1 at 3-3, thread #2 at 1-69 (overlap on line 3)
 vim.cmd("edit fnl/codeboomer/init.fnl")
 local code_win = api.nvim_get_current_win()
 local code_buf = api.nvim_win_get_buf(code_win)
 local tab1 = api.nvim_get_current_tabpage()
+
+local review = require("codeboomer.review")
+review["create-session"]()
+local sid = review["active-session-id"]()
+local path = api.nvim_buf_get_name(code_buf)
+review["user-comment"](sid, path, 3, 3, "code A", "testing")
+review["user-comment"](sid, path, 1, 69, "code B", "another test")
 
 local sidebar = require("codeboomer.sidebar")
 -- -c chunks run BEFORE VimEnter, and os.exit kills nvim before the main
@@ -199,6 +207,18 @@ check("toggle off collapsed the pane", find_pane(tab1) == nil and find_pane(tab2
 check("marks survive toggle off", #sign_rows(code_buf) == expected_marks)
 check("augroup kept for markers",
   pcall(function() return api.nvim_get_autocmds({ group = "codeboomer-review-pane" }) end))
+
+-- wipe the seeded rows — leave the DB as empty as it was found
+-- (deletes in child-first order; a fresh with_open connection does not
+-- necessarily run with pragma foreign_keys on, so cascades can't be relied on)
+require("codeboomer.sqlite").db:with_open(function(d)
+  d:execute("delete from comment")
+  d:execute("delete from comment_thread")
+  d:execute("delete from session")
+  d:execute("delete from git_commit")
+  d:execute("delete from repo")
+  d:execute("delete from user")
+end)
 
 print(fails == 0 and "ALL PASS" or (fails .. " FAILURES"))
 os.exit(fails == 0 and 0 or 1, true)

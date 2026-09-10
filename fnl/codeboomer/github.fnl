@@ -1,5 +1,5 @@
 ;; [nfnl] codeboomer/github.fnl
-;; Bindings for pushing local review threads to a GitHub pull request
+;; Bindings for pushing review annotations to a GitHub pull request
 ;; through the `gh` CLI. NOT wired into any command or keymap yet —
 ;; this module only provides the primitives.
 ;;
@@ -7,11 +7,13 @@
 ;; repo slug comes from whichever remote points at github.com (origin
 ;; wins when it is one; repos mirrored to a self-hosted origin still
 ;; resolve through their github remote), and the PR from that branch's
-;; open pull request. Threads are posted as PR reviews — one review per
-;; anchor commit, so every inline comment resolves against the exact
-;; diff it was annotated on. Line numbers are the local DB's; GitHub
-;; validates them against the PR diff and rejects comments on lines
-;; that are not part of it (the error surfaces via vim.notify).
+;; open pull request. Only UNPOSTED annotations are sent (the DB is the
+;; outbox — review.pending-annotations picks them), one review per
+;; anchor commit so every inline comment resolves against the exact
+;; diff it was annotated on; on success the rows are marked posted.
+;; Line numbers are the local DB's; GitHub validates them against the
+;; PR diff and rejects comments on lines that are not part of it (the
+;; error surfaces via vim.notify).
 (global vim vim)
 
 (local git (require :codeboomer.git))
@@ -72,36 +74,45 @@
                                    (parse-pr obj.stdout)
                                    nil))))))))
 
-;; one local thread → one inline PR comment: the range becomes
-;; start_line/line (equal endpoints collapse to a single line), the
-;; body carries every local comment of the thread verbatim, oldest first
-(fn review-comment [t]
-  (let [bodies (icollect [_ c (ipairs (review.comments-for (or t.id 0)))]
-                 (or c.body ""))
-        pr-comment {:path (or t.file_path "")
-                    :line (or t.line_end (or t.line_start 1))
-                    :body (table.concat bodies "\n\n")}]
-    (when (and t.line_start t.line_end (< t.line_start t.line_end))
-      (set pr-comment.start_line t.line_start))
-    pr-comment))
+;; GitHub wants repo-relative paths; threads store absolute ones
+(fn rel-path [path]
+  (let [root (git.repo-root)]
+    (if (and root path (= 1 (path:find (.. root "/") 1 true)))
+        (path:sub (+ 2 (length root)))
+        (or path ""))))
 
-;; threads grouped by anchor-commit SHA — a GitHub review anchors to
-;; ONE commit, so threads annotated on different commits need separate
-;; reviews for their line numbers to resolve against the right diff;
-;; "?" buckets threads whose commit row is gone (posted unanchored)
-(fn group-by-commit [threads]
+;; one pending annotation → one inline PR comment: the range becomes
+;; start_line/line (equal endpoints collapse to a single line), the
+;; body is the annotation's text
+(fn pr-comment [t c]
+  (let [item {:path (rel-path t.file_path)
+              :line (or t.line_end (or t.line_start 1))
+              :body (or c.body "")}]
+    (when (and t.line_start t.line_end (< t.line_start t.line_end))
+      (set item.start_line t.line_start))
+    item))
+
+;; pending annotations grouped by anchor-commit SHA — a GitHub review
+;; anchors to ONE commit, so annotations written on different commits
+;; need separate reviews for their line numbers to resolve against the
+;; right diff; "?" buckets annotations whose commit row is gone (posted
+;; unanchored)
+(fn group-pending [pending]
   (let [groups {}]
-    (each [_ t (ipairs threads)]
-      (let [sha (or (review.commit-sha (or t.anchor_commit 0)) "?")
+    (each [_ a (ipairs pending)]
+      (let [sha (or (review.commit-sha (or a.thread.anchor_commit 0)) "?")
+            entry {:item (pr-comment a.thread a.comment) :id a.comment.id}
             bucket (or (. groups sha) [])]
-        (table.insert bucket t)
+        (table.insert bucket entry)
         (tset groups sha bucket)))
     groups))
 
-;; POST one review: gh api reads the JSON payload from stdin
-(fn post-review [slug pr-number event sha threads]
-  (let [comments (icollect [_ t (ipairs threads)] (review-comment t))
-        payload {:body (string.format "codeboomer review — %d thread(s)"
+;; POST one review: gh api reads the JSON payload from stdin — on
+;; success the annotations are marked posted, so the outbox drains
+(fn post-review [slug pr-number event sha entries]
+  (let [comments (icollect [_ e (ipairs entries)] e.item)
+        ids (icollect [_ e (ipairs entries)] e.id)
+        payload {:body (string.format "codeboomer review — %d annotation(s)"
                                       (length comments))
                  : event
                  : comments}]
@@ -115,7 +126,8 @@
                 (fn [obj]
                   (if (= obj.code 0)
                       (let [res (vim.json.decode (or obj.stdout "{}"))]
-                        (notify (string.format "codeboomer: posted %d comment(s) — %s"
+                        (review.mark-annotations :posted ids)
+                        (notify (string.format "codeboomer: posted %d annotation(s) — %s"
                                                (length comments)
                                                (or res.html_url
                                                    (tostring (?. res :id))))
@@ -124,10 +136,10 @@
 %s" obj.code (or obj.stderr ""))
                               vim.log.levels.ERROR))))))
 
-;; post every thread of a review session to the branch's open PR, one
-;; review per anchor commit. opts: {:session-id :branch :event} — event
-;; is the GitHub review event (:COMMENT default, also :REQUEST_CHANGES,
-;; :APPROVE)
+;; post every UNPOSTED annotation of a review session to the branch's
+;; open PR, one review per anchor commit. opts: {:session-id :branch
+;; :event} — event is the GitHub review event (:COMMENT default, also
+;; :REQUEST_CHANGES, :APPROVE)
 (fn M.post-threads [?opts]
   (let [opts (or ?opts {})
         (ok sid-default) (pcall review.active-session-id)
@@ -141,16 +153,17 @@
                 vim.log.levels.ERROR)
         (not sid)
         (notify "codeboomer: no review session to post" vim.log.levels.WARN)
-        (let [threads (review.threads-for-session sid)]
-          (if (= 0 (length threads))
-              (notify "codeboomer: session has no threads" vim.log.levels.WARN)
+        (let [pending (review.pending-annotations sid :posted)]
+          (if (= 0 (length pending))
+              (notify "codeboomer: nothing to post — no unposted annotations"
+                      vim.log.levels.WARN)
               (M.pr-for-branch branch
                                (fn [pr]
                                  (if pr
-                                     (each [sha ts (pairs (group-by-commit threads))]
+                                     (each [sha entries (pairs (group-pending pending))]
                                        (post-review slug pr.number
                                                     (or opts.event :COMMENT) sha
-                                                    ts))
+                                                    entries))
                                      (notify (.. "codeboomer: no open PR for "
                                                  (or branch "?"))
                                              vim.log.levels.WARN)))))))))

@@ -57,16 +57,12 @@ local function with_commit(repo_id)
     return sqlite.commit:insert({hash = commit_hash, repo = repo_id})
   end
 end
-local function prn_debug(x)
-  print(x)
-  return x
-end
 M["user-comment"] = function(session_id, file_path, line_start, line_end, code, body)
   local user_id = with_user()
   local repo_id = with_repo()
   local commit_id = with_commit(repo_id)
   local thread_id = sqlite.thread:insert({session_id = session_id, file_path = file_path, line_start = line_start, line_end = line_end, code_snapshot = code, anchor_commit = commit_id, status = "open", created_by = user_id})
-  return sqlite.comments:insert({thread_id = thread_id, author_id = prn_debug(user_id), body = body, commit_id = commit_id})
+  return sqlite.comments:insert({thread_id = thread_id, author_id = user_id, body = body, source = "user", commit_id = commit_id})
 end
 M["get-sessions"] = function()
   return sqlite.session:get({where = {repo_id = with_repo()}})
@@ -126,17 +122,47 @@ M["commit-sha"] = function(commit_id)
   end
   return t_23_
 end
+M["pending-annotations"] = function(session_id, flag)
+  if not session_id then
+    return {}
+  else
+    local me = with_user()
+    local out = {}
+    for _, t in ipairs(M["threads-for-session"](session_id)) do
+      for _0, c in ipairs(M["comments-for"]((t.id or 0))) do
+        if (((c.author_id or 0) == me) and ((c.source or "user") == "user") and (0 == (c[flag] or 0)) and ("" ~= (c.body or ""))) then
+          table.insert(out, {thread = t, comment = c})
+        else
+        end
+      end
+    end
+    return out
+  end
+end
+M["mark-annotations"] = function(flag, ids)
+  if vim.tbl_contains({"sent", "posted"}, flag) then
+    local function _28_(d)
+      for _, id in ipairs(ids) do
+        d:execute(string.format("update comment set %s = 1 where id = %d", tostring(flag), (id or 0)))
+      end
+      return nil
+    end
+    return sqlite.db:with_open(_28_)
+  else
+    return nil
+  end
+end
 M["threads-for"] = function(session_id, file_path)
   local rows = sqlite["active-rows"]((sqlite.thread:get({where = {session_id = session_id, file_path = file_path}}) or {}))
-  local function _26_(a, b)
+  local function _30_(a, b)
     return ((a.line_start or 0) < (b.line_start or 0))
   end
-  table.sort(rows, _26_)
+  table.sort(rows, _30_)
   return rows
 end
 M["threads-for-session"] = function(session_id)
   local rows = sqlite["active-rows"]((sqlite.thread:get({where = {session_id = session_id}}) or {}))
-  local function _27_(a, b)
+  local function _31_(a, b)
     local pa = (a.file_path or "")
     local pb = (b.file_path or "")
     if (pa == pb) then
@@ -145,12 +171,12 @@ M["threads-for-session"] = function(session_id)
       return (pa < pb)
     end
   end
-  table.sort(rows, _27_)
+  table.sort(rows, _31_)
   return rows
 end
 M["comments-for"] = function(thread_id)
   local rows = sqlite["active-rows"]((sqlite.comments:get({where = {thread_id = thread_id}}) or {}))
-  local function _29_(a, b)
+  local function _33_(a, b)
     local ta = (a.created_at or 0)
     local tb = (b.created_at or 0)
     if (ta == tb) then
@@ -159,7 +185,7 @@ M["comments-for"] = function(thread_id)
       return (ta < tb)
     end
   end
-  table.sort(rows, _29_)
+  table.sort(rows, _33_)
   return rows
 end
 M["create-session"] = function()

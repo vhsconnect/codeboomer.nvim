@@ -65,6 +65,10 @@
                        :author_id {:type :integer
                                    :reference :user.id
                                    :on_delete :cascade}
+                       ;; user, agent, github
+                       :source :text
+                       :sent {:type :integer :default 0}
+                       :posted {:type :integer :default 0}
                        :created_at {:type :integer
                                     :default (sqlite.lib.strftime "%s" :now)}
                        :deleted_at :integer})

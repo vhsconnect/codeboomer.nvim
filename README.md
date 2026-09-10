@@ -168,12 +168,13 @@ sent instead).
 
 ### `:Codeboomer Annotate`
 
-Adds the current selection to an accumulated query context. Use this to annotate multiple code sections before sending a directive.
+Adds the current selection to the review session's annotation outbox. Use this to annotate multiple code sections before sending a directive.
 
 - Requires a pane to be selected first via `:Codeboomer SetPane`
 - With a visual range, the selection is included as context (`regarding <file> lines X to Y`); without one, the current file name is sent instead
-- The selection is stored and will be included in the next `:Codeboomer FlushWithDirective` call
-- The selection (plus note) is also recorded as a comment thread in the review session's database — commented ranges get `✎` gutter marks, and `:Codeboomer Comments` shows a thread's comments when the cursor rests inside its range
+- Annotations are stored in the review session's database — the single store — each as its own thread, tracked as not-yet-sent (agent) and not-yet-posted (GitHub); they are included in the next `:Codeboomer FlushWithDirective` call until sent
+- Commented ranges get `✎` gutter marks, and `:Codeboomer Comments` shows a thread's comments when the cursor rests inside its range
+- Empty notes are ignored
 
 ```
 :'<,'>Codeboomer Annotate
@@ -212,11 +213,11 @@ time and it follows the cursor across windows and tabpages.
 
 > [!warn] **Tentative API** — This command is experimental and subject to change in future versions.
 
-Opens fzf to select a pre-defined directive, then sends it along with all previously accumulated annotations from `:Codeboomer Annotate`.
+Opens fzf to select a pre-defined directive, then sends it along with all unsent annotations from `:Codeboomer Annotate`.
 
 - Requires a pane to be selected first via `:Codeboomer SetPane`
 - Select from a list of pre-defined directives (see Configuration below for customizing)
-- After sending, the annotation context is cleared
+- After sending, the delivered annotations are marked `sent` in the database — they persist (with their `✎` marks) but are never re-sent; annotations survive restarts because the database is the only outbox
 
 ```vim
 :Codeboomer FlushWithDirective
@@ -235,7 +236,7 @@ For more complex queries, you can build up context across multiple selections:
 
 1. Select a pane with `<leader>cp`
 2. Select code sections and run `<leader>ca` (or `:Codeboomer Annotate`) to add annotations to your query
-3. When ready, run `<leader>cd` (or `:Codeboomer FlushWithDirective`) to send your directive along with all accumulated annotations
+3. When ready, run `<leader>cd` (or `:Codeboomer FlushWithDirective`) to send your directive along with all unsent annotations — the database is the outbox, so annotations survive restarts
 
 ## Development
 

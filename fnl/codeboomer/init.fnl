@@ -6,7 +6,7 @@
 (local review (require :codeboomer.review))
 (local one-offs (require :codeboomer.one-offs))
 
-(local state {:pane nil :query-parts {} :session-id nil})
+(local state {:pane nil :session-id nil})
 
 (local M {})
 
@@ -212,8 +212,6 @@
                                           ;; execute callback when passed
                                           (when ?then (?then cmd))))}})))
 
-(fn clear-annotations [] (set state.query-parts {}))
-
 (set M.RunOneOff run-one-off)
 
 (fn concat-list [lines]
@@ -242,6 +240,11 @@
           context.line2 "\n" context.lines "\n" text "\n")
       (let [file (vim.api.nvim_buf_get_name 0)]
         (.. "regarding " file "\n" text "\n"))))
+
+(fn annotation-message [t c]
+  (string.format "regarding %s lines %s to %s\n%s\n%s" (or t.file_path "?")
+                 (or t.line_start "?") (or t.line_end "?")
+                 (or t.code_snapshot "") (or c.body "")))
 
 (set M.SetPane
      (fn []
@@ -292,21 +295,22 @@
                    (input.open {:title " Annotate> "
                                 :on-submit (fn [lines]
                                              (let [text (concat-list lines)]
-                                               (with-session (do
-                                                               (review.user-comment state.session-id
-                                                                                    context.file
-                                                                                    context.line1
-                                                                                    context.line2
-                                                                                    context.lines
-                                                                                    text)
-                                                               ;; let an open review pane pick the
-                                                               ;; fresh thread up
-                                                               (vim.api.nvim_exec_autocmds :User
-                                                                                           {:pattern :CodeboomerAnnotated})))
-                                               (when (not= text "")
-                                                 (table.insert state.query-parts
-                                                               (compose-message context
-                                                                                text)))))})))))
+                                               ;; the DB is the only store now — an
+                                               ;; empty note would only pollute threads
+                                               (if (= text "")
+                                                   (schedule-notify "codeboomer: empty annotation ignored"
+                                                                    vim.log.levels.WARN)
+                                                   (with-session (do
+                                                                   (review.user-comment state.session-id
+                                                                                        context.file
+                                                                                        context.line1
+                                                                                        context.line2
+                                                                                        context.lines
+                                                                                        text)
+                                                                   ;; let an open review pane pick the
+                                                                   ;; fresh thread up
+                                                                   (vim.api.nvim_exec_autocmds :User
+                                                                                               {:pattern :CodeboomerAnnotated}))))))})))))
 
 (set M.FlushWithDirective
      (fn []
@@ -319,14 +323,25 @@
                                   :actions {:default (fn [selected]
                                                        (let [selected-label (. selected
                                                                                1)
-                                                             directive-text (directives.get selected-label)
-                                                             annotations (concat-list-with-format state.query-parts
-                                                                                                  "==Section Start=="
-                                                                                                  "===="
-                                                                                                  "==Section End==")]
-                                                         (send-keys-to-selected-pane (.. annotations
-                                                                                         directive-text
-                                                                                         "\n"))
-                                                         (clear-annotations)))}})))))
+                                                             directive-text (directives.get selected-label)]
+                                                         (with-session (let [pending (review.pending-annotations state.session-id
+                                                                                                                 :sent)]
+                                                                         (if (= 0
+                                                                                (length pending))
+                                                                             (schedule-notify "codeboomer: nothing to flush — no unsent annotations"
+                                                                                              vim.log.levels.WARN)
+                                                                             (let [messages (icollect [_ a (ipairs pending)]
+                                                                                              (annotation-message a.thread
+                                                                                                                  a.comment))
+                                                                                   annotations (concat-list-with-format messages
+                                                                                                                        "==Section Start=="
+                                                                                                                        "===="
+                                                                                                                        "==Section End==")]
+                                                                               (send-keys-to-selected-pane (.. annotations
+                                                                                                               directive-text
+                                                                                                               "\n"))
+                                                                               (review.mark-annotations :sent
+                                                                                                        (icollect [_ a (ipairs pending)]
+                                                                                                          a.comment.id))))))))}})))))
 
 M
