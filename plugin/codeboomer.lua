@@ -38,6 +38,10 @@ subcommands.Comments = function()
   require("codeboomer.sidebar").toggle()
 end
 
+subcommands.Enter = function()
+  require("codeboomer.sidebar").enter()
+end
+
 subcommands.FlushWithDirective = function()
   require("codeboomer").FlushWithDirective()
 end

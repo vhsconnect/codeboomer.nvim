@@ -6,14 +6,19 @@
 ;; lines the split collapses — the pane holds no state of its own, so
 ;; there is no per-tab registry: at most one pane window exists at any
 ;; moment and it follows the cursor across windows and tabpages.
-;; Gutter markers (✎ extmark signs) are INDEPENDENT of the toggle: they
+;; Gutter markers (▌ extmark signs) are INDEPENDENT of the toggle: they
 ;; are placed in every loaded buffer carrying threads of the current
 ;; review session. The whole thread map is loaded once at startup and
 ;; reloaded whenever a new annotation lands — buffer enters are plain
 ;; map lookups, never queries.
+;; The pane is not read-only: three buffer-local keys act on what it
+;; shows (r composes a reply in the floating input, q resolves, n hops
+;; to the file's next thread), and M.enter / :Codeboomer Enter moves
+;; the cursor into it.
 (global vim vim)
 
 (local review (require :codeboomer.review))
+(local input (require :codeboomer.input))
 
 (local M {})
 
@@ -21,9 +26,11 @@
 (local pane-buf-name "codeboomer://review-comments")
 (local extmark-ns (vim.api.nvim_create_namespace :codeboomer-review-pane))
 (local pane-width 40)
-;; one symbol per commented line — a plain signcolumn=auto always has
-;; room for a single mark, so no window options are ever touched
-(local sign-text "✎")
+;; one gitsigns-style vertical bar per commented line — the half-block
+;; fills the sign-column cell so consecutive lines read as one solid
+;; rule; a plain signcolumn=auto always has room for a single mark, so
+;; no window options are ever touched
+(local sign-text "▌")
 ;; the cursor must rest this long on a line before the pane reacts, so
 ;; sweeping across range boundaries doesn't flicker the split
 (local rest-ms 100)
@@ -37,6 +44,13 @@
 ;; CodeboomerAnnotated
 (var threads-by-path {})
 (var timer-id nil)
+;; in-pane context, recorded on every render: the code window the pane
+;; mirrors and what the pane currently shows — the buffer-local pane
+;; keys (r/q/n) act on these without the cursor ever leaving the pane
+(var pane-source-win nil)
+(var pane-path nil)
+(var pane-threads nil)
+(var pane-header-rows [])
 
 ;; per-thread colors cycle through groups every colorscheme defines, so
 ;; the tint follows the theme for free; index is the thread's position
@@ -68,13 +82,18 @@
                                              :sign_hl_group hl}))))))))
 
 ;; refresh every buffer that is around right now; buffers entered later
-;; get their marks from the BufEnter hook
+;; get their marks from the BufEnter hook. Buffers with no remaining
+;; threads go through place-marks with an empty list, so threads that
+;; resolved (soft-deleted) lose their marks too; nofile buffers are
+;; skipped — the pane itself shares this namespace for its header tints
+(fn normal-buf [bufnr]
+  (= "" (or (?. vim.bo bufnr :buftype) "")))
+
 (fn mark-loaded-buffers []
   (each [_ bufnr (ipairs (vim.api.nvim_list_bufs))]
-    (when (vim.api.nvim_buf_is_loaded bufnr)
-      (let [path (vim.api.nvim_buf_get_name bufnr)
-            threads (. threads-by-path path)]
-        (when threads (place-marks bufnr threads))))))
+    (when (and (vim.api.nvim_buf_is_loaded bufnr) (normal-buf bufnr))
+      (let [path (vim.api.nvim_buf_get_name bufnr)]
+        (place-marks bufnr (or (. threads-by-path path) []))))))
 
 ;; threads covering a line of a file, straight from the in-memory map
 (fn threads-at [path line]
@@ -92,7 +111,8 @@
 ;; one block per covering thread: a header line tinted with the thread's
 ;; gutter color plus every comment body verbatim, blocks separated by a
 ;; rule so overlapping threads read as distinct messages. Header rows
-;; come back 1-based with their hl group so render-pane can tint them
+;; come back 1-based with their hl group (for render-pane's tint) and
+;; their thread (for the in-pane actions)
 (fn render [path threads]
   (let [lines []
         headers []
@@ -100,7 +120,8 @@
     (each [i t (ipairs threads)]
       (when (> i 1) (table.insert lines (string.rep "─" pane-width)))
       (table.insert headers {:row (+ (length lines) 1)
-                             :hl (thread-hl (or (. t :hl-index) i))})
+                             :hl (thread-hl (or (. t :hl-index) i))
+                             :thread t})
       (table.insert lines (thread-header base t))
       (each [_ c (ipairs (review.comments-for t.id))]
         (each [_ l (ipairs (vim.split (or c.body "") "\n"))]
@@ -111,6 +132,10 @@
   (let [buf (vim.api.nvim_win_get_buf pane-win)
         bo (. vim.bo buf)
         {: lines : headers} (render path threads)]
+    ;; remember what is on screen — the pane keys below read it back
+    (set pane-path path)
+    (set pane-threads threads)
+    (set pane-header-rows headers)
     (vim.api.nvim_buf_clear_namespace buf extmark-ns 0 -1)
     (set bo.modifiable true)
     (vim.api.nvim_buf_set_lines buf 0 -1 false lines)
@@ -118,6 +143,68 @@
     (each [_ h (ipairs headers)]
       (vim.api.nvim_buf_set_extmark buf extmark-ns (- h.row 1) 0
                                     {:line_hl_group h.hl}))))
+
+;; ── in-pane actions ─────────────────────────────────────────────
+
+;; the thread whose block the pane cursor rests in: header rows come
+;; back ascending, so the last one at-or-above the cursor wins — a
+;; cursor on the ── rule between blocks still belongs to the block above
+(fn pane-thread-at [row]
+  (var t nil)
+  (each [_ h (ipairs pane-header-rows) &until (> h.row row)]
+    (set t h.thread))
+  t)
+
+;; re-render from the recorded context — needed after in-pane edits
+;; because check-now deliberately ignores the pane window, so a focused
+;; pane would otherwise stay stale until the cursor moves back to code
+(fn refresh-pane []
+  (when (and pane-win (vim.api.nvim_win_is_valid pane-win))
+    (render-pane pane-path pane-threads)))
+
+;; r — reply to the block under the pane cursor through the same
+;; floating compose input Annotate uses; the reply is a plain user
+;; comment, so it joins the flush outbox like any annotation
+(fn pane-reply []
+  (let [t (pane-thread-at (?. (vim.api.nvim_win_get_cursor pane-win) 1))]
+    (if (not t)
+        (vim.notify "codeboomer: no thread block under the pane cursor"
+                    vim.log.levels.WARN)
+        (input.open {:title (string.format " Reply to thread #%d> " (or t.id 0))
+                     :on-submit (fn [lines]
+                                  (when (review.user-reply (or t.id 0)
+                                                           (table.concat lines
+                                                                         "\n"))
+                                    (refresh-pane)))}))))
+
+;; q — resolve the block under the pane cursor: resolved threads are
+;; soft-deleted, so a reload rebuilds the map (and the marks) without
+;; it; the check the reload schedules re-evaluates the pane against
+;; the code window, dropping the block or collapsing the pane when
+;; nothing covers the line anymore
+(fn pane-resolve []
+  (let [t (pane-thread-at (?. (vim.api.nvim_win_get_cursor pane-win) 1))]
+    (if (not t)
+        (vim.notify "codeboomer: no thread block under the pane cursor"
+                    vim.log.levels.WARN)
+        (do
+          (review.resolve-thread (or t.id 0))
+          (M.reload-threads)))))
+
+;; n — hop to the next thread of the same file (wrapping) in the code
+;; window the pane mirrors; focus lands back in the code and the pane
+;; follows on its own via the usual rest detection
+(fn pane-next []
+  (if (not (and pane-source-win (vim.api.nvim_win_is_valid pane-source-win)))
+      (vim.notify "codeboomer: the pane has no code window to jump from"
+                  vim.log.levels.WARN)
+      (let [t (pane-thread-at (?. (vim.api.nvim_win_get_cursor pane-win) 1))
+            all (or (. threads-by-path (or pane-path "")) [])
+            pos (if t (or (. t :hl-index) 1) 0)
+            next-t (?. all (+ 1 (% pos (length all))))
+            target (or (?. next-t :line_start) 1)]
+        (vim.api.nvim_set_current_win pane-source-win)
+        (vim.api.nvim_win_set_cursor pane-source-win [target 0]))))
 
 ;; nil the reference BEFORE closing so the WinClosed handler sees
 ;; nothing left to react to
@@ -154,25 +241,46 @@
       (set wo.number false)
       (set wo.relativenumber false)
       (set wo.signcolumn :no)
-      (set wo.winfixwidth true))
+      (set wo.winfixwidth true)
+      ;; in-pane keys exist only in this buffer and die with it: r
+      ;; reply, q resolve, n next thread — plain keys, no prefix
+      (vim.keymap.set :n :r pane-reply
+                      {:buffer buf :desc "codeboomer: reply to this thread"})
+      (vim.keymap.set :n :q pane-resolve
+                      {:buffer buf :desc "codeboomer: resolve this thread"})
+      (vim.keymap.set :n :n pane-next
+                      {:buffer buf :desc "codeboomer: jump to the next thread"}))
     ;; keep the cursor in the code window — the pane is a follower, not
     ;; a destination
     (vim.cmd "wincmd p"))
   (render-pane path threads))
 
-;; the pane's whole contract: cursor resting in a thread's range → show
-;; that thread's comments; anywhere else → collapse. The pane itself and
-;; floating windows (the compose input, fzf) never drive.
+;; the pane's whole contract evaluated for one code window: cursor
+;; resting in a thread's range → show that thread's comments; anywhere
+;; else → collapse. Shared by the cursor-rest path below and the
+;; pane-resident path — after enter/r/q/n the cursor lives in the pane
+;; itself, so re-evaluation targets the code window the pane mirrors
+(fn evaluate-at [win]
+  (let [row (?. (vim.api.nvim_win_get_cursor win) 1)
+        path (vim.api.nvim_buf_get_name (vim.api.nvim_win_get_buf win))
+        threads (threads-at path (or row 0))]
+    (if (and enabled (> (length threads) 0))
+        (do
+          ;; remember the code window the pane mirrors — the
+          ;; pane's n key hops back into it
+          (set pane-source-win win)
+          (show-pane path threads))
+        (hide-pane))))
+
+;; the cursor-rest entry point: floating windows (the compose input,
+;; fzf) never drive
 (fn check-now []
   (let [win (vim.api.nvim_get_current_win)]
-    (when (and (not= win pane-win)
-               (= "" (or (?. (vim.api.nvim_win_get_config win) :relative) "")))
-      (let [row (?. (vim.api.nvim_win_get_cursor win) 1)
-            path (vim.api.nvim_buf_get_name (vim.api.nvim_win_get_buf win))
-            threads (threads-at path (or row 0))]
-        (if (and enabled (> (length threads) 0))
-            (show-pane path threads)
-            (hide-pane))))))
+    (if (= win pane-win)
+        (when (and pane-source-win (vim.api.nvim_win_is_valid pane-source-win))
+          (evaluate-at pane-source-win))
+        (when (= "" (or (?. (vim.api.nvim_win_get_config win) :relative) ""))
+          (evaluate-at win)))))
 
 ;; the debounce: every qualifying event restarts the timer, so only a
 ;; cursor that actually rests runs the check
@@ -185,7 +293,7 @@
 ;; extmarks drift along with edits and stay accurate, while the DB's
 ;; stored line numbers go stale the moment lines shift; re-placing from
 ;; it would snap marks back to outdated positions.
-(fn reload-threads []
+(fn M.reload-threads []
   (let [(ok sid) (pcall review.active-session-id)]
     (if ok
         (do
@@ -197,7 +305,7 @@
               ;; top-to-bottom list: gutter marks and pane headers both
               ;; tint from this, so a thread keeps one color even when
               ;; the pane shows only a covering subset of the file
-              (tset t :hl-index (length peers))
+              (set t.hl-index (length peers))
               (tset threads-by-path path peers)))
           (mark-loaded-buffers)
           ;; an open pane may now be showing stale comments
@@ -210,18 +318,19 @@
 (fn attach-autocmds []
   (vim.api.nvim_create_augroup augroup-name {:clear true})
   (vim.api.nvim_create_autocmd :VimEnter
-                               {:group augroup-name :callback reload-threads})
+                               {:group augroup-name :callback M.reload-threads})
   (vim.api.nvim_create_autocmd :BufEnter
                                {:group augroup-name
                                 :callback (fn []
                                             ;; a buffer entered after the map
                                             ;; loaded gets its marks from a
-                                            ;; plain lookup
-                                            (let [path (vim.api.nvim_buf_get_name 0)
-                                                  threads (. threads-by-path
-                                                             path)]
-                                              (when threads
-                                                (place-marks 0 threads)))
+                                            ;; plain lookup (or loses them,
+                                            ;; if its threads resolved)
+                                            (let [path (vim.api.nvim_buf_get_name 0)]
+                                              (when (normal-buf 0)
+                                                (place-marks
+                                                  0 (or (. threads-by-path path)
+                                                        []))))
                                             (schedule-check))})
   (vim.api.nvim_create_autocmd [:WinEnter :TabEnter :CursorMoved :CursorMovedI]
                                {:group augroup-name :callback schedule-check})
@@ -236,7 +345,7 @@
   (vim.api.nvim_create_autocmd :User
                                {:group augroup-name
                                 :pattern :CodeboomerAnnotated
-                                :callback reload-threads}))
+                                :callback M.reload-threads}))
 
 (set M.open (fn []
               (if enabled
@@ -258,9 +367,22 @@
 
 (set M.toggle (fn [] (if enabled (M.close) (M.open))))
 
+;; :Codeboomer Enter / <leader>ce — step into the pane. If it is
+;; collapsed but the cursor already rests inside a thread range, open
+;; it first; either way focus ends up in the pane window. The rest
+;; detection ignores the pane itself, so an entered pane stays put
+;; until the cursor moves back out to code (n does exactly that)
+(set M.enter (fn []
+               (when (not (and pane-win (vim.api.nvim_win_is_valid pane-win)))
+                 (check-now))
+               (if (and pane-win (vim.api.nvim_win_is_valid pane-win))
+                   (vim.api.nvim_set_current_win pane-win)
+                   (vim.notify "codeboomer: no review thread under the cursor"
+                               vim.log.levels.INFO))))
+
 (attach-autocmds)
 ;; the initial thread-map load: VimEnter covers normal startup; a module
 ;; loaded after the UI is up (lazy loading) reloads immediately
-(when (= 1 vim.v.vim_did_enter) (reload-threads))
+(when (= 1 vim.v.vim_did_enter) (M.reload-threads))
 
 M

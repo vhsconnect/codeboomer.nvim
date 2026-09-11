@@ -42,6 +42,7 @@ local opts = {
     pane = "<leader>cp",
     annotate = "<leader>ca",
     comments = "<leader>cm",
+    enter_pane = "<leader>ce",
   },
 }
 

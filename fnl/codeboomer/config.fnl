@@ -24,7 +24,10 @@
                            "codeboomer: annotate some text"]
                 :comments [:n
                            "<cmd>Codeboomer Comments<cr>"
-                           "codeboomer: toggle the review comments pane"]})
+                           "codeboomer: toggle the review comments pane"]
+                :enter_pane [:n
+                             "<cmd>Codeboomer Enter<cr>"
+                             "codeboomer: step into the review comments pane"]})
 
 (fn fold-by-label [defaults entries]
   ;; entries override the built-ins by label and append new labels —

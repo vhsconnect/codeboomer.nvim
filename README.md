@@ -8,7 +8,7 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - Fuzzy-finder interface (via fzf-lua) to select target panes, showing each pane's last output line and working directory, with a live content preview
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Annotation workflow — accumulate multiple code selections for review before sending
-- **Review comments (`Comments`)** — commented ranges carry colored `✎` gutter marks (visible whenever a review session exists), and with `Comments` toggled on a side split follows the cursor: rest it inside a commented range and the thread's comments appear, move off and the split collapses
+- **Review comments (`Comments`)** — commented ranges carry colored `▌` gutter marks — a gitsigns-style vertical bar, one color per thread (visible whenever a review session exists), and with `Comments` toggled on a side split follows the cursor: rest it inside a commented range and the thread's comments appear, move off and the split collapses; `Enter` (`<leader>ce`) steps inside the split, where `r` replies, `q` resolves and `n` hops to the next thread
 - Bracketed-paste support for proper multi-line handling
 - **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane; define any number of user-named one-off commands and pick one with fzf when there is more than one
 
@@ -45,6 +45,7 @@ The plugin sets up no default keybindings; configure them like this:
 | Normal | `<leader>cp` | `SetPane` — pick a tmux pane to send messages to |
 | Visual | `<leader>ca` | `Annotate` — add the selection (plus an optional note) to the query context |
 | Normal | `<leader>cm` | `Comments` — toggle the review comments pane |
+| Normal | `<leader>ce` | `Enter` — step into the open review comments pane |
 | Normal | `<leader>cd` | `FlushWithDirective` — flush accumulated annotations with a directive |
 
 Disable or customize any binding under `keybindings` in `setup()` (set to `false` to disable):
@@ -59,6 +60,7 @@ require("codeboomer").setup({
     pane = "<leader>cp",
     annotate = "<leader>ca",
     comments = "<leader>cm",
+    enter_pane = "<leader>ce",
   },
 })
 ```
@@ -173,7 +175,7 @@ Adds the current selection to the review session's annotation outbox. Use this t
 - Requires a pane to be selected first via `:Codeboomer SetPane`
 - With a visual range, the selection is included as context (`regarding <file> lines X to Y`); without one, the current file name is sent instead
 - Annotations are stored in the review session's database — the single store — each as its own thread, tracked as not-yet-sent (agent) and not-yet-posted (GitHub); they are included in the next `:Codeboomer FlushWithDirective` call until sent
-- Commented ranges get `✎` gutter marks, and `:Codeboomer Comments` shows a thread's comments when the cursor rests inside its range
+- Commented ranges get `▌` gutter marks, and `:Codeboomer Comments` shows a thread's comments when the cursor rests inside its range
 - Empty notes are ignored
 
 ```
@@ -191,7 +193,7 @@ time and it follows the cursor across windows and tabpages.
 - Threads come from the current review session (the same one
   `:Codeboomer Annotate` writes to); the whole thread map is loaded
   once at startup and reloaded whenever a new annotation lands
-- The `✎` gutter marks are independent of the toggle: they render in
+- The `▌` gutter marks are independent of the toggle: they render in
   every open buffer that carries session threads — one mark per
   commented line, colored by thread (theme groups `Title`, `Special`,
   `String`, `Function` cycled); the sign column is never modified
@@ -204,20 +206,44 @@ time and it follows the cursor across windows and tabpages.
 - Closing the pane (`:q`) just collapses it — it reopens the next time
   the cursor rests inside a range
 - Toggling off stops panes from opening; the gutter marks stay
+- Resolved threads are treated as soft-deleted: resolving one removes
+  it (and its `▌` marks) from the pane, the marks and the flush
+  outbox — agent and user replies to a resolved thread are rejected
 
 ```vim
 :Codeboomer Comments
+```
+
+### `:Codeboomer Enter`
+
+Moves the cursor into the review-comments pane. If the pane is
+collapsed but the cursor already rests inside a thread's range (and
+`Comments` is toggled on), it opens first. The pane stays put while
+the cursor is inside it — the rest detection only watches code
+buffers. When no thread is under the cursor a notification says so.
+
+Inside the pane three buffer-local keys act on the thread whose block
+the cursor is in (they exist only in the pane buffer and die with it):
+
+| Key | Action |
+|-----|--------|
+| `r` | Reply — opens the same floating compose input `Annotate` uses; the reply is stored as a user comment on the thread and joins the next `FlushWithDirective` outbox |
+| `q` | Resolve the thread — resolved threads are treated as soft-deleted: they leave the pane, the `▌` marks and the flush outbox; the pane drops the block (or collapses) right away |
+| `n` | Next thread — jumps the cursor back into the code window on the next thread of the same file (wrapping); the pane follows via the usual rest detection |
+
+```vim
+:Codeboomer Enter
 ```
 
 ### `:Codeboomer FlushWithDirective`
 
 > [!warn] **Tentative API** — This command is experimental and subject to change in future versions.
 
-Opens fzf to select a pre-defined directive, then sends it along with all unsent annotations from `:Codeboomer Annotate`.
+Opens fzf to select a pre-defined directive, then sends it along with all unsent annotations from `:Codeboomer Annotate` (threads resolved before the flush are soft-deleted and never ship).
 
 - Requires a pane to be selected first via `:Codeboomer SetPane`
 - Select from a list of pre-defined directives (see Configuration below for customizing)
-- After sending, the delivered annotations are marked `sent` in the database — they persist (with their `✎` marks) but are never re-sent; annotations survive restarts because the database is the only outbox
+- After sending, the delivered annotations are marked `sent` in the database — they persist (with their `▌` marks) but are never re-sent; annotations survive restarts because the database is the only outbox
 - Each annotation header carries its thread id (`regarding <file> lines X to Y (thread N)`), and the payload ends with a reply instruction pointing at the generated `codeboomer-agent` shim — the agent answers each thread with `codeboomer-agent reply <thread-id> <text>`, which appends an agent comment to that thread in the database (visible in the `Comments` pane on its next reload)
 
 ```vim
@@ -238,7 +264,7 @@ For more complex queries, you can build up context across multiple selections:
 1. Select a pane with `<leader>cp`
 2. Select code sections and run `<leader>ca` (or `:Codeboomer Annotate`) to add annotations to your query
 3. When ready, run `<leader>cd` (or `:Codeboomer FlushWithDirective`) to send your directive along with all unsent annotations — the database is the outbox, so annotations survive restarts
-4. The agent answers each thread back with `codeboomer-agent reply <thread-id> <text>` (the instruction is included in the payload); replies land in the same threads and show up in the `Comments` pane
+4. The agent answers each thread back with `codeboomer-agent reply <thread-id> <text>` (the instruction is included in the payload); replies land in the same threads and show up in the `Comments` pane. You can answer threads yourself from inside the pane: `<leader>ce` to enter, `r` to reply, `q` to resolve
 
 ## Development
 

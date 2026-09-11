@@ -51,7 +51,7 @@
 (fn M.agent-reply [thread-id body]
   (let [rows (or (sqlite.thread:get {:where {:id thread-id}}) [])
         thread (. rows 1)]
-    (if (or (not thread) thread.deleted_at)
+    (if (or (not thread) thread.deleted_at (= thread.status :resolved))
         (do
           (vim.notify (.. "codeboomer: no active thread #" (tostring thread-id))
                       vim.log.levels.ERROR)
@@ -66,8 +66,29 @@
                                  :source :agent
                                  :commit_id thread.anchor_commit}))))
 
+;; a human reply typed in the review pane: like agent-reply but
+;; authored by the local user and left unsent — it joins the flush
+;; outbox like any annotation, so the next FlushWithDirective ships it
+(fn M.user-reply [thread-id body]
+  (let [rows (or (sqlite.thread:get {:where {:id thread-id}}) [])
+        thread (. rows 1)]
+    (if (or (not thread) thread.deleted_at (= thread.status :resolved))
+        (do
+          (vim.notify (.. "codeboomer: no active thread #" (tostring thread-id))
+                      vim.log.levels.ERROR)
+          nil)
+        (= "" (or body ""))
+        (do
+          (vim.notify "codeboomer: empty reply body" vim.log.levels.ERROR)
+          nil)
+        (sqlite.comments:insert {:thread_id thread-id
+                                 :author_id (with-user)
+                                 : body
+                                 :source :user
+                                 :commit_id thread.anchor_commit}))))
+
 (fn M.resolve-thread [thread-id]
-  (sqlite.thread:update {:set {:status :resolved} :where {:id :thread-id}}))
+  (sqlite.thread:update {:set {:status :resolved} :where {:id thread-id}}))
 
 ;; the one review session a pane should mirror: nil when none exists yet,
 ;; its id when there is exactly one — the multi-session case keeps the
@@ -118,12 +139,24 @@
                              (d:execute (string.format "update comment set %s = 1 where id = %d"
                                                        (tostring flag) (or id 0))))))))
 
+;; resolved threads are soft-deleted: this filter drops them from
+;; every thread fetch, so the gutter marks, the review pane and the
+;; flush outbox all forget a thread in one place
+(fn unresolved-rows [rows]
+  (let [out []]
+    (each [_ row (ipairs rows)]
+      (when (not= row.status :resolved)
+        (table.insert out row)))
+    out))
+
 ;; active (not soft-deleted) threads of a session anchored to one file,
 ;; ordered top-to-bottom by their position in the file
 (fn M.threads-for [session-id file-path]
-  (let [rows (sqlite.active-rows (or (sqlite.thread:get {:where {:session_id session-id
-                                                                 :file_path file-path}})
-                                     []))]
+  (let [rows (unresolved-rows
+               (sqlite.active-rows
+                 (or (sqlite.thread:get {:where {:session_id session-id
+                                                 :file_path file-path}})
+                     [])))]
     (table.sort rows (fn [a b] (< (or a.line_start 0) (or b.line_start 0))))
     rows))
 
@@ -131,8 +164,10 @@
 ;; path then top-to-bottom within a file — the sidebar turns this into
 ;; its path → threads map in one load
 (fn M.threads-for-session [session-id]
-  (let [rows (sqlite.active-rows (or (sqlite.thread:get {:where {:session_id session-id}})
-                                     []))]
+  (let [rows (unresolved-rows
+               (sqlite.active-rows
+                 (or (sqlite.thread:get {:where {:session_id session-id}})
+                     [])))]
     (table.sort rows (fn [a b]
                        (let [pa (or a.file_path "")
                              pb (or b.file_path "")]
