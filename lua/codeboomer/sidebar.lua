@@ -1,4 +1,4 @@
--- [nfnl] fnl/codeboomer/sidebar.fnl
+-- [nfnl] codeboomer/sidebar.fnl
 vim = vim
 local review = require("codeboomer.review")
 local M = {}
@@ -24,7 +24,7 @@ local function place_marks(bufnr, threads)
     for i, t in ipairs(threads) do
       local start = (t.line_start or 0)
       local finish = math.min((t.line_end or start), line_count)
-      local hl = thread_hl(i)
+      local hl = thread_hl((t["hl-index"] or i))
       for ln = start, finish do
         if not taken[ln] then
           taken[ln] = true
@@ -82,7 +82,7 @@ local function render(path, threads)
       table.insert(lines, string.rep("\226\148\128", pane_width))
     else
     end
-    table.insert(headers, {row = (#lines + 1), hl = thread_hl(i)})
+    table.insert(headers, {row = (#lines + 1), hl = thread_hl((t["hl-index"] or i))})
     table.insert(lines, thread_header(base, t))
     for _, c in ipairs(review["comments-for"](t.id)) do
       for _0, l in ipairs(vim.split((c.body or ""), "\n")) do
@@ -202,7 +202,9 @@ local function reload_threads()
     end
     for _, t in ipairs(_21_()) do
       local path = (t.file_path or "")
-      threads_by_path[path] = vim.list_extend((threads_by_path[path] or {}), {t})
+      local peers = vim.list_extend((threads_by_path[path] or {}), {t})
+      t["hl-index"] = #peers
+      threads_by_path[path] = peers
     end
     mark_loaded_buffers()
     return schedule_check()

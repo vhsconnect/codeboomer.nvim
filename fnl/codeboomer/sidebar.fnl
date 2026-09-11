@@ -57,7 +57,7 @@
       (each [i t (ipairs threads)]
         (let [start (or t.line_start 0)
               finish (math.min (or t.line_end start) line-count)
-              hl (thread-hl i)]
+              hl (thread-hl (or (. t :hl-index) i))]
           (for [ln start finish]
             ;; one symbol per line even where threads overlap — the
             ;; topmost (earliest) thread's color wins
@@ -99,7 +99,8 @@
         base (or (vim.fs.basename (or path "")) "?")]
     (each [i t (ipairs threads)]
       (when (> i 1) (table.insert lines (string.rep "─" pane-width)))
-      (table.insert headers {:row (+ (length lines) 1) :hl (thread-hl i)})
+      (table.insert headers {:row (+ (length lines) 1)
+                             :hl (thread-hl (or (. t :hl-index) i))})
       (table.insert lines (thread-header base t))
       (each [_ c (ipairs (review.comments-for t.id))]
         (each [_ l (ipairs (vim.split (or c.body "") "\n"))]
@@ -190,9 +191,14 @@
         (do
           (set threads-by-path {})
           (each [_ t (ipairs (if sid (review.threads-for-session sid) []))]
-            (let [path (or t.file_path "")]
-              (tset threads-by-path path
-                    (vim.list_extend (or (. threads-by-path path) []) [t]))))
+            (let [path (or t.file_path "")
+                  peers (vim.list_extend (or (. threads-by-path path) []) [t])]
+              ;; stamp each thread's 1-based position in its file's
+              ;; top-to-bottom list: gutter marks and pane headers both
+              ;; tint from this, so a thread keeps one color even when
+              ;; the pane shows only a covering subset of the file
+              (tset t :hl-index (length peers))
+              (tset threads-by-path path peers)))
           (mark-loaded-buffers)
           ;; an open pane may now be showing stale comments
           (schedule-check))

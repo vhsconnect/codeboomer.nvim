@@ -14,7 +14,7 @@
 (fn with-agent-user []
   (let [entry? (sqlite.user:get {:where {:email "agent@codeboomer"}})]
     (if (. entry? 1) (?. entry? 1 :id)
-        (sqlite.user:insert {:name "agent" :email "agent@codeboomer"}))))
+        (sqlite.user:insert {:name :agent :email "agent@codeboomer"}))))
 
 (fn with-repo []
   (let [repo-path (git.repo-root)
@@ -42,33 +42,32 @@
     (sqlite.comments:insert {:thread_id thread-id
                              :author_id user-id
                              : body
-                             :source "user"
+                             :source :user
                              :commit_id commit-id})))
 
 (fn M.get-sessions []
   (sqlite.session:get {:where {:repo_id (with-repo)}}))
 
 (fn M.agent-reply [thread-id body]
-  ;; the agent's answer to an existing thread: no new session/repo/
-  ;; commit lookups — everything anchors to the thread it answers.
-  ;; source "agent" keeps the row out of both delivery outboxes.
-  ;; Returns the comment id, or nil (+ message) when the target is
-  ;; missing, soft-deleted, or the body is empty.
   (let [rows (or (sqlite.thread:get {:where {:id thread-id}}) [])
         thread (. rows 1)]
     (if (or (not thread) thread.deleted_at)
-        (do (vim.notify (.. "codeboomer: no active thread #" (tostring thread-id))
-                        vim.log.levels.ERROR)
-            nil)
+        (do
+          (vim.notify (.. "codeboomer: no active thread #" (tostring thread-id))
+                      vim.log.levels.ERROR)
+          nil)
         (= "" (or body ""))
-        (do (vim.notify "codeboomer: empty reply body"
-                        vim.log.levels.ERROR)
-            nil)
+        (do
+          (vim.notify "codeboomer: empty reply body" vim.log.levels.ERROR)
+          nil)
         (sqlite.comments:insert {:thread_id thread-id
                                  :author_id (with-agent-user)
                                  : body
-                                 :source "agent"
+                                 :source :agent
                                  :commit_id thread.anchor_commit}))))
+
+(fn M.resolve-thread [thread-id]
+  (sqlite.thread:update {:set {:status :resolved} :where {:id :thread-id}}))
 
 ;; the one review session a pane should mirror: nil when none exists yet,
 ;; its id when there is exactly one — the multi-session case keeps the
@@ -104,10 +103,8 @@
             out []]
         (each [_ t (ipairs (M.threads-for-session session-id))]
           (each [_ c (ipairs (M.comments-for (or t.id 0)))]
-            (when (and (= (or c.author_id 0) me)
-                       (= (or c.source "user") "user")
-                       (= 0 (or (. c flag) 0))
-                       (not= "" (or c.body "")))
+            (when (and (= (or c.author_id 0) me) (= (or c.source :user) :user)
+                       (= 0 (or (. c flag) 0)) (not= "" (or c.body "")))
               (table.insert out {:thread t :comment c}))))
         out)))
 
@@ -116,11 +113,10 @@
 ;; connection); the flag is whitelisted, ids come from our own queries
 (fn M.mark-annotations [flag ids]
   (when (vim.tbl_contains [:sent :posted] flag)
-    (sqlite.db:with_open
-      (fn [d]
-        (each [_ id (ipairs ids)]
-          (d:execute (string.format "update comment set %s = 1 where id = %d"
-                                    (tostring flag) (or id 0))))))))
+    (sqlite.db:with_open (fn [d]
+                           (each [_ id (ipairs ids)]
+                             (d:execute (string.format "update comment set %s = 1 where id = %d"
+                                                       (tostring flag) (or id 0))))))))
 
 ;; active (not soft-deleted) threads of a session anchored to one file,
 ;; ordered top-to-bottom by their position in the file
@@ -145,13 +141,12 @@
                              (< pa pb)))))
     rows))
 
-;; active (not soft-deleted) comments of one thread, oldest first —
-;; created_at has second resolution, id breaks ties
 (fn M.comments-for [thread-id]
   (let [rows (sqlite.active-rows (or (sqlite.comments:get {:where {:thread_id thread-id}})
                                      []))]
     (table.sort rows (fn [a b]
-                       (let [ta (or a.created_at 0) tb (or b.created_at 0)]
+                       (let [ta (or a.created_at 0)
+                             tb (or b.created_at 0)]
                          (if (= ta tb)
                              (< (or a.id 0) (or b.id 0))
                              (< ta tb)))))

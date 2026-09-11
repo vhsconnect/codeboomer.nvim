@@ -1,4 +1,4 @@
--- [nfnl] fnl/codeboomer/review.fnl
+-- [nfnl] codeboomer/review.fnl
 vim = vim
 local git = require("codeboomer.git")
 local sqlite = require("codeboomer.sqlite")
@@ -96,6 +96,9 @@ M["agent-reply"] = function(thread_id, body)
   else
     return sqlite.comments:insert({thread_id = thread_id, author_id = with_agent_user(), body = body, source = "agent", commit_id = thread.anchor_commit})
   end
+end
+M["resolve-thread"] = function(thread_id)
+  return sqlite.thread:update({set = {status = "resolved"}, where = {id = "thread-id"}})
 end
 M["active-session-id"] = function()
   local root = git["repo-root"]()
