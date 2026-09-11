@@ -1,10 +1,10 @@
--- [nfnl] fnl/codeboomer/agent.fnl
+-- [nfnl] codeboomer/agent.fnl
 vim = vim
 local review = require("codeboomer.review")
 local M = {}
 local shim_path = (vim.fn.stdpath("data") .. "/codeboomer-agent")
 M["reply-instructions"] = function()
-  return ("Reply to each thread above with: " .. shim_path .. " reply <thread-id> <text>\n")
+  return ("Reply to each thread above. Keep your responses in the thread short and consice and use the harnass to provide detail. Answer in the thread with: " .. shim_path .. " reply <thread-id> <text>\n")
 end
 local usage = "usage: codeboomer-agent reply <thread-id> <answer text>"
 local function fail(msg)
@@ -14,26 +14,26 @@ end
 M.main = function()
   local args = vim.split((os.getenv("CODEBOOMER_AGENT_ARGS") or ""), " ", {trimempty = true})
   local verb = args[1]
+  local thread_id = tonumber(args[2])
+  local body = table.concat(vim.list_slice(args, 3), " ")
   if (verb ~= "reply") then
-    return fail("expected 'reply' as the first argument")
+    fail("expected 'reply' as the first argument")
   else
-    local thread_id = tonumber(args[2])
-    if not thread_id then
-      return fail("thread id must be a number")
-    else
-      local body = table.concat(vim.list_slice(args, 3), " ")
-      if (body == "") then
-        return fail("missing answer text")
-      else
-        local id = review["agent-reply"](thread_id, body)
-        if id then
-          print(string.format("codeboomer-agent: posted reply to thread #%d (comment %d)", thread_id, id))
-          return os.exit(0, true)
-        else
-          return fail("reply rejected")
-        end
-      end
-    end
+  end
+  if not thread_id then
+    fail("thread id must be a number")
+  else
+  end
+  if (body == "") then
+    fail("missing answer text")
+  else
+  end
+  local id = review["agent-reply"](thread_id, body)
+  if id then
+    print(string.format("codeboomer-agent: posted reply to thread #%d (comment %d)", thread_id, id))
+    return os.exit(0, true)
+  else
+    return fail("reply rejected")
   end
 end
 local function shim_content()

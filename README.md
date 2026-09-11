@@ -8,7 +8,7 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - Fuzzy-finder interface (via fzf-lua) to select target panes, showing each pane's last output line and working directory, with a live content preview
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Annotation workflow — accumulate multiple code selections for review before sending
-- **Review comments (`Comments`)** — commented ranges carry colored `▌` gutter marks — a gitsigns-style vertical bar, one color per thread (visible whenever a review session exists), and with `Comments` toggled on a side split follows the cursor: rest it inside a commented range and the thread's comments appear, move off and the split collapses; `Enter` (`<leader>ce`) steps inside the split, where `r` replies, `q` resolves and `n` hops to the next thread
+- **Review comments (`Comments`)** — commented ranges carry gitsigns-style `▌` gutter bars (colored per thread, visible whenever a review session exists), and with `Comments` toggled on a side split follows the cursor: rest it inside a commented range and the thread's comments appear, move off and the split collapses; `Enter` (`<leader>ce`) steps inside the split, where `r` replies, `q` resolves and `n` hops to the next thread
 - Bracketed-paste support for proper multi-line handling
 - **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane; define any number of user-named one-off commands and pick one with fzf when there is more than one
 
