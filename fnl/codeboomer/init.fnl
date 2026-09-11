@@ -4,6 +4,7 @@
 (local input (require :codeboomer.input))
 (local directives (require :codeboomer.directives))
 (local review (require :codeboomer.review))
+(local agent (require :codeboomer.agent))
 (local one-offs (require :codeboomer.one-offs))
 
 (local state {:pane nil :session-id nil})
@@ -242,8 +243,8 @@
         (.. "regarding " file "\n" text "\n"))))
 
 (fn annotation-message [t c]
-  (string.format "regarding %s lines %s to %s\n%s\n%s" (or t.file_path "?")
-                 (or t.line_start "?") (or t.line_end "?")
+  (string.format "regarding %s lines %s to %s (thread %s)\n%s\n%s" (or t.file_path "?")
+                 (or t.line_start "?") (or t.line_end "?") (or t.id "?")
                  (or t.code_snapshot "") (or c.body "")))
 
 (set M.SetPane
@@ -338,6 +339,7 @@
                                                                                                                         "===="
                                                                                                                         "==Section End==")]
                                                                                (send-keys-to-selected-pane (.. annotations
+                                                                                                               (agent.reply-instructions)
                                                                                                                directive-text
                                                                                                                "\n"))
                                                                                (review.mark-annotations :sent

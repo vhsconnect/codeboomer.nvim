@@ -10,8 +10,8 @@ local function run(root, ...)
     return nil
   end
 end
-M["repo-root"] = function()
-  return vim.fs.root(0, ".git")
+M["repo-root"] = function(_3fpath)
+  return vim.fs.root((_3fpath or 0), ".git")
 end
 M.remotes = function()
   local root = M["repo-root"]()

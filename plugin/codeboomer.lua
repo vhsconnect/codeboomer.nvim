@@ -8,6 +8,10 @@ vim.g.loaded_codeboomer = 1
 -- with the plugin, not on first :Codeboomer use
 require("codeboomer.sidebar")
 
+-- the agent bridge generates its CLI shim (~/.local/share/nvim/
+-- codeboomer-agent) on load, baking in the running environment
+require("codeboomer.agent")
+
 local subcommands = {}
 
 subcommands.SetPane = function()

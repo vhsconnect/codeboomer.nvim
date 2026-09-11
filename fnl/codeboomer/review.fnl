@@ -9,6 +9,13 @@
     (if (. entry? 1) (?. entry? 1 :id)
         (sqlite.user:insert {:name (git.user-name) : email}))))
 
+;; the one synthetic identity all agent-written comments share —
+;; get-or-create like with-user, fixed coordinates
+(fn with-agent-user []
+  (let [entry? (sqlite.user:get {:where {:email "agent@codeboomer"}})]
+    (if (. entry? 1) (?. entry? 1 :id)
+        (sqlite.user:insert {:name "agent" :email "agent@codeboomer"}))))
+
 (fn with-repo []
   (let [repo-path (git.repo-root)
         entry? (sqlite.repo:get {:where {:path repo-path}})]
@@ -40,6 +47,28 @@
 
 (fn M.get-sessions []
   (sqlite.session:get {:where {:repo_id (with-repo)}}))
+
+(fn M.agent-reply [thread-id body]
+  ;; the agent's answer to an existing thread: no new session/repo/
+  ;; commit lookups — everything anchors to the thread it answers.
+  ;; source "agent" keeps the row out of both delivery outboxes.
+  ;; Returns the comment id, or nil (+ message) when the target is
+  ;; missing, soft-deleted, or the body is empty.
+  (let [rows (or (sqlite.thread:get {:where {:id thread-id}}) [])
+        thread (. rows 1)]
+    (if (or (not thread) thread.deleted_at)
+        (do (vim.notify (.. "codeboomer: no active thread #" (tostring thread-id))
+                        vim.log.levels.ERROR)
+            nil)
+        (= "" (or body ""))
+        (do (vim.notify "codeboomer: empty reply body"
+                        vim.log.levels.ERROR)
+            nil)
+        (sqlite.comments:insert {:thread_id thread-id
+                                 :author_id (with-agent-user)
+                                 : body
+                                 :source "agent"
+                                 :commit_id thread.anchor_commit}))))
 
 ;; the one review session a pane should mirror: nil when none exists yet,
 ;; its id when there is exactly one — the multi-session case keeps the

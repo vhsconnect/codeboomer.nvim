@@ -4,6 +4,7 @@ local config = require("codeboomer.config")
 local input = require("codeboomer.input")
 local directives = require("codeboomer.directives")
 local review = require("codeboomer.review")
+local agent = require("codeboomer.agent")
 local one_offs = require("codeboomer.one-offs")
 local state = {pane = nil, ["session-id"] = nil}
 local M = {}
@@ -244,7 +245,7 @@ local function compose_message(context, text)
   end
 end
 local function annotation_message(t, c)
-  return string.format("regarding %s lines %s to %s\n%s\n%s", (t.file_path or "?"), (t.line_start or "?"), (t.line_end or "?"), (t.code_snapshot or ""), (c.body or ""))
+  return string.format("regarding %s lines %s to %s (thread %s)\n%s\n%s", (t.file_path or "?"), (t.line_start or "?"), (t.line_end or "?"), (t.id or "?"), (t.code_snapshot or ""), (c.body or ""))
 end
 local function _27_()
   return choose_pane(parse_panes(shell(panes_command)))
@@ -459,7 +460,7 @@ local function _67_()
             messages = tbl_26_
           end
           local annotations = concat_list_with_format(messages, "==Section Start==", "====", "==Section End==")
-          send_keys_to_selected_pane((annotations .. directive_text .. "\n"))
+          send_keys_to_selected_pane((annotations .. agent["reply-instructions"]() .. directive_text .. "\n"))
           local function _71_()
             local tbl_26_ = {}
             local i_27_ = 0
@@ -499,7 +500,7 @@ local function _67_()
               messages = tbl_26_
             end
             local annotations = concat_list_with_format(messages, "==Section Start==", "====", "==Section End==")
-            send_keys_to_selected_pane((annotations .. directive_text .. "\n"))
+            send_keys_to_selected_pane((annotations .. agent["reply-instructions"]() .. directive_text .. "\n"))
             local function _76_()
               local tbl_26_ = {}
               local i_27_ = 0
@@ -549,7 +550,7 @@ local function _67_()
               messages = tbl_26_
             end
             local annotations = concat_list_with_format(messages, "==Section Start==", "====", "==Section End==")
-            send_keys_to_selected_pane((annotations .. directive_text .. "\n"))
+            send_keys_to_selected_pane((annotations .. agent["reply-instructions"]() .. directive_text .. "\n"))
             local function _84_()
               local tbl_26_ = {}
               local i_27_ = 0
@@ -613,7 +614,7 @@ local function _67_()
               messages = tbl_26_
             end
             local annotations = concat_list_with_format(messages, "==Section Start==", "====", "==Section End==")
-            send_keys_to_selected_pane((annotations .. directive_text .. "\n"))
+            send_keys_to_selected_pane((annotations .. agent["reply-instructions"]() .. directive_text .. "\n"))
             local function _93_()
               local tbl_26_ = {}
               local i_27_ = 0
@@ -653,7 +654,7 @@ local function _67_()
                 messages = tbl_26_
               end
               local annotations = concat_list_with_format(messages, "==Section Start==", "====", "==Section End==")
-              send_keys_to_selected_pane((annotations .. directive_text .. "\n"))
+              send_keys_to_selected_pane((annotations .. agent["reply-instructions"]() .. directive_text .. "\n"))
               local function _98_()
                 local tbl_26_ = {}
                 local i_27_ = 0
@@ -703,7 +704,7 @@ local function _67_()
                 messages = tbl_26_
               end
               local annotations = concat_list_with_format(messages, "==Section Start==", "====", "==Section End==")
-              send_keys_to_selected_pane((annotations .. directive_text .. "\n"))
+              send_keys_to_selected_pane((annotations .. agent["reply-instructions"]() .. directive_text .. "\n"))
               local function _106_()
                 local tbl_26_ = {}
                 local i_27_ = 0

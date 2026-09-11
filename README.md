@@ -218,6 +218,7 @@ Opens fzf to select a pre-defined directive, then sends it along with all unsent
 - Requires a pane to be selected first via `:Codeboomer SetPane`
 - Select from a list of pre-defined directives (see Configuration below for customizing)
 - After sending, the delivered annotations are marked `sent` in the database — they persist (with their `✎` marks) but are never re-sent; annotations survive restarts because the database is the only outbox
+- Each annotation header carries its thread id (`regarding <file> lines X to Y (thread N)`), and the payload ends with a reply instruction pointing at the generated `codeboomer-agent` shim — the agent answers each thread with `codeboomer-agent reply <thread-id> <text>`, which appends an agent comment to that thread in the database (visible in the `Comments` pane on its next reload)
 
 ```vim
 :Codeboomer FlushWithDirective
@@ -237,6 +238,7 @@ For more complex queries, you can build up context across multiple selections:
 1. Select a pane with `<leader>cp`
 2. Select code sections and run `<leader>ca` (or `:Codeboomer Annotate`) to add annotations to your query
 3. When ready, run `<leader>cd` (or `:Codeboomer FlushWithDirective`) to send your directive along with all unsent annotations — the database is the outbox, so annotations survive restarts
+4. The agent answers each thread back with `codeboomer-agent reply <thread-id> <text>` (the instruction is included in the payload); replies land in the same threads and show up in the `Comments` pane
 
 ## Development
 

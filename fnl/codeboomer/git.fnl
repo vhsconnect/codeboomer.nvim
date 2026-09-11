@@ -9,9 +9,11 @@
       (let [trimmed (out:gsub "\n+$" "")]
         trimmed))))
 
-(fn M.repo-root []
-  ;; e.g. "/home/vhs/Repos/codeboomer.nvim" — the dir containing .git
-  (vim.fs.root 0 :.git))
+(fn M.repo-root [?path]
+  ;; e.g. "/home/vhs/Repos/codeboomer.nvim" — the dir containing .git.
+  ;; ?path seeds the upward search; defaults to the current buffer so
+  ;; headless callers (the agent shim) can pass a file instead
+  (vim.fs.root (or ?path 0) :.git))
 
 ;; every configured remote as {:name ... :url ...}, fetch lines only —
 ;; a repo can carry several (e.g. a self-hosted origin plus github)
