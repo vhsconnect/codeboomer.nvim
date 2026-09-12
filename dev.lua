@@ -41,6 +41,7 @@ local opts = {
     flush_with_directive = "<leader>cd",
     pane = "<leader>cp",
     session = "<leader>cS",
+    review = "<leader>cR",
     annotate = "<leader>ca",
     comments = "<leader>cm",
     enter_pane = "<leader>ce",

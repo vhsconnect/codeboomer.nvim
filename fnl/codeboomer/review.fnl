@@ -81,6 +81,18 @@
     (when (= 1 (length sessions))
       (M.set-session (?. sessions 1 :id) true))))
 
+;; the session bound to a PR number of the current repo, if any —
+;; re-opening a PR review finds its threads instead of minting a
+;; fresh session. nil never matches
+(fn M.session-for-pr [pr-number]
+  (when pr-number
+    (let [root (git.repo-root)]
+      (when root
+        (let [repo-id (?. (sqlite.repo:get {:where {:path root}}) 1 :id)]
+          (when repo-id
+            (?. (sqlite.session:get {:where {:repo_id repo-id
+                                             :pr_number pr-number}}) 1)))))))
+
 (fn M.agent-reply [thread-id body]
   (let [rows (or (sqlite.thread:get {:where {:id thread-id}}) [])
         thread (. rows 1)]

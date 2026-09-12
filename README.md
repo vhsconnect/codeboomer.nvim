@@ -9,6 +9,7 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Annotation workflow — accumulate multiple code selections for review before sending
 - **Review sessions (`SetSession`)** — annotations are grouped into sessions (one per branch or PR); annotate, flush and the comments pane all target the chosen one, and the picker appears only when several compete
+- **PR snapshot review (`Review`)** — fetch a PR head into a read-only worktree, tint its changed lines, and annotate it in a dedicated tab with the comments pane pinned open; entirely local for now — nothing is posted
 - **Review comments (`Comments`)** — commented ranges carry gitsigns-style `▌` gutter bars (colored per thread, visible whenever a review session exists), and with `Comments` toggled on a side split follows the cursor: rest it inside a commented range and the thread's comments appear, move off and the split collapses; `Enter` (`<leader>ce`) steps inside the split, where `r` replies, `q` resolves and `n` hops to the next thread
 - Bracketed-paste support for proper multi-line handling
 - **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane; define any number of user-named one-off commands and pick one with fzf when there is more than one
@@ -45,6 +46,7 @@ The plugin sets up no default keybindings; configure them like this:
 | Normal + Visual | `<leader>cc` | `AskOneOff` — run a one-off query; the answer is shown in a notification |
 | Normal | `<leader>cp` | `SetPane` — pick a tmux pane to send messages to |
 | Normal | `<leader>cS` | `SetSession` — pick or create the review session |
+| Normal | `<leader>cR` | `Review` — snapshot-review a pull request in a read-only worktree |
 | Visual | `<leader>ca` | `Annotate` — add the selection (plus an optional note) to the query context |
 | Normal | `<leader>cm` | `Comments` — toggle the review comments pane |
 | Normal | `<leader>ce` | `Enter` — step into the open review comments pane |
@@ -61,6 +63,7 @@ require("codeboomer").setup({
     flush_with_directive = "<leader>cd",
     pane = "<leader>cp",
     session = "<leader>cS",
+    review = "<leader>cR",
     annotate = "<leader>ca",
     comments = "<leader>cm",
     enter_pane = "<leader>ce",
@@ -154,6 +157,42 @@ Sends the visual selection to the selected pane **as-is** — no prompt, no cont
 Opens fzf-lua to select a target tmux pane. Each entry shows the running
 command, location, working directory, mode, and last output line; a live
 preview shows the pane's recent content.
+
+### `:Codeboomer Review [pr]`
+
+Opens a snapshot review of a pull request: the PR head is fetched
+(`git fetch origin pull/<n>/head`) along with its base branch, checked
+out as a detached worktree under `stdpath` (`codeboomer-review/`), and
+opened in a review tab — code on the left, the review-comments pane on
+the right.
+
+- Without an argument an fzf picker over `gh pr list` opens — choosing
+  a PR *is* opening its review; with a number the picker is skipped.
+  Requires `gh` and a GitHub-hosted remote
+- Code buffers are read-only (`nomodifiable`/`readonly`): threads
+  anchor to the pinned PR head, so line numbers cannot drift by
+  construction
+- Changed lines (merge-base..head — the same three-dot shape GitHub
+  diffs) carry a `DiffAdd` tint; a picker over the changed files opens
+  with the review and reopens via `:Codeboomer ReviewFiles`
+- A PR-bound session is created (or found, keyed by `pr_number`) and
+  chosen: `Annotate`, the comments pane and the gutter marks all
+  target it; re-opening the same PR reuses its threads
+- The comments pane is sticky in this mode: it follows the cursor
+  between threads but never collapses
+- The worktree is reused on re-review (hard-reset onto the new head)
+  and lives outside the repo; dispose of it with `git worktree remove`
+- Entirely local: nothing is posted anywhere — pushing reviews to the
+  PR is planned but not wired yet
+
+```vim
+:Codeboomer Review 42
+```
+
+### `:Codeboomer ReviewFiles`
+
+fzf over the changed files of the open review; picking one edits the
+worktree copy in the review tab's code window (read-only, tinted).
 
 ### `:Codeboomer SetSession`
 
@@ -288,6 +327,19 @@ A review session is created (or the sole existing one adopted) on the first
 annotation; `:Codeboomer SetSession` (`<leader>cS`) switches when several
 exist — annotations, flushes and gutter marks all follow the chosen session.
 
+### PR review workflow (local)
+
+1. `<leader>cR` (`:Codeboomer Review`) — pick a PR; its head lands in a
+   read-only worktree with changed lines tinted, in a tab with the comments
+   pane on the right
+2. Jump between changed files with `:Codeboomer ReviewFiles`; annotate
+   selections with `<leader>ca` as usual — the snapshot is read-only, but
+   annotations only need a selection
+3. Threads show in the sticky comments pane — `r` replies, `q` resolves,
+   `n` hops — exactly like the live workflow
+4. Nothing leaves the machine: the review lives in the local database
+   (pushing reviews to the PR is planned, not wired yet)
+
 ## Development
 
 This plugin is written in **Fennel** and compiled to Lua using **nfnl** (embedded directly in the repo under `lua/nfnl/`).
@@ -327,11 +379,15 @@ nvim -u dev.lua
 ```
 This gives you an isolated Neovim instance with the plugin loaded, nfnl active, and auto-compilation working — write any `.fnl` file and the corresponding `.lua` updates immediately.
 
-For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-codeboomer`. It requires `CODEBOOMER_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cr`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>cS`, `<leader>ca`, `<leader>cm`, `<leader>ce`):
+For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-codeboomer`. It requires `CODEBOOMER_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cr`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>cS`, `<leader>cR`, `<leader>ca`, `<leader>cm`, `<leader>ce`). Extra arguments pass through to nvim, so you can land straight in a review:
 
 ```bash
-CODEBOOMER_PATH=$PWD ./test-codeboomer
+CODEBOOMER_PATH=$PWD ./test-codeboomer                          # plain launch
+CODEBOOMER_PATH=$PWD ./test-codeboomer -c 'Codeboomer Review'    # opens the PR picker
+CODEBOOMER_PATH=$PWD ./test-codeboomer -c 'Codeboomer Review 42' # straight to PR 42
 ```
+
+(The review commands need `gh` authentication and network — the PR head and base branch are fetched, and the review opens in its own tab once the picker resolves.)
 
 ### Trusting the repo
 

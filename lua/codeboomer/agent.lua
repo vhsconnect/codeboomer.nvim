@@ -1,4 +1,4 @@
--- [nfnl] codeboomer/agent.fnl
+-- [nfnl] fnl/codeboomer/agent.fnl
 vim = vim
 local review = require("codeboomer.review")
 local M = {}

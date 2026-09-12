@@ -11,6 +11,7 @@ local pane_width = 40
 local sign_text = "\226\150\140"
 local rest_ms = 100
 local enabled = false
+local sticky = false
 local pane_win = nil
 local threads_by_path = {}
 local timer_id = nil
@@ -240,7 +241,7 @@ local function hide_pane()
   end
 end
 local function show_pane(path, threads)
-  if (pane_win and vim.api.nvim_win_is_valid(pane_win) and (vim.api.nvim_win_get_tabpage(pane_win) ~= vim.api.nvim_get_current_tabpage())) then
+  if (not sticky and pane_win and vim.api.nvim_win_is_valid(pane_win) and (vim.api.nvim_win_get_tabpage(pane_win) ~= vim.api.nvim_get_current_tabpage())) then
     hide_pane()
   else
   end
@@ -287,7 +288,11 @@ local function evaluate_at(win)
     pane_source_win = win
     return show_pane(path, threads)
   else
-    return hide_pane()
+    if not sticky then
+      return hide_pane()
+    else
+      return nil
+    end
   end
 end
 local function check_now()
@@ -299,16 +304,16 @@ local function check_now()
       return nil
     end
   else
-    local _41_
+    local _42_
     do
-      local t_40_ = vim.api.nvim_win_get_config(win)
-      if (nil ~= t_40_) then
-        t_40_ = t_40_.relative
+      local t_41_ = vim.api.nvim_win_get_config(win)
+      if (nil ~= t_41_) then
+        t_41_ = t_41_.relative
       else
       end
-      _41_ = t_40_
+      _42_ = t_41_
     end
-    if ("" == (_41_ or "")) then
+    if ("" == (_42_ or "")) then
       return evaluate_at(win)
     else
       return nil
@@ -330,14 +335,14 @@ M["reload-threads"] = function()
   end
   local sid = review["current-session-id"]()
   threads_by_path = {}
-  local function _47_()
+  local function _48_()
     if sid then
       return review["threads-for-session"](sid)
     else
       return {}
     end
   end
-  for _, t in ipairs(_47_()) do
+  for _, t in ipairs(_48_()) do
     local path = (t.file_path or "")
     local peers = vim.list_extend((threads_by_path[path] or {}), {t})
     t["hl-index"] = #peers
@@ -349,7 +354,7 @@ end
 local function attach_autocmds()
   vim.api.nvim_create_augroup(augroup_name, {clear = true})
   vim.api.nvim_create_autocmd("VimEnter", {group = augroup_name, callback = M["reload-threads"]})
-  local function _48_()
+  local function _49_()
     if normal_buf(0) then
       local path = git["rel-path"]()
       place_marks(0, (threads_by_path[path] or {}))
@@ -357,9 +362,9 @@ local function attach_autocmds()
     end
     return schedule_check()
   end
-  vim.api.nvim_create_autocmd("BufEnter", {group = augroup_name, callback = _48_})
+  vim.api.nvim_create_autocmd("BufEnter", {group = augroup_name, callback = _49_})
   vim.api.nvim_create_autocmd({"WinEnter", "TabEnter", "CursorMoved", "CursorMovedI"}, {group = augroup_name, callback = schedule_check})
-  local function _50_(ev)
+  local function _51_(ev)
     if (pane_win == tonumber(ev.match)) then
       pane_win = nil
       return nil
@@ -367,10 +372,10 @@ local function attach_autocmds()
       return nil
     end
   end
-  vim.api.nvim_create_autocmd("WinClosed", {group = augroup_name, callback = _50_})
+  vim.api.nvim_create_autocmd("WinClosed", {group = augroup_name, callback = _51_})
   return vim.api.nvim_create_autocmd("User", {group = augroup_name, pattern = {"CodeboomerAnnotated", "CodeboomerSessionChanged"}, callback = M["reload-threads"]})
 end
-local function _52_()
+local function _53_()
   if enabled then
     return vim.notify("codeboomer: review pane already active", vim.log.levels.INFO)
   else
@@ -378,9 +383,10 @@ local function _52_()
     return check_now()
   end
 end
-M.open = _52_
-local function _54_()
+M.open = _53_
+local function _55_()
   enabled = false
+  sticky = false
   if timer_id then
     vim.fn.timer_stop(timer_id)
     timer_id = nil
@@ -388,16 +394,26 @@ local function _54_()
   end
   return hide_pane()
 end
-M.close = _54_
-local function _56_()
+M.close = _55_
+local function _57_()
+  enabled = true
+  sticky = true
+  return check_now()
+end
+M["open-sticky"] = _57_
+local function _58_()
   if enabled then
     return M.close()
   else
     return M.open()
   end
 end
-M.toggle = _56_
-local function _58_()
+M.toggle = _58_
+local function _60_()
+  return (pane_win and vim.api.nvim_win_is_valid(pane_win))
+end
+M["pane-valid"] = _60_
+local function _61_()
   if not (pane_win and vim.api.nvim_win_is_valid(pane_win)) then
     check_now()
   else
@@ -408,7 +424,7 @@ local function _58_()
     return vim.notify("codeboomer: no review thread under the cursor", vim.log.levels.INFO)
   end
 end
-M.enter = _58_
+M.enter = _61_
 attach_autocmds()
 if (1 == vim.v.vim_did_enter) then
   M["reload-threads"]()

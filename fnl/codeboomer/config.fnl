@@ -22,6 +22,12 @@
                 :session [:n
                           "<cmd>Codeboomer SetSession<cr>"
                           "codeboomer: pick or create the review session"]
+                :review [:n
+                         "<cmd>Codeboomer Review<cr>"
+                         "codeboomer: review a pull request in a read-only worktree"]
+                :review_worktree [:n
+                                  "<cmd>Codeboomer ReviewWorktree<cr>"
+                                  "codeboomer: review the uncommitted working tree as a snapshot"]
                 :annotate [:x
                            ":Codeboomer Annotate<cr>"
                            "codeboomer: annotate some text"]

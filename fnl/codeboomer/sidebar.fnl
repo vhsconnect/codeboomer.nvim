@@ -39,6 +39,9 @@
 ;; the :Codeboomer Comments toggle gates the pane only — markers render
 ;; regardless of it
 (var enabled false)
+;; review mode's pane contract: follow the cursor but never collapse —
+;; set by codeboomer.review-mode, reset by close
+(var sticky false)
 ;; the single pane window, nil whenever it is collapsed
 (var pane-win nil)
 ;; session threads grouped by file path — loaded at startup, reloaded on
@@ -219,8 +222,9 @@
 ;; in place, so hopping between threads doesn't flicker the split
 (fn show-pane [path threads]
   ;; a pane left behind in another tabpage is closed first: there is
-  ;; ever only one, and it lives where the cursor is
-  (when (and pane-win (vim.api.nvim_win_is_valid pane-win)
+  ;; ever only one, and it lives where the cursor is — EXCEPT in
+  ;; sticky (review mode) panes, which stay put in their review tab
+  (when (and (not sticky) pane-win (vim.api.nvim_win_is_valid pane-win)
              (not= (vim.api.nvim_win_get_tabpage pane-win)
                    (vim.api.nvim_get_current_tabpage)))
     (hide-pane))
@@ -271,7 +275,10 @@
           ;; pane's n key hops back into it
           (set pane-source-win win)
           (show-pane path threads))
-        (hide-pane))))
+        ;; collapsing is the ephemeral pane's contract; the sticky
+        ;; (review mode) pane keeps showing the last thread instead
+        (when (not sticky)
+          (hide-pane)))))
 
 ;; the cursor-rest entry point: floating windows (the compose input,
 ;; fzf) never drive
@@ -363,13 +370,26 @@
 
 (set M.close (fn []
                (set enabled false)
+               (set sticky false)
                (when timer-id
                  (vim.fn.timer_stop timer-id)
                  (set timer-id nil))
                ;; markers stay — they are independent of the toggle
                (hide-pane)))
 
+;; review mode's entry: enable the pane AND make it persistent — it
+;; follows the cursor between threads but never collapses while the
+;; review is open
+(set M.open-sticky (fn []
+                     (set enabled true)
+                     (set sticky true)
+                     (check-now)))
+
 (set M.toggle (fn [] (if enabled (M.close) (M.open))))
+
+;; whether the pane window is currently on screen — introspection for
+;; callers and tests
+(set M.pane-valid (fn [] (and pane-win (vim.api.nvim_win_is_valid pane-win))))
 
 ;; :Codeboomer Enter / <leader>ce — step into the pane. If it is
 ;; collapsed but the cursor already rests inside a thread range, open

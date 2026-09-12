@@ -161,6 +161,40 @@ M["adopt-sole-session"] = function()
     return nil
   end
 end
+M["session-for-pr"] = function(pr_number)
+  if pr_number then
+    local root = git["repo-root"]()
+    if root then
+      local repo_id
+      do
+        local t_34_ = sqlite.repo:get({where = {path = root}})
+        if (nil ~= t_34_) then
+          t_34_ = t_34_[1]
+        else
+        end
+        if (nil ~= t_34_) then
+          t_34_ = t_34_.id
+        else
+        end
+        repo_id = t_34_
+      end
+      if repo_id then
+        local t_37_ = sqlite.session:get({where = {repo_id = repo_id, pr_number = pr_number}})
+        if (nil ~= t_37_) then
+          t_37_ = t_37_[1]
+        else
+        end
+        return t_37_
+      else
+        return nil
+      end
+    else
+      return nil
+    end
+  else
+    return nil
+  end
+end
 M["agent-reply"] = function(thread_id, body)
   local rows = (sqlite.thread:get({where = {id = thread_id}}) or {})
   local thread = rows[1]
@@ -191,16 +225,16 @@ M["resolve-thread"] = function(thread_id)
   return sqlite.thread:update({set = {status = "resolved"}, where = {id = thread_id}})
 end
 M["commit-sha"] = function(commit_id)
-  local t_36_ = sqlite.commit:get({where = {id = commit_id}})
-  if (nil ~= t_36_) then
-    t_36_ = t_36_[1]
+  local t_44_ = sqlite.commit:get({where = {id = commit_id}})
+  if (nil ~= t_44_) then
+    t_44_ = t_44_[1]
   else
   end
-  if (nil ~= t_36_) then
-    t_36_ = t_36_.hash
+  if (nil ~= t_44_) then
+    t_44_ = t_44_.hash
   else
   end
-  return t_36_
+  return t_44_
 end
 M["pending-annotations"] = function(session_id, flag)
   if not session_id then
@@ -221,13 +255,13 @@ M["pending-annotations"] = function(session_id, flag)
 end
 M["mark-annotations"] = function(flag, ids)
   if vim.tbl_contains({"sent", "posted"}, flag) then
-    local function _41_(d)
+    local function _49_(d)
       for _, id in ipairs(ids) do
         d:execute(string.format("update comment set %s = 1 where id = %d", tostring(flag), (id or 0)))
       end
       return nil
     end
-    return sqlite.db:with_open(_41_)
+    return sqlite.db:with_open(_49_)
   else
     return nil
   end
@@ -244,7 +278,7 @@ local function unresolved_rows(rows)
 end
 M["threads-for-session"] = function(session_id)
   local rows = unresolved_rows(sqlite["active-rows"]((sqlite.thread:get({where = {session_id = session_id}}) or {})))
-  local function _44_(a, b)
+  local function _52_(a, b)
     local pa = (a.file_path or "")
     local pb = (b.file_path or "")
     if (pa == pb) then
@@ -253,12 +287,12 @@ M["threads-for-session"] = function(session_id)
       return (pa < pb)
     end
   end
-  table.sort(rows, _44_)
+  table.sort(rows, _52_)
   return rows
 end
 M["comments-for"] = function(thread_id)
   local rows = sqlite["active-rows"]((sqlite.comments:get({where = {thread_id = thread_id}}) or {}))
-  local function _46_(a, b)
+  local function _54_(a, b)
     local ta = (a.created_at or 0)
     local tb = (b.created_at or 0)
     if (ta == tb) then
@@ -267,28 +301,28 @@ M["comments-for"] = function(thread_id)
       return (ta < tb)
     end
   end
-  table.sort(rows, _46_)
+  table.sort(rows, _54_)
   return rows
 end
 M["create-session"] = function(_3fopts)
   local opts = (_3fopts or {})
   local repo_id = with_repo()
-  local function _49_()
-    local t_48_ = opts
-    if (nil ~= t_48_) then
-      t_48_ = t_48_["head-sha"]
+  local function _57_()
+    local t_56_ = opts
+    if (nil ~= t_56_) then
+      t_56_ = t_56_["head-sha"]
     else
     end
-    return t_48_
+    return t_56_
   end
-  local function _52_()
-    local t_51_ = opts
-    if (nil ~= t_51_) then
-      t_51_ = t_51_["base-sha"]
+  local function _60_()
+    local t_59_ = opts
+    if (nil ~= t_59_) then
+      t_59_ = t_59_["base-sha"]
     else
     end
-    return t_51_
+    return t_59_
   end
-  return sqlite.session:insert({branch = (opts.branch or git["branch-name"]()), head_commit = with_commit(repo_id, _49_()), base_commit = with_commit(repo_id, _52_()), repo_id = repo_id, pr_number = opts["pr-number"]})
+  return sqlite.session:insert({branch = (opts.branch or git["branch-name"]()), head_commit = with_commit(repo_id, _57_()), base_commit = with_commit(repo_id, _60_()), repo_id = repo_id, pr_number = opts["pr-number"]})
 end
 return M

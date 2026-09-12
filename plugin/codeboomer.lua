@@ -22,6 +22,18 @@ subcommands.SetSession = function()
   require("codeboomer").SetSession()
 end
 
+subcommands.Review = function(opts)
+  require("codeboomer.review-mode").open(tonumber(opts.fargs[1]))
+end
+
+subcommands.ReviewFiles = function()
+  require("codeboomer.review-mode").files()
+end
+
+subcommands.ReviewWorktree = function()
+  require("codeboomer.review-mode")["review-worktree"]()
+end
+
 subcommands.SendPrompt = function(opts)
   require("codeboomer").SendPrompt(opts)
 end
