@@ -19,6 +19,9 @@
                 :pane [:n
                        "<cmd>Codeboomer SetPane<cr>"
                        "codeboomer: pick a tmux pane"]
+                :session [:n
+                          "<cmd>Codeboomer SetSession<cr>"
+                          "codeboomer: pick or create the review session"]
                 :annotate [:x
                            ":Codeboomer Annotate<cr>"
                            "codeboomer: annotate some text"]

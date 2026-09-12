@@ -18,6 +18,10 @@ subcommands.SetPane = function()
   require("codeboomer").SetPane()
 end
 
+subcommands.SetSession = function()
+  require("codeboomer").SetSession()
+end
+
 subcommands.SendPrompt = function(opts)
   require("codeboomer").SendPrompt(opts)
 end

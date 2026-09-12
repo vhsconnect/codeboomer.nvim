@@ -21,11 +21,13 @@
         entry? (sqlite.repo:get {:where {:path repo-path}})]
     (if (. entry? 1) (?. entry? 1 :id) (sqlite.repo:insert {:path repo-path}))))
 
-(fn with-commit [repo-id]
-  (let [commit-hash (git.head-sha)
-        entry? (sqlite.commit:get {:where {:hash commit-hash}})]
-    (if (. entry? 1) (?. entry? 1 :id)
-        (sqlite.commit:insert {:hash commit-hash :repo repo-id}))))
+(fn with-commit [repo-id ?sha]
+  ;; get-or-create a git_commit row — HEAD's when no sha is passed
+  (let [commit-hash (or ?sha (git.head-sha))]
+    (when commit-hash
+      (let [entry? (sqlite.commit:get {:where {:hash commit-hash}})]
+        (if (?. entry? 1 :id) (?. entry? 1 :id)
+            (sqlite.commit:insert {:hash commit-hash :repo repo-id}))))))
 
 (fn M.user-comment [session-id file-path line-start line-end code body]
   (let [user-id (with-user)
@@ -45,8 +47,39 @@
                              :source :user
                              :commit_id commit-id})))
 
-(fn M.get-sessions []
-  (sqlite.session:get {:where {:repo_id (with-repo)}}))
+;; ── the chosen session ───────────────────────────────────────
+;; Explicit module state: writes (annotate, flush) and the sidebar all
+;; target it. init's picker sets it; the zero- and one-session cases
+;; resolve silently (init's ensure-session / adopt-sole-session below)
+;; so the common single-session flow never sees a picker.
+(var current-session-id nil)
+
+(fn M.current-session-id [] current-session-id)
+
+;; set the chosen session; unless silent, tell the sidebar to reload —
+;; its thread map is session-scoped
+(fn M.set-session [id ?silent]
+  (set current-session-id id)
+  (when (not ?silent)
+    (vim.api.nvim_exec_autocmds :User {:pattern :CodeboomerSessionChanged})))
+
+;; read-only session list of the current repo, ordered by id — an
+;; unregistered repo yields nil, so startup reads never write
+(fn M.existing-sessions []
+  (let [root (git.repo-root)]
+    (when root
+      (let [repo-id (?. (sqlite.repo:get {:where {:path root}}) 1 :id)]
+        (when repo-id
+          (let [sessions (or (sqlite.session:get {:where {:repo_id repo-id}}) [])]
+            (table.sort sessions (fn [a b] (< (or a.id 0) (or b.id 0))))
+            sessions))))))
+
+;; adopt the sole session when exactly one exists — the marker pane is
+;; useful at startup without anyone picking anything
+(fn M.adopt-sole-session []
+  (let [sessions (or (M.existing-sessions) [])]
+    (when (= 1 (length sessions))
+      (M.set-session (?. sessions 1 :id) true))))
 
 (fn M.agent-reply [thread-id body]
   (let [rows (or (sqlite.thread:get {:where {:id thread-id}}) [])
@@ -90,23 +123,6 @@
 (fn M.resolve-thread [thread-id]
   (sqlite.thread:update {:set {:status :resolved} :where {:id thread-id}}))
 
-;; the one review session a pane should mirror: nil when none exists yet,
-;; its id when there is exactly one — the multi-session case keeps the
-;; same "not implemented" policy as init's with-session macro.
-;; Read-only: an unknown repo yields nil instead of registering the
-;; repo, so the sidebar's startup load never writes to the DB
-(fn M.active-session-id []
-  (let [root (git.repo-root)]
-    (when root
-      (let [repo-id (?. (sqlite.repo:get {:where {:path root}}) 1 :id)]
-        (when repo-id
-          (let [sessions (or (sqlite.session:get {:where {:repo_id repo-id}})
-                             [])]
-            (case (length sessions)
-              0 nil
-              1 (?. sessions 1 :id)
-              _ (error "Multiple session not implemented"))))))))
-
 ;; sha of a git_commit row — the GitHub reviews API anchors reviews
 ;; with the commit SHA, not our local row id
 (fn M.commit-sha [commit-id]
@@ -149,17 +165,6 @@
         (table.insert out row)))
     out))
 
-;; active (not soft-deleted) threads of a session anchored to one file,
-;; ordered top-to-bottom by their position in the file
-(fn M.threads-for [session-id file-path]
-  (let [rows (unresolved-rows
-               (sqlite.active-rows
-                 (or (sqlite.thread:get {:where {:session_id session-id
-                                                 :file_path file-path}})
-                     [])))]
-    (table.sort rows (fn [a b] (< (or a.line_start 0) (or b.line_start 0))))
-    rows))
-
 ;; active threads of a session across ALL its files, ordered by file
 ;; path then top-to-bottom within a file — the sidebar turns this into
 ;; its path → threads map in one load
@@ -187,11 +192,16 @@
                              (< ta tb)))))
     rows))
 
-(fn M.create-session []
-  (let [repo-id (with-repo)]
-    (sqlite.session:insert {:name :session1
-                            :branch (git.branch-name)
-                            :head_commit (with-commit repo-id)
-                            :repo_id repo-id})))
+;; create a session row. opts: {:branch :head-sha :base-sha :pr-number} —
+;; live sessions pin nothing beyond HEAD-at-creation; PR sessions
+;; (review mode) pin both ends of the diff under review
+(fn M.create-session [?opts]
+  (let [opts (or ?opts {})
+        repo-id (with-repo)]
+    (sqlite.session:insert {:branch (or opts.branch (git.branch-name))
+                            :head_commit (with-commit repo-id (?. opts :head-sha))
+                            :base_commit (with-commit repo-id (?. opts :base-sha))
+                            :repo_id repo-id
+                            :pr_number (. opts :pr-number)})))
 
 M

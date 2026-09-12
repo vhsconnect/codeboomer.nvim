@@ -8,6 +8,7 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - Fuzzy-finder interface (via fzf-lua) to select target panes, showing each pane's last output line and working directory, with a live content preview
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Annotation workflow — accumulate multiple code selections for review before sending
+- **Review sessions (`SetSession`)** — annotations are grouped into sessions (one per branch or PR); annotate, flush and the comments pane all target the chosen one, and the picker appears only when several compete
 - **Review comments (`Comments`)** — commented ranges carry gitsigns-style `▌` gutter bars (colored per thread, visible whenever a review session exists), and with `Comments` toggled on a side split follows the cursor: rest it inside a commented range and the thread's comments appear, move off and the split collapses; `Enter` (`<leader>ce`) steps inside the split, where `r` replies, `q` resolves and `n` hops to the next thread
 - Bracketed-paste support for proper multi-line handling
 - **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane; define any number of user-named one-off commands and pick one with fzf when there is more than one
@@ -43,6 +44,7 @@ The plugin sets up no default keybindings; configure them like this:
 | Visual | `<leader>cr` | `SendSelection` — send the selection to the pane as-is, then press Enter |
 | Normal + Visual | `<leader>cc` | `AskOneOff` — run a one-off query; the answer is shown in a notification |
 | Normal | `<leader>cp` | `SetPane` — pick a tmux pane to send messages to |
+| Normal | `<leader>cS` | `SetSession` — pick or create the review session |
 | Visual | `<leader>ca` | `Annotate` — add the selection (plus an optional note) to the query context |
 | Normal | `<leader>cm` | `Comments` — toggle the review comments pane |
 | Normal | `<leader>ce` | `Enter` — step into the open review comments pane |
@@ -58,6 +60,7 @@ require("codeboomer").setup({
     ask_one_off = "<leader>cc",
     flush_with_directive = "<leader>cd",
     pane = "<leader>cp",
+    session = "<leader>cS",
     annotate = "<leader>ca",
     comments = "<leader>cm",
     enter_pane = "<leader>ce",
@@ -152,6 +155,19 @@ Opens fzf-lua to select a target tmux pane. Each entry shows the running
 command, location, working directory, mode, and last output line; a live
 preview shows the pane's recent content.
 
+### `:Codeboomer SetSession`
+
+Opens fzf-lua over the repository's review sessions plus a `+ new session`
+entry. Each line shows the session id, what it reviews (`live`, or `PR <n>`
+for PR-bound sessions), and the branch it was created on; the chosen session
+is starred. Picking sets the session that `Annotate`, `FlushWithDirective`
+and the `Comments` pane operate on — the gutter marks follow immediately.
+
+Session resolution is silent in the common cases: with nothing chosen, the
+first write creates the first session, and exactly one existing session is
+adopted automatically (also at startup). The picker appears only when
+several sessions compete.
+
 ### `:Codeboomer AskOneOff`
 
 Runs a one-shot query — a single process, no session or pane needed. The
@@ -173,7 +189,8 @@ sent instead).
 Adds the current selection to the review session's annotation outbox. Use this to annotate multiple code sections before sending a directive.
 
 - Requires a pane to be selected first via `:Codeboomer SetPane`
-- With a visual range, the selection is included as context (`regarding <file> lines X to Y`); without one, the current file name is sent instead
+- With a visual range, the selection is included as context (`regarding <file> lines X to Y`); without one, the current file name is sent instead — file paths are stored repo-relative
+- The review session is resolved on write: the chosen one when set (see `:Codeboomer SetSession`), the sole existing one when exactly one exists, a fresh one when none does — a picker appears only when several compete
 - Annotations are stored in the review session's database — the single store — each as its own thread, tracked as not-yet-sent (agent) and not-yet-posted (GitHub); they are included in the next `:Codeboomer FlushWithDirective` call until sent
 - Commented ranges get `▌` gutter marks, and `:Codeboomer Comments` shows a thread's comments when the cursor rests inside its range
 - Empty notes are ignored
@@ -190,9 +207,10 @@ split on the right showing that thread's comments; moving off every
 thread's lines collapses the split again. At most one pane exists at a
 time and it follows the cursor across windows and tabpages.
 
-- Threads come from the current review session (the same one
+- Threads come from the chosen review session (the same one
   `:Codeboomer Annotate` writes to); the whole thread map is loaded
-  once at startup and reloaded whenever a new annotation lands
+  once at startup and reloaded whenever a new annotation lands or the
+  chosen session changes (`:Codeboomer SetSession`)
 - The `▌` gutter marks are independent of the toggle: they render in
   every open buffer that carries session threads — one mark per
   commented line, colored by thread (theme groups `Title`, `Special`,
@@ -266,6 +284,10 @@ For more complex queries, you can build up context across multiple selections:
 3. When ready, run `<leader>cd` (or `:Codeboomer FlushWithDirective`) to send your directive along with all unsent annotations — the database is the outbox, so annotations survive restarts
 4. The agent answers each thread back with `codeboomer-agent reply <thread-id> <text>` (the instruction is included in the payload); replies land in the same threads and show up in the `Comments` pane. You can answer threads yourself from inside the pane: `<leader>ce` to enter, `r` to reply, `q` to resolve
 
+A review session is created (or the sole existing one adopted) on the first
+annotation; `:Codeboomer SetSession` (`<leader>cS`) switches when several
+exist — annotations, flushes and gutter marks all follow the chosen session.
+
 ## Development
 
 This plugin is written in **Fennel** and compiled to Lua using **nfnl** (embedded directly in the repo under `lua/nfnl/`).
@@ -305,7 +327,7 @@ nvim -u dev.lua
 ```
 This gives you an isolated Neovim instance with the plugin loaded, nfnl active, and auto-compilation working — write any `.fnl` file and the corresponding `.lua` updates immediately.
 
-For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-codeboomer`. It requires `CODEBOOMER_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cr`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>ca`, `<leader>cm`):
+For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-codeboomer`. It requires `CODEBOOMER_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cr`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>cS`, `<leader>ca`, `<leader>cm`, `<leader>ce`):
 
 ```bash
 CODEBOOMER_PATH=$PWD ./test-codeboomer

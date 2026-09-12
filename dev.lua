@@ -40,6 +40,7 @@ local opts = {
     ask_one_off = "<leader>cc",
     flush_with_directive = "<leader>cd",
     pane = "<leader>cp",
+    session = "<leader>cS",
     annotate = "<leader>ca",
     comments = "<leader>cm",
     enter_pane = "<leader>ce",

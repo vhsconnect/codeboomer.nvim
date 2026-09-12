@@ -1,7 +1,7 @@
 (local sqlite (require :sqlite))
 (local tbl (require :sqlite.tbl))
 
-(local db (sqlite {:uri :/home/vhs/.local/share/nvim/codeboomer
+(local db (sqlite {:uri (.. (vim.fn.stdpath :data) :/codeboomer)
                    :opts {:journal_mode :WAL
                           :synchronous :NORMAL
                           :busy_timeout 500
@@ -25,12 +25,18 @@
                              :reference :repo.id
                              :on_delete :cascade}})
 
+;; a session is the unit of review: "live" ones carry the branch and
+;; the HEAD they were created at; PR ones (review mode) additionally
+;; pin the PR number and the base commit the head is diffed against
 (local session-schema {:id true
-                       :name :text
                        :branch :text
                        :head_commit {:type :integer
                                      :reference :git_commit.id
                                      :on_delete :cascade}
+                       :base_commit {:type :integer
+                                     :reference :git_commit.id
+                                     :on_delete :cascade}
+                       :pr_number :integer
                        :repo_id {:type :integer
                                  :reference :repo.id
                                  :on_delete :cascade}})
@@ -67,6 +73,9 @@
                                    :on_delete :cascade}
                        ;; user, agent, github
                        :source :text
+                       ;; set on comments pulled down from a GitHub PR —
+                       ;; the stable id that makes re-pulls idempotent
+                       :gh_comment_id {:type :integer :unique true}
                        :sent {:type :integer :default 0}
                        :posted {:type :integer :default 0}
                        :created_at {:type :integer

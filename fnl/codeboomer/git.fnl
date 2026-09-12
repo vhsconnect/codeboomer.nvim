@@ -15,6 +15,17 @@
   ;; headless callers (the agent shim) can pass a file instead
   (vim.fs.root (or ?path 0) :.git))
 
+;; absolute path → repo-relative; the original when {path} is not
+;; inside a work tree (or the buffer has no name). Threads store
+;; relative paths so they survive different checkouts — worktrees,
+;; other machines — and match `gh` payload paths as-is
+(fn M.rel-path [?path]
+  (let [p (or ?path (vim.api.nvim_buf_get_name 0))
+        root (M.repo-root p)]
+    (if (and root (= 1 (p:find (.. root "/") 1 true)))
+        (p:sub (+ 2 (length root)))
+        p)))
+
 ;; every configured remote as {:name ... :url ...}, fetch lines only —
 ;; a repo can carry several (e.g. a self-hosted origin plus github)
 (fn M.remotes []

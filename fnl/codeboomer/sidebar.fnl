@@ -7,10 +7,10 @@
 ;; there is no per-tab registry: at most one pane window exists at any
 ;; moment and it follows the cursor across windows and tabpages.
 ;; Gutter markers (▌ extmark signs) are INDEPENDENT of the toggle: they
-;; are placed in every loaded buffer carrying threads of the current
+;; are placed in every loaded buffer carrying threads of the chosen
 ;; review session. The whole thread map is loaded once at startup and
-;; reloaded whenever a new annotation lands — buffer enters are plain
-;; map lookups, never queries.
+;; reloaded whenever a new annotation lands or the chosen session
+;; changes — buffer enters are plain map lookups, never queries.
 ;; The pane is not read-only: three buffer-local keys act on what it
 ;; shows (r composes a reply in the floating input, q resolves, n hops
 ;; to the file's next thread), and M.enter / :Codeboomer Enter moves
@@ -19,6 +19,7 @@
 
 (local review (require :codeboomer.review))
 (local input (require :codeboomer.input))
+(local git (require :codeboomer.git))
 
 (local M {})
 
@@ -92,7 +93,7 @@
 (fn mark-loaded-buffers []
   (each [_ bufnr (ipairs (vim.api.nvim_list_bufs))]
     (when (and (vim.api.nvim_buf_is_loaded bufnr) (normal-buf bufnr))
-      (let [path (vim.api.nvim_buf_get_name bufnr)]
+      (let [path (git.rel-path (vim.api.nvim_buf_get_name bufnr))]
         (place-marks bufnr (or (. threads-by-path path) []))))))
 
 ;; threads covering a line of a file, straight from the in-memory map
@@ -262,7 +263,7 @@
 ;; itself, so re-evaluation targets the code window the pane mirrors
 (fn evaluate-at [win]
   (let [row (?. (vim.api.nvim_win_get_cursor win) 1)
-        path (vim.api.nvim_buf_get_name (vim.api.nvim_win_get_buf win))
+        path (git.rel-path (vim.api.nvim_buf_get_name (vim.api.nvim_win_get_buf win)))
         threads (threads-at path (or row 0))]
     (if (and enabled (> (length threads) 0))
         (do
@@ -288,30 +289,32 @@
   (when timer-id (vim.fn.timer_stop timer-id))
   (set timer-id (vim.fn.timer_start rest-ms check-now)))
 
-;; load every thread of the session into the map: at startup and again
-;; whenever a new annotation is written. NOT on code-buffer writes —
-;; extmarks drift along with edits and stay accurate, while the DB's
-;; stored line numbers go stale the moment lines shift; re-placing from
-;; it would snap marks back to outdated positions.
+;; load every thread of the chosen session into the map: at startup,
+;; again whenever a new annotation is written, and whenever the chosen
+;; session changes. NOT on code-buffer writes — extmarks drift along
+;; with edits and stay accurate, while the DB's stored line numbers go
+;; stale the moment lines shift; re-placing from it would snap marks
+;; back to outdated positions.
 (fn M.reload-threads []
-  (let [(ok sid) (pcall review.active-session-id)]
-    (if ok
-        (do
-          (set threads-by-path {})
-          (each [_ t (ipairs (if sid (review.threads-for-session sid) []))]
-            (let [path (or t.file_path "")
-                  peers (vim.list_extend (or (. threads-by-path path) []) [t])]
-              ;; stamp each thread's 1-based position in its file's
-              ;; top-to-bottom list: gutter marks and pane headers both
-              ;; tint from this, so a thread keeps one color even when
-              ;; the pane shows only a covering subset of the file
-              (set t.hl-index (length peers))
-              (tset threads-by-path path peers)))
-          (mark-loaded-buffers)
-          ;; an open pane may now be showing stale comments
-          (schedule-check))
-        (vim.schedule #(vim.notify (.. "codeboomer: " (tostring sid))
-                                   vim.log.levels.ERROR)))))
+  ;; nothing chosen yet → adopt the sole session when exactly one
+  ;; exists, so the common single-session case is marker-visible at
+  ;; startup without anyone picking anything
+  (when (not (review.current-session-id))
+    (review.adopt-sole-session))
+  (let [sid (review.current-session-id)]
+    (set threads-by-path {})
+    (each [_ t (ipairs (if sid (review.threads-for-session sid) []))]
+      (let [path (or t.file_path "")
+            peers (vim.list_extend (or (. threads-by-path path) []) [t])]
+        ;; stamp each thread's 1-based position in its file's
+        ;; top-to-bottom list: gutter marks and pane headers both
+        ;; tint from this, so a thread keeps one color even when
+        ;; the pane shows only a covering subset of the file
+        (set t.hl-index (length peers))
+        (tset threads-by-path path peers)))
+    (mark-loaded-buffers)
+    ;; an open pane may now be showing stale comments
+    (schedule-check)))
 
 ;; markers need these hooks regardless of the toggle, so the group is
 ;; attached once when the module loads and never torn down
@@ -326,8 +329,8 @@
                                             ;; loaded gets its marks from a
                                             ;; plain lookup (or loses them,
                                             ;; if its threads resolved)
-                                            (let [path (vim.api.nvim_buf_get_name 0)]
-                                              (when (normal-buf 0)
+                                            (when (normal-buf 0)
+                                              (let [path (git.rel-path)]
                                                 (place-marks
                                                   0 (or (. threads-by-path path)
                                                         []))))
@@ -344,7 +347,8 @@
                                               (set pane-win nil)))})
   (vim.api.nvim_create_autocmd :User
                                {:group augroup-name
-                                :pattern :CodeboomerAnnotated
+                                :pattern [:CodeboomerAnnotated
+                                          :CodeboomerSessionChanged]
                                 :callback M.reload-threads}))
 
 (set M.open (fn []

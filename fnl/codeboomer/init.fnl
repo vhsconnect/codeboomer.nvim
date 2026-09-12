@@ -6,8 +6,9 @@
 (local review (require :codeboomer.review))
 (local agent (require :codeboomer.agent))
 (local one-offs (require :codeboomer.one-offs))
+(local git (require :codeboomer.git))
 
-(local state {:pane nil :session-id nil})
+(local state {:pane nil})
 
 (local M {})
 
@@ -16,24 +17,11 @@
        ,body
        (choose-pane (parse-panes (shell panes-command)) (fn [] ,body))))
 
-(macro with-session [body]
-  `(if state.session-id
-       ,body
-       (let [sessions# (or (review.get-sessions) [])]
-         (case (length sessions#)
-           0 (do
-               (tset state :session-id (review.create-session))
-               ,body)
-           1 (do
-               (tset state :session-id (?. sessions# 1 :id))
-               ,body)
-           _# (error "Multiple session not implemented")))))
+(fn schedule-notify [msg level]
+  (vim.schedule #(vim.notify msg level)))
 
 (set M.setup (fn [opts]
                (config.setup opts)))
-
-(fn schedule-notify [msg level]
-  (vim.schedule #(vim.notify msg level)))
 
 (fn shell [command]
   (let [handle (io.popen command)
@@ -213,6 +201,56 @@
                                           ;; execute callback when passed
                                           (when ?then (?then cmd))))}})))
 
+(local new-session-entry "+ new session")
+
+;; one line per session in the picker: its id, what it reviews (a PR
+;; number or "live"), the branch it was created on — the chosen one
+;; is starred
+(fn session-display [s]
+  (let [pr (?. s :pr_number)
+        kind (if pr (.. "PR " pr) :live)
+        current (if (= s.id (review.current-session-id)) "*" " ")]
+    (string.format "%s #%-4d %-9s %s" current (or s.id 0) kind
+                   (or s.branch "?"))))
+
+;; fzf over the repo's sessions plus a create entry: picking sets the
+;; chosen session (the sidebar reloads via CodeboomerSessionChanged)
+;; and runs ?then
+(fn choose-session [?then]
+  (let [fzf (require :fzf-lua)
+        sessions (or (review.existing-sessions) [])
+        by-display {}
+        lines (icollect [_ s (ipairs sessions)]
+                (let [display (session-display s)]
+                  (tset by-display display s)
+                  display))]
+    (fzf.fzf_exec (vim.list_extend lines [new-session-entry])
+                  {:prompt "Pick a Session> "
+                   :actions {:default (fn [selected]
+                                        (let [choice (. selected 1)
+                                              id (if (= choice new-session-entry)
+                                                     (review.create-session)
+                                                     (?. by-display choice :id))]
+                                          (review.set-session id)
+                                          (schedule-notify (string.format "codeboomer: session #%s chosen"
+                                                                          (tostring id))
+                                                           vim.log.levels.INFO)
+                                          (when ?then (?then))))}})))
+
+;; resolve the session an upcoming write targets: the chosen one when
+;; set; a fresh one when the repo has none; the sole one adopted when
+;; exactly one exists — the common live-review case never sees a
+;; picker. Several compete → picker
+(fn ensure-session [k]
+  (let [sid (review.current-session-id)]
+    (if sid
+        (k)
+        (let [sessions (or (review.existing-sessions) [])]
+          (case (length sessions)
+            0 (do (review.set-session (review.create-session)) (k))
+            1 (do (review.set-session (?. sessions 1 :id)) (k))
+            _ (choose-session k))))))
+
 (set M.RunOneOff run-one-off)
 
 (fn concat-list [lines]
@@ -223,7 +261,7 @@
 
 (fn get-visual-lines [opts]
   (when (= (?. opts :range) 2)
-    (let [path (vim.api.nvim_buf_get_name 0)
+    (let [path (git.rel-path)
           (ok region-lines) (pcall vim.fn.getregion (vim.fn.getpos "'<")
                                    (vim.fn.getpos "'>")
                                    {:type (vim.fn.visualmode)})
@@ -239,7 +277,7 @@
   (if context
       (.. "regarding " context.file " lines " context.line1 " to "
           context.line2 "\n" context.lines "\n" text "\n")
-      (let [file (vim.api.nvim_buf_get_name 0)]
+      (let [file (git.rel-path)]
         (.. "regarding " file "\n" text "\n"))))
 
 (fn annotation-message [t c]
@@ -250,6 +288,10 @@
 (set M.SetPane
      (fn []
        (choose-pane (parse-panes (shell panes-command)))))
+
+(set M.SetSession
+     (fn []
+       (choose-session)))
 
 (set M.SendPrompt
      (fn [opts]
@@ -301,17 +343,39 @@
                                                (if (= text "")
                                                    (schedule-notify "codeboomer: empty annotation ignored"
                                                                     vim.log.levels.WARN)
-                                                   (with-session (do
-                                                                   (review.user-comment state.session-id
-                                                                                        context.file
-                                                                                        context.line1
-                                                                                        context.line2
-                                                                                        context.lines
-                                                                                        text)
-                                                                   ;; let an open review pane pick the
-                                                                   ;; fresh thread up
-                                                                   (vim.api.nvim_exec_autocmds :User
-                                                                                               {:pattern :CodeboomerAnnotated}))))))})))))
+                                                   (ensure-session
+                                                     (fn []
+                                                       (review.user-comment (review.current-session-id)
+                                                                            context.file
+                                                                            context.line1
+                                                                            context.line2
+                                                                            context.lines
+                                                                            text)
+                                                       ;; let an open review pane pick the
+                                                       ;; fresh thread up
+                                                       (vim.api.nvim_exec_autocmds :User
+                                                                                   {:pattern :CodeboomerAnnotated}))))))})))))
+
+;; ship every unsent annotation of the chosen session to the pane,
+;; wrapped in the directive, then mark them sent
+(fn flush-pending [directive-text]
+  (let [pending (review.pending-annotations (review.current-session-id) :sent)]
+    (if (= 0 (length pending))
+        (schedule-notify "codeboomer: nothing to flush — no unsent annotations"
+                         vim.log.levels.WARN)
+        (let [messages (icollect [_ a (ipairs pending)]
+                         (annotation-message a.thread a.comment))
+              annotations (concat-list-with-format messages
+                                                   "==Section Start=="
+                                                   "===="
+                                                   "==Section End==")]
+          (send-keys-to-selected-pane (.. annotations
+                                          (agent.reply-instructions)
+                                          directive-text
+                                          "\n"))
+          (review.mark-annotations :sent
+                                   (icollect [_ a (ipairs pending)]
+                                     a.comment.id))))))
 
 (set M.FlushWithDirective
      (fn []
@@ -322,28 +386,7 @@
                    (fzf.fzf_exec lines
                                  {:prompt "Pick a Directive> "
                                   :actions {:default (fn [selected]
-                                                       (let [selected-label (. selected
-                                                                               1)
-                                                             directive-text (directives.get selected-label)]
-                                                         (with-session (let [pending (review.pending-annotations state.session-id
-                                                                                                                 :sent)]
-                                                                         (if (= 0
-                                                                                (length pending))
-                                                                             (schedule-notify "codeboomer: nothing to flush — no unsent annotations"
-                                                                                              vim.log.levels.WARN)
-                                                                             (let [messages (icollect [_ a (ipairs pending)]
-                                                                                              (annotation-message a.thread
-                                                                                                                  a.comment))
-                                                                                   annotations (concat-list-with-format messages
-                                                                                                                        "==Section Start=="
-                                                                                                                        "===="
-                                                                                                                        "==Section End==")]
-                                                                               (send-keys-to-selected-pane (.. annotations
-                                                                                                               (agent.reply-instructions)
-                                                                                                               directive-text
-                                                                                                               "\n"))
-                                                                               (review.mark-annotations :sent
-                                                                                                        (icollect [_ a (ipairs pending)]
-                                                                                                          a.comment.id))))))))}})))))
+                                                       (let [directive-text (directives.get (. selected 1))]
+                                                         (ensure-session #(flush-pending directive-text))))}})))))
 
 M

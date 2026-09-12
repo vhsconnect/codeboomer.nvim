@@ -74,18 +74,12 @@
                                    (parse-pr obj.stdout)
                                    nil))))))))
 
-;; GitHub wants repo-relative paths; threads store absolute ones
-(fn rel-path [path]
-  (let [root (git.repo-root)]
-    (if (and root path (= 1 (path:find (.. root "/") 1 true)))
-        (path:sub (+ 2 (length root)))
-        (or path ""))))
-
 ;; one pending annotation → one inline PR comment: the range becomes
 ;; start_line/line (equal endpoints collapse to a single line), the
-;; body is the annotation's text
+;; body is the annotation's text — thread paths are already
+;; repo-relative, as the API wants
 (fn pr-comment [t c]
-  (let [item {:path (rel-path t.file_path)
+  (let [item {:path (or t.file_path "")
               :line (or t.line_end (or t.line_start 1))
               :body (or c.body "")}]
     (when (and t.line_start t.line_end (< t.line_start t.line_end))
@@ -142,17 +136,15 @@
 ;; :REQUEST_CHANGES, :APPROVE)
 (fn M.post-threads [?opts]
   (let [opts (or ?opts {})
-        (ok sid-default) (pcall review.active-session-id)
-        sid (or opts.session-id (if ok sid-default nil))
+        sid (or opts.session-id (review.current-session-id))
         branch (or opts.branch (git.branch-name))
         slug (github-slug)]
-    (if (not ok)
-        (notify (.. "codeboomer: " (tostring sid-default)) vim.log.levels.ERROR)
-        (not slug)
+    (if (not slug)
         (notify "codeboomer: no GitHub remote in this repository"
                 vim.log.levels.ERROR)
         (not sid)
-        (notify "codeboomer: no review session to post" vim.log.levels.WARN)
+        (notify "codeboomer: no review session — pick one first"
+                vim.log.levels.WARN)
         (let [pending (review.pending-annotations sid :posted)]
           (if (= 0 (length pending))
               (notify "codeboomer: nothing to post — no unposted annotations"

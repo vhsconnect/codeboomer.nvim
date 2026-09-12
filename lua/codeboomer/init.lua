@@ -6,18 +6,19 @@ local directives = require("codeboomer.directives")
 local review = require("codeboomer.review")
 local agent = require("codeboomer.agent")
 local one_offs = require("codeboomer.one-offs")
-local state = {pane = nil, ["session-id"] = nil}
+local git = require("codeboomer.git")
+local state = {pane = nil}
 local M = {}
-local function _1_(opts)
-  return config.setup(opts)
-end
-M.setup = _1_
 local function schedule_notify(msg, level)
-  local function _2_()
+  local function _1_()
     return vim.notify(msg, level)
   end
-  return vim.schedule(_2_)
+  return vim.schedule(_1_)
 end
+local function _2_(opts)
+  return config.setup(opts)
+end
+M.setup = _2_
 local function shell(command)
   local handle = io.popen(command)
   local output = handle:read("*a")
@@ -205,6 +206,112 @@ local function choose_one_off(commands, _3fthen)
   end
   return fzf.fzf_exec(lines, {prompt = "Pick a One-off> ", actions = {default = _19_}})
 end
+local new_session_entry = "+ new session"
+local function session_display(s)
+  local pr
+  do
+    local t_21_ = s
+    if (nil ~= t_21_) then
+      t_21_ = t_21_.pr_number
+    else
+    end
+    pr = t_21_
+  end
+  local kind
+  if pr then
+    kind = ("PR " .. pr)
+  else
+    kind = "live"
+  end
+  local current
+  if (s.id == review["current-session-id"]()) then
+    current = "*"
+  else
+    current = " "
+  end
+  return string.format("%s #%-4d %-9s %s", current, (s.id or 0), kind, (s.branch or "?"))
+end
+local function choose_session(_3fthen)
+  local fzf = require("fzf-lua")
+  local sessions = (review["existing-sessions"]() or {})
+  local by_display = {}
+  local lines
+  do
+    local tbl_26_ = {}
+    local i_27_ = 0
+    for _, s in ipairs(sessions) do
+      local val_28_
+      do
+        local display = session_display(s)
+        by_display[display] = s
+        val_28_ = display
+      end
+      if (nil ~= val_28_) then
+        i_27_ = (i_27_ + 1)
+        tbl_26_[i_27_] = val_28_
+      else
+      end
+    end
+    lines = tbl_26_
+  end
+  local function _26_(selected)
+    local choice = selected[1]
+    local id
+    if (choice == new_session_entry) then
+      id = review["create-session"]()
+    else
+      local t_27_ = by_display
+      if (nil ~= t_27_) then
+        t_27_ = t_27_[choice]
+      else
+      end
+      if (nil ~= t_27_) then
+        t_27_ = t_27_.id
+      else
+      end
+      id = t_27_
+    end
+    review["set-session"](id)
+    schedule_notify(string.format("codeboomer: session #%s chosen", tostring(id)), vim.log.levels.INFO)
+    if _3fthen then
+      return _3fthen()
+    else
+      return nil
+    end
+  end
+  return fzf.fzf_exec(vim.list_extend(lines, {new_session_entry}), {prompt = "Pick a Session> ", actions = {default = _26_}})
+end
+local function ensure_session(k)
+  local sid = review["current-session-id"]()
+  if sid then
+    return k()
+  else
+    local sessions = (review["existing-sessions"]() or {})
+    local case_32_ = #sessions
+    if (case_32_ == 0) then
+      review["set-session"](review["create-session"]())
+      return k()
+    elseif (case_32_ == 1) then
+      local function _34_()
+        local t_33_ = sessions
+        if (nil ~= t_33_) then
+          t_33_ = t_33_[1]
+        else
+        end
+        if (nil ~= t_33_) then
+          t_33_ = t_33_.id
+        else
+        end
+        return t_33_
+      end
+      review["set-session"](_34_())
+      return k()
+    else
+      local _ = case_32_
+      return choose_session(k)
+    end
+  end
+end
 M.RunOneOff = run_one_off
 local function concat_list(lines)
   return table.concat(lines, "\n")
@@ -213,17 +320,17 @@ local function concat_list_with_format(lines, beginning, sep, _end)
   return (beginning .. "\n" .. table.concat(lines, (sep .. "\n")) .. "\n" .. _end .. "\n")
 end
 local function get_visual_lines(opts)
-  local _22_
+  local _40_
   do
-    local t_21_ = opts
-    if (nil ~= t_21_) then
-      t_21_ = t_21_.range
+    local t_39_ = opts
+    if (nil ~= t_39_) then
+      t_39_ = t_39_.range
     else
     end
-    _22_ = t_21_
+    _40_ = t_39_
   end
-  if (_22_ == 2) then
-    local path = vim.api.nvim_buf_get_name(0)
+  if (_40_ == 2) then
+    local path = git["rel-path"]()
     local ok, region_lines = pcall(vim.fn.getregion, vim.fn.getpos("'<"), vim.fn.getpos("'>"), {type = vim.fn.visualmode()})
     local lines
     if ok then
@@ -240,21 +347,25 @@ local function compose_message(context, text)
   if context then
     return ("regarding " .. context.file .. " lines " .. context.line1 .. " to " .. context.line2 .. "\n" .. context.lines .. "\n" .. text .. "\n")
   else
-    local file = vim.api.nvim_buf_get_name(0)
+    local file = git["rel-path"]()
     return ("regarding " .. file .. "\n" .. text .. "\n")
   end
 end
 local function annotation_message(t, c)
   return string.format("regarding %s lines %s to %s (thread %s)\n%s\n%s", (t.file_path or "?"), (t.line_start or "?"), (t.line_end or "?"), (t.id or "?"), (t.code_snapshot or ""), (c.body or ""))
 end
-local function _27_()
+local function _45_()
   return choose_pane(parse_panes(shell(panes_command)))
 end
-M.SetPane = _27_
-local function _28_(opts)
+M.SetPane = _45_
+local function _46_()
+  return choose_session()
+end
+M.SetSession = _46_
+local function _47_(opts)
   if state.pane then
     local context = get_visual_lines(opts)
-    local function _29_(lines)
+    local function _48_(lines)
       local text = concat_list(lines)
       if (text ~= "") then
         return send_keys_to_selected_pane(compose_message(context, text))
@@ -262,11 +373,11 @@ local function _28_(opts)
         return nil
       end
     end
-    return input.open({title = " SendPrompt> ", ["on-submit"] = _29_})
+    return input.open({title = " SendPrompt> ", ["on-submit"] = _48_})
   else
-    local function _31_()
+    local function _50_()
       local context = get_visual_lines(opts)
-      local function _32_(lines)
+      local function _51_(lines)
         local text = concat_list(lines)
         if (text ~= "") then
           return send_keys_to_selected_pane(compose_message(context, text))
@@ -274,13 +385,13 @@ local function _28_(opts)
           return nil
         end
       end
-      return input.open({title = " SendPrompt> ", ["on-submit"] = _32_})
+      return input.open({title = " SendPrompt> ", ["on-submit"] = _51_})
     end
-    return choose_pane(parse_panes(shell(panes_command)), _31_)
+    return choose_pane(parse_panes(shell(panes_command)), _50_)
   end
 end
-M.SendPrompt = _28_
-local function _35_(opts)
+M.SendPrompt = _47_
+local function _54_(opts)
   if state.pane then
     local context = get_visual_lines(opts)
     if context then
@@ -289,7 +400,7 @@ local function _35_(opts)
       return nil
     end
   else
-    local function _37_()
+    local function _56_()
       local context = get_visual_lines(opts)
       if context then
         return send_keys_to_selected_pane(context.lines)
@@ -297,16 +408,16 @@ local function _35_(opts)
         return nil
       end
     end
-    return choose_pane(parse_panes(shell(panes_command)), _37_)
+    return choose_pane(parse_panes(shell(panes_command)), _56_)
   end
 end
-M.SendSelection = _35_
-local function _40_(opts)
+M.SendSelection = _54_
+local function _59_(opts)
   local context = get_visual_lines(opts)
   local commands = (one_offs.list() or {})
   local ask
-  local function _41_(cmd)
-    local function _42_(lines)
+  local function _60_(cmd)
+    local function _61_(lines)
       local text = concat_list(lines)
       if (text ~= "") then
         return run_one_off(cmd, compose_message(context, text))
@@ -314,9 +425,9 @@ local function _40_(opts)
         return nil
       end
     end
-    return input.open({title = string.format(" AskOneOff: %s (Enter to send)> ", cmd.label), ["submit-on-enter"] = true, ["on-submit"] = _42_})
+    return input.open({title = string.format(" AskOneOff: %s (Enter to send)> ", cmd.label), ["submit-on-enter"] = true, ["on-submit"] = _61_})
   end
-  ask = _41_
+  ask = _60_
   if (0 == #commands) then
     return schedule_notify("codeboomer: prompting.one_off_commands not set \226\128\148 call setup() first", vim.log.levels.ERROR)
   else
@@ -327,99 +438,82 @@ local function _40_(opts)
     end
   end
 end
-M.AskOneOff = _40_
-local function _46_(opts)
+M.AskOneOff = _59_
+local function _65_(opts)
   if state.pane then
     local context = get_visual_lines(opts)
-    local function _47_(lines)
+    local function _66_(lines)
       local text = concat_list(lines)
       if (text == "") then
         return schedule_notify("codeboomer: empty annotation ignored", vim.log.levels.WARN)
       else
-        if state["session-id"] then
-          review["user-comment"](state["session-id"], context.file, context.line1, context.line2, context.lines, text)
+        local function _67_()
+          review["user-comment"](review["current-session-id"](), context.file, context.line1, context.line2, context.lines, text)
           return vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerAnnotated"})
-        else
-          local sessions_2_auto = (review["get-sessions"]() or {})
-          local case_48_ = #sessions_2_auto
-          if (case_48_ == 0) then
-            state["session-id"] = review["create-session"]()
-            review["user-comment"](state["session-id"], context.file, context.line1, context.line2, context.lines, text)
-            return vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerAnnotated"})
-          elseif (case_48_ == 1) then
-            local _50_
-            do
-              local t_49_ = sessions_2_auto
-              if (nil ~= t_49_) then
-                t_49_ = t_49_[1]
-              else
-              end
-              if (nil ~= t_49_) then
-                t_49_ = t_49_.id
-              else
-              end
-              _50_ = t_49_
-            end
-            state["session-id"] = _50_
-            review["user-comment"](state["session-id"], context.file, context.line1, context.line2, context.lines, text)
-            return vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerAnnotated"})
-          else
-            local __3_auto = case_48_
-            return error("Multiple session not implemented")
-          end
         end
+        return ensure_session(_67_)
       end
     end
-    return input.open({title = " Annotate> ", ["on-submit"] = _47_})
+    return input.open({title = " Annotate> ", ["on-submit"] = _66_})
   else
-    local function _56_()
+    local function _69_()
       local context = get_visual_lines(opts)
-      local function _57_(lines)
+      local function _70_(lines)
         local text = concat_list(lines)
         if (text == "") then
           return schedule_notify("codeboomer: empty annotation ignored", vim.log.levels.WARN)
         else
-          if state["session-id"] then
-            review["user-comment"](state["session-id"], context.file, context.line1, context.line2, context.lines, text)
+          local function _71_()
+            review["user-comment"](review["current-session-id"](), context.file, context.line1, context.line2, context.lines, text)
             return vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerAnnotated"})
-          else
-            local sessions_2_auto = (review["get-sessions"]() or {})
-            local case_58_ = #sessions_2_auto
-            if (case_58_ == 0) then
-              state["session-id"] = review["create-session"]()
-              review["user-comment"](state["session-id"], context.file, context.line1, context.line2, context.lines, text)
-              return vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerAnnotated"})
-            elseif (case_58_ == 1) then
-              local _60_
-              do
-                local t_59_ = sessions_2_auto
-                if (nil ~= t_59_) then
-                  t_59_ = t_59_[1]
-                else
-                end
-                if (nil ~= t_59_) then
-                  t_59_ = t_59_.id
-                else
-                end
-                _60_ = t_59_
-              end
-              state["session-id"] = _60_
-              review["user-comment"](state["session-id"], context.file, context.line1, context.line2, context.lines, text)
-              return vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerAnnotated"})
-            else
-              local __3_auto = case_58_
-              return error("Multiple session not implemented")
-            end
           end
+          return ensure_session(_71_)
         end
       end
-      return input.open({title = " Annotate> ", ["on-submit"] = _57_})
+      return input.open({title = " Annotate> ", ["on-submit"] = _70_})
     end
-    return choose_pane(parse_panes(shell(panes_command)), _56_)
+    return choose_pane(parse_panes(shell(panes_command)), _69_)
   end
 end
-M.Annotate = _46_
-local function _67_()
+M.Annotate = _65_
+local function flush_pending(directive_text)
+  local pending = review["pending-annotations"](review["current-session-id"](), "sent")
+  if (0 == #pending) then
+    return schedule_notify("codeboomer: nothing to flush \226\128\148 no unsent annotations", vim.log.levels.WARN)
+  else
+    local messages
+    do
+      local tbl_26_ = {}
+      local i_27_ = 0
+      for _, a in ipairs(pending) do
+        local val_28_ = annotation_message(a.thread, a.comment)
+        if (nil ~= val_28_) then
+          i_27_ = (i_27_ + 1)
+          tbl_26_[i_27_] = val_28_
+        else
+        end
+      end
+      messages = tbl_26_
+    end
+    local annotations = concat_list_with_format(messages, "==Section Start==", "====", "==Section End==")
+    send_keys_to_selected_pane((annotations .. agent["reply-instructions"]() .. directive_text .. "\n"))
+    local function _75_()
+      local tbl_26_ = {}
+      local i_27_ = 0
+      for _, a in ipairs(pending) do
+        local val_28_ = a.comment.id
+        if (nil ~= val_28_) then
+          i_27_ = (i_27_ + 1)
+          tbl_26_[i_27_] = val_28_
+        else
+        end
+      end
+      return tbl_26_
+    end
+    return review["mark-annotations"]("sent", _75_())
+  end
+end
+local function _78_()
   if state.pane then
     local fzf = require("fzf-lua")
     local all_directives = directives.list()
@@ -437,144 +531,16 @@ local function _67_()
       end
       lines = tbl_26_
     end
-    local function _69_(selected)
-      local selected_label = selected[1]
-      local directive_text = directives.get(selected_label)
-      if state["session-id"] then
-        local pending = review["pending-annotations"](state["session-id"], "sent")
-        if (0 == #pending) then
-          return schedule_notify("codeboomer: nothing to flush \226\128\148 no unsent annotations", vim.log.levels.WARN)
-        else
-          local messages
-          do
-            local tbl_26_ = {}
-            local i_27_ = 0
-            for _, a in ipairs(pending) do
-              local val_28_ = annotation_message(a.thread, a.comment)
-              if (nil ~= val_28_) then
-                i_27_ = (i_27_ + 1)
-                tbl_26_[i_27_] = val_28_
-              else
-              end
-            end
-            messages = tbl_26_
-          end
-          local annotations = concat_list_with_format(messages, "==Section Start==", "====", "==Section End==")
-          send_keys_to_selected_pane((annotations .. agent["reply-instructions"]() .. directive_text .. "\n"))
-          local function _71_()
-            local tbl_26_ = {}
-            local i_27_ = 0
-            for _, a in ipairs(pending) do
-              local val_28_ = a.comment.id
-              if (nil ~= val_28_) then
-                i_27_ = (i_27_ + 1)
-                tbl_26_[i_27_] = val_28_
-              else
-              end
-            end
-            return tbl_26_
-          end
-          return review["mark-annotations"]("sent", _71_())
-        end
-      else
-        local sessions_2_auto = (review["get-sessions"]() or {})
-        local case_74_ = #sessions_2_auto
-        if (case_74_ == 0) then
-          state["session-id"] = review["create-session"]()
-          local pending = review["pending-annotations"](state["session-id"], "sent")
-          if (0 == #pending) then
-            return schedule_notify("codeboomer: nothing to flush \226\128\148 no unsent annotations", vim.log.levels.WARN)
-          else
-            local messages
-            do
-              local tbl_26_ = {}
-              local i_27_ = 0
-              for _, a in ipairs(pending) do
-                local val_28_ = annotation_message(a.thread, a.comment)
-                if (nil ~= val_28_) then
-                  i_27_ = (i_27_ + 1)
-                  tbl_26_[i_27_] = val_28_
-                else
-                end
-              end
-              messages = tbl_26_
-            end
-            local annotations = concat_list_with_format(messages, "==Section Start==", "====", "==Section End==")
-            send_keys_to_selected_pane((annotations .. agent["reply-instructions"]() .. directive_text .. "\n"))
-            local function _76_()
-              local tbl_26_ = {}
-              local i_27_ = 0
-              for _, a in ipairs(pending) do
-                local val_28_ = a.comment.id
-                if (nil ~= val_28_) then
-                  i_27_ = (i_27_ + 1)
-                  tbl_26_[i_27_] = val_28_
-                else
-                end
-              end
-              return tbl_26_
-            end
-            return review["mark-annotations"]("sent", _76_())
-          end
-        elseif (case_74_ == 1) then
-          local _80_
-          do
-            local t_79_ = sessions_2_auto
-            if (nil ~= t_79_) then
-              t_79_ = t_79_[1]
-            else
-            end
-            if (nil ~= t_79_) then
-              t_79_ = t_79_.id
-            else
-            end
-            _80_ = t_79_
-          end
-          state["session-id"] = _80_
-          local pending = review["pending-annotations"](state["session-id"], "sent")
-          if (0 == #pending) then
-            return schedule_notify("codeboomer: nothing to flush \226\128\148 no unsent annotations", vim.log.levels.WARN)
-          else
-            local messages
-            do
-              local tbl_26_ = {}
-              local i_27_ = 0
-              for _, a in ipairs(pending) do
-                local val_28_ = annotation_message(a.thread, a.comment)
-                if (nil ~= val_28_) then
-                  i_27_ = (i_27_ + 1)
-                  tbl_26_[i_27_] = val_28_
-                else
-                end
-              end
-              messages = tbl_26_
-            end
-            local annotations = concat_list_with_format(messages, "==Section Start==", "====", "==Section End==")
-            send_keys_to_selected_pane((annotations .. agent["reply-instructions"]() .. directive_text .. "\n"))
-            local function _84_()
-              local tbl_26_ = {}
-              local i_27_ = 0
-              for _, a in ipairs(pending) do
-                local val_28_ = a.comment.id
-                if (nil ~= val_28_) then
-                  i_27_ = (i_27_ + 1)
-                  tbl_26_[i_27_] = val_28_
-                else
-                end
-              end
-              return tbl_26_
-            end
-            return review["mark-annotations"]("sent", _84_())
-          end
-        else
-          local __3_auto = case_74_
-          return error("Multiple session not implemented")
-        end
+    local function _80_(selected)
+      local directive_text = directives.get(selected[1])
+      local function _81_()
+        return flush_pending(directive_text)
       end
+      return ensure_session(_81_)
     end
-    return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _69_}})
+    return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _80_}})
   else
-    local function _89_()
+    local function _82_()
       local fzf = require("fzf-lua")
       local all_directives = directives.list()
       local lines
@@ -591,145 +557,17 @@ local function _67_()
         end
         lines = tbl_26_
       end
-      local function _91_(selected)
-        local selected_label = selected[1]
-        local directive_text = directives.get(selected_label)
-        if state["session-id"] then
-          local pending = review["pending-annotations"](state["session-id"], "sent")
-          if (0 == #pending) then
-            return schedule_notify("codeboomer: nothing to flush \226\128\148 no unsent annotations", vim.log.levels.WARN)
-          else
-            local messages
-            do
-              local tbl_26_ = {}
-              local i_27_ = 0
-              for _, a in ipairs(pending) do
-                local val_28_ = annotation_message(a.thread, a.comment)
-                if (nil ~= val_28_) then
-                  i_27_ = (i_27_ + 1)
-                  tbl_26_[i_27_] = val_28_
-                else
-                end
-              end
-              messages = tbl_26_
-            end
-            local annotations = concat_list_with_format(messages, "==Section Start==", "====", "==Section End==")
-            send_keys_to_selected_pane((annotations .. agent["reply-instructions"]() .. directive_text .. "\n"))
-            local function _93_()
-              local tbl_26_ = {}
-              local i_27_ = 0
-              for _, a in ipairs(pending) do
-                local val_28_ = a.comment.id
-                if (nil ~= val_28_) then
-                  i_27_ = (i_27_ + 1)
-                  tbl_26_[i_27_] = val_28_
-                else
-                end
-              end
-              return tbl_26_
-            end
-            return review["mark-annotations"]("sent", _93_())
-          end
-        else
-          local sessions_2_auto = (review["get-sessions"]() or {})
-          local case_96_ = #sessions_2_auto
-          if (case_96_ == 0) then
-            state["session-id"] = review["create-session"]()
-            local pending = review["pending-annotations"](state["session-id"], "sent")
-            if (0 == #pending) then
-              return schedule_notify("codeboomer: nothing to flush \226\128\148 no unsent annotations", vim.log.levels.WARN)
-            else
-              local messages
-              do
-                local tbl_26_ = {}
-                local i_27_ = 0
-                for _, a in ipairs(pending) do
-                  local val_28_ = annotation_message(a.thread, a.comment)
-                  if (nil ~= val_28_) then
-                    i_27_ = (i_27_ + 1)
-                    tbl_26_[i_27_] = val_28_
-                  else
-                  end
-                end
-                messages = tbl_26_
-              end
-              local annotations = concat_list_with_format(messages, "==Section Start==", "====", "==Section End==")
-              send_keys_to_selected_pane((annotations .. agent["reply-instructions"]() .. directive_text .. "\n"))
-              local function _98_()
-                local tbl_26_ = {}
-                local i_27_ = 0
-                for _, a in ipairs(pending) do
-                  local val_28_ = a.comment.id
-                  if (nil ~= val_28_) then
-                    i_27_ = (i_27_ + 1)
-                    tbl_26_[i_27_] = val_28_
-                  else
-                  end
-                end
-                return tbl_26_
-              end
-              return review["mark-annotations"]("sent", _98_())
-            end
-          elseif (case_96_ == 1) then
-            local _102_
-            do
-              local t_101_ = sessions_2_auto
-              if (nil ~= t_101_) then
-                t_101_ = t_101_[1]
-              else
-              end
-              if (nil ~= t_101_) then
-                t_101_ = t_101_.id
-              else
-              end
-              _102_ = t_101_
-            end
-            state["session-id"] = _102_
-            local pending = review["pending-annotations"](state["session-id"], "sent")
-            if (0 == #pending) then
-              return schedule_notify("codeboomer: nothing to flush \226\128\148 no unsent annotations", vim.log.levels.WARN)
-            else
-              local messages
-              do
-                local tbl_26_ = {}
-                local i_27_ = 0
-                for _, a in ipairs(pending) do
-                  local val_28_ = annotation_message(a.thread, a.comment)
-                  if (nil ~= val_28_) then
-                    i_27_ = (i_27_ + 1)
-                    tbl_26_[i_27_] = val_28_
-                  else
-                  end
-                end
-                messages = tbl_26_
-              end
-              local annotations = concat_list_with_format(messages, "==Section Start==", "====", "==Section End==")
-              send_keys_to_selected_pane((annotations .. agent["reply-instructions"]() .. directive_text .. "\n"))
-              local function _106_()
-                local tbl_26_ = {}
-                local i_27_ = 0
-                for _, a in ipairs(pending) do
-                  local val_28_ = a.comment.id
-                  if (nil ~= val_28_) then
-                    i_27_ = (i_27_ + 1)
-                    tbl_26_[i_27_] = val_28_
-                  else
-                  end
-                end
-                return tbl_26_
-              end
-              return review["mark-annotations"]("sent", _106_())
-            end
-          else
-            local __3_auto = case_96_
-            return error("Multiple session not implemented")
-          end
+      local function _84_(selected)
+        local directive_text = directives.get(selected[1])
+        local function _85_()
+          return flush_pending(directive_text)
         end
+        return ensure_session(_85_)
       end
-      return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _91_}})
+      return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _84_}})
     end
-    return choose_pane(parse_panes(shell(panes_command)), _89_)
+    return choose_pane(parse_panes(shell(panes_command)), _82_)
   end
 end
-M.FlushWithDirective = _67_
+M.FlushWithDirective = _78_
 return M

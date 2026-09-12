@@ -6,5 +6,5 @@ nvim \
   --cmd "lua vim.opt.runtimepath:prepend('$CODEBOOMER_PATH')" \
   --cmd "lua vim.g.mapleader = ' '" \
   --cmd "lua vim.keymap.set({'n', 'x'}, '<Space>', '<Nop>')" \
-  --cmd "lua require('codeboomer').setup({keybindings={send_prompt='<leader>cs', send_selection='<leader>cr', ask_one_off='<leader>cc', flush_with_directive='<leader>cd', pane='<leader>cp', annotate='<leader>ca', comments='<leader>cm', enter_pane='<leader>ce'}, prompting={one_off_commands={{label='claude-code (llm-agents)', argv={'nix','run','github:numtide/llm-agents.nix#claude-code','--','--model','haiku','--output-format','json','--permission-mode','acceptEdits','-p'}}}}})" \
+  --cmd "lua require('codeboomer').setup({keybindings={send_prompt='<leader>cs', send_selection='<leader>cr', ask_one_off='<leader>cc', flush_with_directive='<leader>cd', pane='<leader>cp', session='<leader>cS', annotate='<leader>ca', comments='<leader>cm', enter_pane='<leader>ce'}, prompting={one_off_commands={{label='claude-code (llm-agents)', argv={'nix','run','github:numtide/llm-agents.nix#claude-code','--','--model','haiku','--output-format','json','--permission-mode','acceptEdits','-p'}}}}})" \
   "$@"

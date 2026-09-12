@@ -13,6 +13,15 @@ end
 M["repo-root"] = function(_3fpath)
   return vim.fs.root((_3fpath or 0), ".git")
 end
+M["rel-path"] = function(_3fpath)
+  local p = (_3fpath or vim.api.nvim_buf_get_name(0))
+  local root = M["repo-root"](p)
+  if (root and (1 == p:find((root .. "/"), 1, true))) then
+    return p:sub((2 + #root))
+  else
+    return p
+  end
+end
 M.remotes = function()
   local root = M["repo-root"]()
   if root then

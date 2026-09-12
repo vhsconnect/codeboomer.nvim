@@ -1,4 +1,4 @@
--- [nfnl] codeboomer/review.fnl
+-- [nfnl] fnl/codeboomer/review.fnl
 vim = vim
 local git = require("codeboomer.git")
 local sqlite = require("codeboomer.sqlite")
@@ -56,22 +56,39 @@ local function with_repo()
     return sqlite.repo:insert({path = repo_path})
   end
 end
-local function with_commit(repo_id)
-  local commit_hash = git["head-sha"]()
-  local entry_3f = sqlite.commit:get({where = {hash = commit_hash}})
-  if entry_3f[1] then
-    local t_13_ = entry_3f
-    if (nil ~= t_13_) then
-      t_13_ = t_13_[1]
-    else
+local function with_commit(repo_id, _3fsha)
+  local commit_hash = (_3fsha or git["head-sha"]())
+  if commit_hash then
+    local entry_3f = sqlite.commit:get({where = {hash = commit_hash}})
+    local _14_
+    do
+      local t_13_ = entry_3f
+      if (nil ~= t_13_) then
+        t_13_ = t_13_[1]
+      else
+      end
+      if (nil ~= t_13_) then
+        t_13_ = t_13_.id
+      else
+      end
+      _14_ = t_13_
     end
-    if (nil ~= t_13_) then
-      t_13_ = t_13_.id
+    if _14_ then
+      local t_17_ = entry_3f
+      if (nil ~= t_17_) then
+        t_17_ = t_17_[1]
+      else
+      end
+      if (nil ~= t_17_) then
+        t_17_ = t_17_.id
+      else
+      end
+      return t_17_
     else
+      return sqlite.commit:insert({hash = commit_hash, repo = repo_id})
     end
-    return t_13_
   else
-    return sqlite.commit:insert({hash = commit_hash, repo = repo_id})
+    return nil
   end
 end
 M["user-comment"] = function(session_id, file_path, line_start, line_end, code, body)
@@ -81,8 +98,68 @@ M["user-comment"] = function(session_id, file_path, line_start, line_end, code, 
   local thread_id = sqlite.thread:insert({session_id = session_id, file_path = file_path, line_start = line_start, line_end = line_end, code_snapshot = code, anchor_commit = commit_id, status = "open", created_by = user_id})
   return sqlite.comments:insert({thread_id = thread_id, author_id = user_id, body = body, source = "user", commit_id = commit_id})
 end
-M["get-sessions"] = function()
-  return sqlite.session:get({where = {repo_id = with_repo()}})
+local current_session_id = nil
+M["current-session-id"] = function()
+  return current_session_id
+end
+M["set-session"] = function(id, _3fsilent)
+  current_session_id = id
+  if not _3fsilent then
+    return vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerSessionChanged"})
+  else
+    return nil
+  end
+end
+M["existing-sessions"] = function()
+  local root = git["repo-root"]()
+  if root then
+    local repo_id
+    do
+      local t_23_ = sqlite.repo:get({where = {path = root}})
+      if (nil ~= t_23_) then
+        t_23_ = t_23_[1]
+      else
+      end
+      if (nil ~= t_23_) then
+        t_23_ = t_23_.id
+      else
+      end
+      repo_id = t_23_
+    end
+    if repo_id then
+      local sessions = (sqlite.session:get({where = {repo_id = repo_id}}) or {})
+      local function _26_(a, b)
+        return ((a.id or 0) < (b.id or 0))
+      end
+      table.sort(sessions, _26_)
+      return sessions
+    else
+      return nil
+    end
+  else
+    return nil
+  end
+end
+M["adopt-sole-session"] = function()
+  local sessions = (M["existing-sessions"]() or {})
+  if (1 == #sessions) then
+    local _30_
+    do
+      local t_29_ = sessions
+      if (nil ~= t_29_) then
+        t_29_ = t_29_[1]
+      else
+      end
+      if (nil ~= t_29_) then
+        t_29_ = t_29_.id
+      else
+      end
+      _30_ = t_29_
+    end
+    return M["set-session"](_30_, true)
+  else
+    return nil
+  end
 end
 M["agent-reply"] = function(thread_id, body)
   local rows = (sqlite.thread:get({where = {id = thread_id}}) or {})
@@ -113,60 +190,17 @@ end
 M["resolve-thread"] = function(thread_id)
   return sqlite.thread:update({set = {status = "resolved"}, where = {id = thread_id}})
 end
-M["active-session-id"] = function()
-  local root = git["repo-root"]()
-  if root then
-    local repo_id
-    do
-      local t_19_ = sqlite.repo:get({where = {path = root}})
-      if (nil ~= t_19_) then
-        t_19_ = t_19_[1]
-      else
-      end
-      if (nil ~= t_19_) then
-        t_19_ = t_19_.id
-      else
-      end
-      repo_id = t_19_
-    end
-    if repo_id then
-      local sessions = (sqlite.session:get({where = {repo_id = repo_id}}) or {})
-      local case_22_ = #sessions
-      if (case_22_ == 0) then
-        return nil
-      elseif (case_22_ == 1) then
-        local t_23_ = sessions
-        if (nil ~= t_23_) then
-          t_23_ = t_23_[1]
-        else
-        end
-        if (nil ~= t_23_) then
-          t_23_ = t_23_.id
-        else
-        end
-        return t_23_
-      else
-        local _ = case_22_
-        return error("Multiple session not implemented")
-      end
-    else
-      return nil
-    end
-  else
-    return nil
-  end
-end
 M["commit-sha"] = function(commit_id)
-  local t_29_ = sqlite.commit:get({where = {id = commit_id}})
-  if (nil ~= t_29_) then
-    t_29_ = t_29_[1]
+  local t_36_ = sqlite.commit:get({where = {id = commit_id}})
+  if (nil ~= t_36_) then
+    t_36_ = t_36_[1]
   else
   end
-  if (nil ~= t_29_) then
-    t_29_ = t_29_.hash
+  if (nil ~= t_36_) then
+    t_36_ = t_36_.hash
   else
   end
-  return t_29_
+  return t_36_
 end
 M["pending-annotations"] = function(session_id, flag)
   if not session_id then
@@ -187,13 +221,13 @@ M["pending-annotations"] = function(session_id, flag)
 end
 M["mark-annotations"] = function(flag, ids)
   if vim.tbl_contains({"sent", "posted"}, flag) then
-    local function _34_(d)
+    local function _41_(d)
       for _, id in ipairs(ids) do
         d:execute(string.format("update comment set %s = 1 where id = %d", tostring(flag), (id or 0)))
       end
       return nil
     end
-    return sqlite.db:with_open(_34_)
+    return sqlite.db:with_open(_41_)
   else
     return nil
   end
@@ -208,17 +242,9 @@ local function unresolved_rows(rows)
   end
   return out
 end
-M["threads-for"] = function(session_id, file_path)
-  local rows = unresolved_rows(sqlite["active-rows"]((sqlite.thread:get({where = {session_id = session_id, file_path = file_path}}) or {})))
-  local function _37_(a, b)
-    return ((a.line_start or 0) < (b.line_start or 0))
-  end
-  table.sort(rows, _37_)
-  return rows
-end
 M["threads-for-session"] = function(session_id)
   local rows = unresolved_rows(sqlite["active-rows"]((sqlite.thread:get({where = {session_id = session_id}}) or {})))
-  local function _38_(a, b)
+  local function _44_(a, b)
     local pa = (a.file_path or "")
     local pb = (b.file_path or "")
     if (pa == pb) then
@@ -227,12 +253,12 @@ M["threads-for-session"] = function(session_id)
       return (pa < pb)
     end
   end
-  table.sort(rows, _38_)
+  table.sort(rows, _44_)
   return rows
 end
 M["comments-for"] = function(thread_id)
   local rows = sqlite["active-rows"]((sqlite.comments:get({where = {thread_id = thread_id}}) or {}))
-  local function _40_(a, b)
+  local function _46_(a, b)
     local ta = (a.created_at or 0)
     local tb = (b.created_at or 0)
     if (ta == tb) then
@@ -241,11 +267,28 @@ M["comments-for"] = function(thread_id)
       return (ta < tb)
     end
   end
-  table.sort(rows, _40_)
+  table.sort(rows, _46_)
   return rows
 end
-M["create-session"] = function()
+M["create-session"] = function(_3fopts)
+  local opts = (_3fopts or {})
   local repo_id = with_repo()
-  return sqlite.session:insert({name = "session1", branch = git["branch-name"](), head_commit = with_commit(repo_id), repo_id = repo_id})
+  local function _49_()
+    local t_48_ = opts
+    if (nil ~= t_48_) then
+      t_48_ = t_48_["head-sha"]
+    else
+    end
+    return t_48_
+  end
+  local function _52_()
+    local t_51_ = opts
+    if (nil ~= t_51_) then
+      t_51_ = t_51_["base-sha"]
+    else
+    end
+    return t_51_
+  end
+  return sqlite.session:insert({branch = (opts.branch or git["branch-name"]()), head_commit = with_commit(repo_id, _49_()), base_commit = with_commit(repo_id, _52_()), repo_id = repo_id, pr_number = opts["pr-number"]})
 end
 return M

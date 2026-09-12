@@ -80,16 +80,8 @@ M["pr-for-branch"] = function(_3fbranch, _3fthen)
     return vim.system({"gh", "pr", "view", branch, "--repo", slug, "--json", "number,url"}, {text = true}, _9_)
   end
 end
-local function rel_path(path)
-  local root = git["repo-root"]()
-  if (root and path and (1 == path:find((root .. "/"), 1, true))) then
-    return path:sub((2 + #root))
-  else
-    return (path or "")
-  end
-end
 local function pr_comment(t, c)
-  local item = {path = rel_path(t.file_path), line = (t.line_end or (t.line_start or 1)), body = (c.body or "")}
+  local item = {path = (t.file_path or ""), line = (t.line_end or (t.line_start or 1)), body = (c.body or "")}
   if (t.line_start and t.line_end and (t.line_start < t.line_end)) then
     item.start_line = t.line_start
   else
@@ -141,56 +133,44 @@ local function post_review(slug, pr_number, event, sha, entries)
     payload.commit_id = sha
   else
   end
-  local function _18_(obj)
+  local function _17_(obj)
     if (obj.code == 0) then
       local res = vim.json.decode((obj.stdout or "{}"))
       review["mark-annotations"]("posted", ids)
-      local or_19_ = res.html_url
-      if not or_19_ then
-        local function _21_()
-          local t_20_ = res
-          if (nil ~= t_20_) then
-            t_20_ = t_20_.id
+      local or_18_ = res.html_url
+      if not or_18_ then
+        local function _20_()
+          local t_19_ = res
+          if (nil ~= t_19_) then
+            t_19_ = t_19_.id
           else
           end
-          return t_20_
+          return t_19_
         end
-        or_19_ = tostring(_21_())
+        or_18_ = tostring(_20_())
       end
-      return notify(string.format("codeboomer: posted %d annotation(s) \226\128\148 %s", #comments, or_19_), vim.log.levels.INFO)
+      return notify(string.format("codeboomer: posted %d annotation(s) \226\128\148 %s", #comments, or_18_), vim.log.levels.INFO)
     else
       return notify(string.format("codeboomer: gh api failed (exit %d)\n%s", obj.code, (obj.stderr or "")), vim.log.levels.ERROR)
     end
   end
-  return vim.system({"gh", "api", string.format("repos/%s/pulls/%s/reviews", slug, pr_number), "--input", "-"}, {input = vim.json.encode(payload), text = true}, _18_)
+  return vim.system({"gh", "api", string.format("repos/%s/pulls/%s/reviews", slug, pr_number), "--input", "-"}, {input = vim.json.encode(payload), text = true}, _17_)
 end
 M["post-threads"] = function(_3fopts)
   local opts = (_3fopts or {})
-  local ok, sid_default = pcall(review["active-session-id"])
-  local sid
-  local or_24_ = opts["session-id"]
-  if not or_24_ then
-    if ok then
-      or_24_ = sid_default
-    else
-      or_24_ = nil
-    end
-  end
-  sid = or_24_
+  local sid = (opts["session-id"] or review["current-session-id"]())
   local branch = (opts.branch or git["branch-name"]())
   local slug = github_slug()
-  if not ok then
-    return notify(("codeboomer: " .. tostring(sid_default)), vim.log.levels.ERROR)
-  elseif not slug then
+  if not slug then
     return notify("codeboomer: no GitHub remote in this repository", vim.log.levels.ERROR)
   elseif not sid then
-    return notify("codeboomer: no review session to post", vim.log.levels.WARN)
+    return notify("codeboomer: no review session \226\128\148 pick one first", vim.log.levels.WARN)
   else
     local pending = review["pending-annotations"](sid, "posted")
     if (0 == #pending) then
       return notify("codeboomer: nothing to post \226\128\148 no unposted annotations", vim.log.levels.WARN)
     else
-      local function _26_(pr)
+      local function _23_(pr)
         if pr then
           for sha, entries in pairs(group_pending(pending)) do
             post_review(slug, pr.number, (opts.event or "COMMENT"), sha, entries)
@@ -200,7 +180,7 @@ M["post-threads"] = function(_3fopts)
           return notify(("codeboomer: no open PR for " .. (branch or "?")), vim.log.levels.WARN)
         end
       end
-      return M["pr-for-branch"](branch, _26_)
+      return M["pr-for-branch"](branch, _23_)
     end
   end
 end
