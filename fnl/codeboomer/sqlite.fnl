@@ -1,12 +1,14 @@
+(global vim vim)
 (local sqlite (require :sqlite))
 (local tbl (require :sqlite.tbl))
 
 (local db (sqlite {:uri (.. (vim.fn.stdpath :data) :/codeboomer)
-                   :opts {:journal_mode :WAL
+                   :opts {:journal_mode :MEMORY
                           :synchronous :NORMAL
                           :busy_timeout 500
                           :foreign_keys :ON
-                          :auto_vacuum :INCREMENTAL}}))
+                          :auto_vacuum :INCREMENTAL
+                          :wal_autocheckpoint 100}}))
 
 ;; sqlite has no enum type and the schema dsl has no CHECK constraint,
 ;; so thread status is validated app-side
@@ -53,6 +55,9 @@
                                       :reference :git_commit.id
                                       :on_delete :cascade}
                       :status {:type :text :required true}
+                      ;; set on threads seeded from outdated GitHub
+                      ;; comments (position null after new commits)
+                      :gh_outdated :integer
                       :created_by {:type :integer
                                    :reference :user.id
                                    :on_delete :cascade}
@@ -74,8 +79,13 @@
                        ;; user, agent, github
                        :source :text
                        ;; set on comments pulled down from a GitHub PR —
-                       ;; the stable id that makes re-pulls idempotent
-                       :gh_comment_id {:type :integer :unique true}
+                       ;; the stable id that makes re-pulls idempotent.
+                       ;; Stored as text, not integer: sqlite.lua's row
+                       ;; reader (sqlstmt:val) dispatches every INTEGER
+                       ;; column through sqlite3_column_int (32-bit), which
+                       ;; silently wraps GitHub's billion-scale comment ids
+                       ;; into garbage negative numbers on every read
+                       :gh_comment_id {:type :text :unique true}
                        :sent {:type :integer :default 0}
                        :posted {:type :integer :default 0}
                        :created_at {:type :integer

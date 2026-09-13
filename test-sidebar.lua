@@ -34,8 +34,7 @@ local code_buf = api.nvim_win_get_buf(code_win)
 local tab1 = api.nvim_get_current_tabpage()
 
 local review = require("codeboomer.review")
-review["create-session"]()
-local sid = review["active-session-id"]()
+local sid = review["create-session"]()
 local path = api.nvim_buf_get_name(code_buf)
 review["user-comment"](sid, path, 3, 3, "code A", "testing")
 review["user-comment"](sid, path, 1, 69, "code B", "another test")
@@ -66,10 +65,7 @@ end
 
 -- expected coverage straight from the DB — the dev DB keeps growing as
 -- the plugin gets used, so nothing is hardcoded
-local review = require("codeboomer.review")
-local ok, sid = pcall(function() return review["active-session-id"]() end)
-local threads = (ok and sid)
-  and review["threads-for"](sid, api.nvim_buf_get_name(code_buf)) or {}
+local threads = review["threads-for-session"](sid)
 
 -- union of commented lines — one mark per line, overlaps included once
 local covered = {}

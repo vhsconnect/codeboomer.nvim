@@ -28,6 +28,12 @@
                 :review_worktree [:n
                                   "<cmd>Codeboomer ReviewWorktree<cr>"
                                   "codeboomer: review the uncommitted working tree as a snapshot"]
+                :post_review [:n
+                              "<cmd>Codeboomer PostReview<cr>"
+                              "codeboomer: push unposted annotations to the PR"]
+                :pull_review [:n
+                              "<cmd>Codeboomer PullReview<cr>"
+                              "codeboomer: pull the PR's inline comments into the session"]
                 :annotate [:x
                            ":Codeboomer Annotate<cr>"
                            "codeboomer: annotate some text"]

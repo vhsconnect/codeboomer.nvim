@@ -109,8 +109,11 @@
 ;; ── the pane ───────────────────────────────────────────────────────
 
 (fn thread-header [base t]
-  (string.format "#%d  %s:%s-%s  (%s)" (or t.id 0) base (or t.line_start "?")
-                 (or t.line_end "?") (or t.status :open)))
+  (let [status (if (and t.gh_outdated (> (or t.gh_outdated 0) 0))
+                   (.. (or t.status :open) ", outdated")
+                   (or t.status :open))]
+    (string.format "#%d  %s:%s-%s  (%s)" (or t.id 0) base (or t.line_start "?")
+                   (or t.line_end "?") status)))
 
 ;; one block per covering thread: a header line tinted with the thread's
 ;; gutter color plus every comment body verbatim, blocks separated by a
@@ -355,7 +358,8 @@
   (vim.api.nvim_create_autocmd :User
                                {:group augroup-name
                                 :pattern [:CodeboomerAnnotated
-                                          :CodeboomerSessionChanged]
+                                          :CodeboomerSessionChanged
+                                          :CodeboomerImported]
                                 :callback M.reload-threads}))
 
 (set M.open (fn []

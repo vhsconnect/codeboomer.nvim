@@ -34,7 +34,7 @@ bring the README back in sync with the code — not to rewrite it.
 | `fnl/codeboomer/directives.fnl` | built-in directive constants (`pushback-reasons`, `default-directives`), runtime lookup behavior |
 | `fnl/codeboomer/input.fnl` | the floating input UI and its options (e.g. `submit-on-enter`) |
 | `plugin/codeboomer.lua` | the exact `:Codeboomer` subcommand set, completion, range/nargs handling |
-| `test-codeboomer`, `dev.lua` | real-world `setup()` call shapes; dev launchers |
+| `test-codeboomer` | real-world `setup()` call shape; dev launcher |
 | `.nfnl.fnl`, `ftplugin/fennel.lua` | build/compile configuration referenced by the Development section |
 | `ls`/`find` output of the repo root | the authoritative Project structure tree |
 
@@ -82,22 +82,22 @@ fix drift:
   including the pick-a-pane-first behavior of the `with-pan` macro
   (continuation runs only after a pane is chosen; aborting cancels).
 - **Development** — build explanation (nfnl compile-on-save, orphan
-  detection), the `:Nfnl*` command list, `dev.lua` usage, and
+  detection), the `:Nfnl*` command list, and the
   `CODEBOOMER_PATH=$PWD ./test-codeboomer` instructions must match the current
   scripts. `test-codeboomer`'s inline `setup()` example must reflect its
   actual contents.
-- **Launcher sync (`dev.lua` and `test-codeboomer`)** — these two files are
-  executable documentation: when the README's configuration examples or
-  the plugin's option surface changes, update them in the same pass so
-  all three stay in lockstep. Verify that (a) `dev.lua`'s `opts` table
-  and `test-codeboomer`'s inline `setup(...)` use the current option shape
-  (nested `keybindings`/`prompting`, correct key spellings), (b) every
-  `setup()` call site in both files matches a documented, still-valid
-  option, and (c) the README's Development section descriptions of
-  these launchers match what the files actually do. If either file
-  sets an override (e.g. `one_off_command` in `test-codeboomer`), the README
-  example may differ, but both must be individually correct. Confirm
-  `sh -n test-codeboomer` still passes after edits.
+- **Launcher sync (`test-codeboomer`)** — the launcher is executable
+  documentation: when the README's configuration examples or the
+  plugin's option surface changes, update it in the same pass so both
+  stay in lockstep. Verify that (a) `test-codeboomer`'s inline
+  `setup(...)` uses the current option shape (nested
+  `keybindings`/`prompting`, correct key spellings), (b) every
+  `setup()` call site in the file matches a documented, still-valid
+  option, and (c) the README's Development section description of the
+  launcher matches what the file actually does. If the file sets an
+  override (e.g. `one_off_commands`), the README example may differ,
+  but both must be individually correct. Confirm `sh -n test-codeboomer`
+  still passes after edits.
 - **Project structure** — regenerate the tree from a real `find . -not
   -path '*/.git/*'` run. One line per file with a short comment; the
   `lua/` files must be marked as compiled from their `fnl/`

@@ -1,19 +1,19 @@
 ;; [nfnl] codeboomer/github.fnl
-;; Bindings for pushing review annotations to a GitHub pull request
-;; through the `gh` CLI. NOT wired into any command or keymap yet —
-;; this module only provides the primitives.
-;;
-;; The GitHub target is derived from the git remotes plus a branch: the
-;; repo slug comes from whichever remote points at github.com (origin
-;; wins when it is one; repos mirrored to a self-hosted origin still
-;; resolve through their github remote), and the PR from that branch's
-;; open pull request. Only UNPOSTED annotations are sent (the DB is the
-;; outbox — review.pending-annotations picks them), one review per
-;; anchor commit so every inline comment resolves against the exact
-;; diff it was annotated on; on success the rows are marked posted.
-;; Line numbers are the local DB's; GitHub validates them against the
-;; PR diff and rejects comments on lines that are not part of it (the
-;; error surfaces via vim.notify).
+;; The gh transport, both directions:
+;;  - post-threads: push my unposted annotations of a PR session up.
+;;    Fresh threads batch into one review per anchor commit (so every
+;;    inline comment resolves against the exact diff it was written
+;;    on); replies to pulled threads post against the thread's root
+;;    gh comment. Only comments authored by me with source :user ever
+;;    ship (review.pending-annotations filters) — agent and pulled
+;;    rows never enter the outbox.
+;;  - pull-comments: import the PR's inline comments as threads —
+;;    idempotent by gh comment id, replies joined to their threads,
+;;    outdated comments flagged.
+;; Line numbers are the snapshot's (threads anchor to the pinned PR
+;; head), and pushes are validated against the review's changed ranges
+;; before the round trip — GitHub rejects inline comments off the diff,
+;; so we refuse them here first.
 (global vim vim)
 
 (local git (require :codeboomer.git))
@@ -23,6 +23,14 @@
 
 (fn notify [msg level]
   (vim.schedule #(vim.notify msg level)))
+
+;; vim.system, but on_exit is scheduled onto the main loop first — every
+;; on_exit handler below touches the db (via git.repo-root) or fires
+;; notify/autocmds, none of which are safe off the main loop
+(fn system [argv opts on-exit]
+  (vim.system argv opts
+              (fn [obj]
+                (vim.schedule #(on-exit obj)))))
 
 ;; "owner/repo" out of the common GitHub remote forms —
 ;;   git@github.com:owner/repo.git
@@ -49,30 +57,7 @@
 
 (set M.repo-slug (fn [] (github-slug)))
 
-;; `gh pr view --json` output → {:number N :url "..."} (nil when the
-;; JSON carries no number)
-(fn parse-pr [stdout]
-  (let [pr (vim.json.decode (or stdout "{}"))]
-    (when pr.number {:number pr.number :url pr.url})))
-
-;; the open PR of a branch (default: HEAD's), nil when the branch has
-;; none — async, ?then receives the result
-(fn M.pr-for-branch [?branch ?then]
-  (let [branch (or ?branch (git.branch-name))
-        slug (github-slug)]
-    (if (not branch)
-        (notify "codeboomer: detached HEAD — no branch to look up"
-                vim.log.levels.ERROR)
-        (not slug)
-        (notify "codeboomer: no GitHub remote in this repository"
-                vim.log.levels.ERROR)
-        (vim.system [:gh :pr :view branch :--repo slug :--json "number,url"]
-                    {:text true}
-                    (fn [obj]
-                      (when ?then
-                        (?then (if (= obj.code 0)
-                                   (parse-pr obj.stdout)
-                                   nil))))))))
+;; ── push ──────────────────────────────────────────────────────────
 
 ;; one pending annotation → one inline PR comment: the range becomes
 ;; start_line/line (equal endpoints collapse to a single line), the
@@ -111,53 +96,166 @@
                  : event
                  : comments}]
     (when (not= sha "?") (set payload.commit_id sha))
-    (vim.system [:gh
+    (system [:gh
+             :api
+             (string.format "repos/%s/pulls/%s/reviews" slug pr-number)
+             :--input
+             "-"] {:stdin (vim.json.encode payload) :text true}
+            (fn [obj]
+              (if (= obj.code 0)
+                  (let [res (vim.json.decode (or obj.stdout "{}"))]
+                    (review.mark-annotations :posted ids)
+                    (notify (string.format "codeboomer: posted %d annotation(s) — %s"
+                                           (length comments)
+                                           (or res.html_url
+                                               (tostring (?. res :id))))
+                            vim.log.levels.INFO))
+                  (notify (string.format "codeboomer: gh api failed (exit %d)\n%s"
+                                         obj.code (or obj.stderr ""))
+                          vim.log.levels.ERROR))))))
+
+;; POST a reply to a pulled thread: attaches under its root gh comment
+;; through the replies endpoint, one request per pending reply
+(fn post-reply [slug pr-number a]
+  (let [root (review.gh-root-comment-id a.thread.id)]
+    (if (not root)
+        (notify (string.format "codeboomer: thread #%s has no gh comment to reply to"
+                               (tostring (or a.thread.id 0)))
+                vim.log.levels.ERROR)
+        (system [:gh
                  :api
-                 (string.format "repos/%s/pulls/%s/reviews" slug pr-number)
+                 (string.format "repos/%s/pulls/%s/comments/%s/replies" slug
+                                pr-number root)
                  :--input
                  "-"]
-                {:input (vim.json.encode payload) :text true}
+                {:stdin (vim.json.encode {:body (or a.comment.body "")})
+                 :text true}
                 (fn [obj]
                   (if (= obj.code 0)
-                      (let [res (vim.json.decode (or obj.stdout "{}"))]
-                        (review.mark-annotations :posted ids)
-                        (notify (string.format "codeboomer: posted %d annotation(s) — %s"
-                                               (length comments)
-                                               (or res.html_url
-                                                   (tostring (?. res :id))))
-                                vim.log.levels.INFO))
-                      (notify (string.format "codeboomer: gh api failed (exit %d)
+                      (do
+                        (review.mark-annotations :posted [a.comment.id])
+                        (notify "codeboomer: reply posted" vim.log.levels.INFO))
+                      (notify (string.format "codeboomer: reply failed (exit %d)
 %s" obj.code (or obj.stderr ""))
-                              vim.log.levels.ERROR))))))
+                              vim.log.levels.ERROR)))))))
 
-;; post every UNPOSTED annotation of a review session to the branch's
-;; open PR, one review per anchor commit. opts: {:session-id :branch
-;; :event} — event is the GitHub review event (:COMMENT default, also
-;; :REQUEST_CHANGES, :APPROVE)
+;; pending annotations that fall outside the diff: a thread is valid
+;; when its range intersects any changed range of its file. GitHub
+;; rejects inline comments off the diff — we refuse them before the
+;; round trip. Pure, for tests and the pre-post check
+(fn M.validate-ranges [pending ranges]
+  (icollect [_ a (ipairs (or pending []))]
+    (let [t a.thread
+          rs (and ranges (. ranges (or t.file_path "")))]
+      (when (not (and rs
+                      (accumulate [hit false _ [s e] (ipairs rs)]
+                        (or hit
+                            (and (<= s (or t.line_end 0))
+                                 (>= e (or t.line_start 0)))))))
+        a))))
+
+;; push the session's unposted annotations to its PR: replies to
+;; pulled threads first (replies endpoint), then fresh threads batched
+;; into one review per anchor commit
+(fn post-pending [session slug pending]
+  (let [replies []
+        news []]
+    (each [_ a (ipairs pending)]
+      (if (review.gh-root-comment-id a.thread.id)
+          (table.insert replies a)
+          (table.insert news a)))
+    (each [_ a (ipairs replies)]
+      (post-reply slug session.pr_number a))
+    (each [sha entries (pairs (group-pending news))]
+      (post-review slug session.pr_number :COMMENT sha entries))))
+
+(fn post-checked [session sid slug ranges]
+  (let [pending (review.pending-annotations sid :posted)]
+    (if (= 0 (length pending))
+        (notify "codeboomer: nothing to post — no unposted annotations"
+                vim.log.levels.WARN)
+        (let [invalid (if ranges (M.validate-ranges pending ranges) [])]
+          (if (> (length invalid) 0)
+              (notify (string.format "codeboomer: %d annotation(s) fall outside the PR diff — move or resolve them first"
+                                     (length invalid))
+                      vim.log.levels.ERROR)
+              (post-pending session slug pending))))))
+
+;; push the chosen session's unposted annotations to its PR.
+;; opts: {:session-id :ranges} — ranges (from an open review) enable
+;; the off-diff check
 (fn M.post-threads [?opts]
   (let [opts (or ?opts {})
         sid (or opts.session-id (review.current-session-id))
-        branch (or opts.branch (git.branch-name))
+        session (when sid (review.session-by-id sid))
         slug (github-slug)]
+    (if (not sid)
+        (notify "codeboomer: no review session — pick one first"
+                vim.log.levels.WARN)
+        (not session)
+        (notify "codeboomer: session not found" vim.log.levels.ERROR)
+        (not session.pr_number)
+        (notify "codeboomer: the chosen session is not a PR review"
+                vim.log.levels.WARN)
+        (not slug)
+        (notify "codeboomer: no GitHub remote in this repository"
+                vim.log.levels.ERROR)
+        (post-checked session sid slug opts.ranges))))
+
+;; ── pull ──────────────────────────────────────────────────────────
+
+;; gh api --paginate --jq '.[]' emits one JSON object per line —
+;; decode each, drop what isn't an object
+(fn parse-jsonl [out]
+  (icollect [line (string.gmatch (or out "") "[^\r\n]+")]
+    (let [(ok item) (pcall vim.json.decode line)]
+      (when (and ok (= :table (type item)))
+        item))))
+
+;; payload items → rows: known gh ids are skipped (idempotent), a
+;; comment with in_reply_to_id joins that thread, anything else seeds
+;; one. Returns how many rows were new
+(fn M.import-items [session-id items]
+  (var n 0)
+  (each [_ item (ipairs (or items []))]
+    (when (and item.id (not (review.comment-by-gh item.id)))
+      (let [parent (when item.in_reply_to_id
+                     (review.thread-id-for-gh item.in_reply_to_id))]
+        (if parent
+            (review.import-comment parent item)
+            (review.import-thread session-id item)))
+      (set n (+ n 1))))
+  n)
+
+;; refresh a PR session with the PR's current inline comments — the
+;; sidebar reloads via CodeboomerImported. Requires the session to
+;; exist (open the PR with :Codeboomer Review first)
+(fn M.pull-comments [pr-number]
+  (let [slug (github-slug)
+        session (review.session-for-pr pr-number)]
     (if (not slug)
         (notify "codeboomer: no GitHub remote in this repository"
                 vim.log.levels.ERROR)
-        (not sid)
-        (notify "codeboomer: no review session — pick one first"
+        (not session)
+        (notify "codeboomer: no session for this PR — :Codeboomer Review it first"
                 vim.log.levels.WARN)
-        (let [pending (review.pending-annotations sid :posted)]
-          (if (= 0 (length pending))
-              (notify "codeboomer: nothing to post — no unposted annotations"
-                      vim.log.levels.WARN)
-              (M.pr-for-branch branch
-                               (fn [pr]
-                                 (if pr
-                                     (each [sha entries (pairs (group-pending pending))]
-                                       (post-review slug pr.number
-                                                    (or opts.event :COMMENT) sha
-                                                    entries))
-                                     (notify (.. "codeboomer: no open PR for "
-                                                 (or branch "?"))
-                                             vim.log.levels.WARN)))))))))
+        (system [:gh
+                 :api
+                 (string.format "repos/%s/pulls/%s/comments" slug pr-number)
+                 :--paginate
+                 :--jq
+                 ".[]"] {:text true}
+                (fn [obj]
+                  (if (= obj.code 0)
+                      (let [n (M.import-items session.id
+                                              (parse-jsonl obj.stdout))]
+                        (vim.api.nvim_exec_autocmds :User
+                                                    {:pattern :CodeboomerImported})
+                        (notify (string.format "codeboomer: pulled %d new comment(s)"
+                                               n)
+                                vim.log.levels.INFO))
+                      (notify (string.format "codeboomer: gh api failed (exit %d)
+%s" obj.code (or obj.stderr ""))
+                              vim.log.levels.ERROR)))))))
 
 M

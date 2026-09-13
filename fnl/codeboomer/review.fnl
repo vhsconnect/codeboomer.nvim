@@ -93,6 +93,69 @@
             (?. (sqlite.session:get {:where {:repo_id repo-id
                                              :pr_number pr-number}}) 1)))))))
 
+;; a session row by id
+(fn M.session-by-id [id]
+  (when id (?. (sqlite.session:get {:where {:id id}}) 1)))
+
+;; ── gh import (pull down) ───────────────────────────── the storage
+;; half of PR sync: pulled rows are keyed by GitHub's comment id, so
+;; re-pulls never duplicate, and remote authors get real user rows
+
+(fn M.comment-by-gh [gh-id]
+  (when gh-id
+    (?. (sqlite.comments:get {:where {:gh_comment_id (tostring gh-id)}}) 1)))
+
+(fn M.thread-id-for-gh [gh-id]
+  (when gh-id
+    (?. (M.comment-by-gh gh-id) :thread_id)))
+
+;; GitHub payloads carry logins, not emails — synthesize a stable
+;; noreply address so remote authors share the user table
+(fn M.with-gh-user [login]
+  (let [email (.. (or login "unknown") "@users.noreply.github.com")
+        entry? (sqlite.user:get {:where {:email email}})]
+    (if (?. entry? 1 :id) (?. entry? 1 :id)
+        (sqlite.user:insert {:name (or login "unknown") : email}))))
+
+;; one pulled PR comment that seeds a thread — position null means
+;; outdated (the PR moved past its line); anchor best-effort at
+;; original_line and flag the thread
+(fn M.import-thread [session-id item]
+  (let [repo-id (with-repo)
+        login (?. item :user :login)
+        line (or item.line item.original_line 1)
+        commit-id (with-commit repo-id item.commit_id)
+        thread-id (sqlite.thread:insert {:session_id session-id
+                                         :file_path item.path
+                                         :line_start line
+                                         :line_end line
+                                         :anchor_commit commit-id
+                                         :status :open
+                                         :gh_outdated (when (not item.position) 1)
+                                         :created_by (M.with-gh-user login)})]
+    (sqlite.comments:insert {:thread_id thread-id
+                             :author_id (M.with-gh-user login)
+                             :body item.body
+                             :source :github
+                             :commit_id commit-id
+                             :gh_comment_id (tostring item.id)})
+    thread-id))
+
+;; one pulled PR comment joining an existing thread (in_reply_to)
+(fn M.import-comment [thread-id item]
+  (sqlite.comments:insert {:thread_id thread-id
+                           :author_id (M.with-gh-user (?. item :user :login))
+                           :body item.body
+                           :source :github
+                           :commit_id (with-commit (with-repo) item.commit_id)
+                           :gh_comment_id (tostring item.id)}))
+
+;; the thread's root gh comment id — replies post against it; pulled
+;; roots precede their replies (api order = import order = id order)
+(fn M.gh-root-comment-id [thread-id]
+  (accumulate [root nil _ c (ipairs (M.comments-for thread-id))]
+    (or root c.gh_comment_id)))
+
 (fn M.agent-reply [thread-id body]
   (let [rows (or (sqlite.thread:get {:where {:id thread-id}}) [])
         thread (. rows 1)]

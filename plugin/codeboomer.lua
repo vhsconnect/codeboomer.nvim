@@ -34,6 +34,14 @@ subcommands.ReviewWorktree = function()
   require("codeboomer.review-mode")["review-worktree"]()
 end
 
+subcommands.PostReview = function()
+  require("codeboomer.review-mode").post()
+end
+
+subcommands.PullReview = function()
+  require("codeboomer.review-mode").pull()
+end
+
 subcommands.SendPrompt = function(opts)
   require("codeboomer").SendPrompt(opts)
 end

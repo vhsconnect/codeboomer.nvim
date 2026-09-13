@@ -13,6 +13,7 @@
 (local git (require :codeboomer.git))
 (local review (require :codeboomer.review))
 (local sidebar (require :codeboomer.sidebar))
+(local github (require :codeboomer.github))
 
 (local M {})
 
@@ -166,19 +167,29 @@
     pick))
 
 ;; pull the PR head and the base branch, then review the three-dot
-;; shape GitHub diffs: merge-base..head
+;; shape GitHub diffs: merge-base..head. Once the review is open, the
+;; PR's existing inline comments come down as threads (idempotent).
+;; Fetched into codeboomer's own named refs rather than read back off
+;; FETCH_HEAD: that file is shared repo-wide, and any other fetch
+;; racing in the same window (an editor's auto-fetch, another
+;; codeboomer review, a plain `git fetch` in a terminal) can clobber it
+;; before the rev-parse runs, handing back the wrong commit
 (fn open-pr [pr]
-  (let [fetch-remote (pick-fetch-remote)]
+  (let [fetch-remote (pick-fetch-remote)
+        head-ref (.. "refs/codeboomer/pr-" pr.number "-head")
+        base-ref (.. "refs/codeboomer/pr-" pr.number "-base")]
     (if (not fetch-remote)
         (notify "codeboomer: no remote to fetch the PR from"
                 vim.log.levels.ERROR)
-        (run [:git :fetch fetch-remote (.. "pull/" pr.number "/head")]
+        (run [:git :fetch fetch-remote
+              (string.format "+pull/%d/head:%s" pr.number head-ref)]
              (fn [_]
-               (run [:git :rev-parse :FETCH_HEAD]
-                    (fn [head]
-                      (run [:git :fetch fetch-remote pr.baseRefName]
-                           (fn [_]
-                             (run [:git :rev-parse :FETCH_HEAD]
+               (run [:git :fetch fetch-remote
+                     (string.format "+%s:%s" pr.baseRefName base-ref)]
+                    (fn [_]
+                      (run [:git :rev-parse head-ref]
+                           (fn [head]
+                             (run [:git :rev-parse base-ref]
                                   (fn [base]
                                     (run [:git :merge-base (vim.trim base)
                                           (vim.trim head)]
@@ -187,7 +198,9 @@
                                              {:pr-number pr.number
                                               :head-sha (vim.trim head)
                                               :base-sha (vim.trim mb)
-                                              :branch pr.headRefName}))))))))))))))
+                                              :branch pr.headRefName}
+                                             #(github.pull-comments
+                                                pr.number)))))))))))))))
 
 ;; stage the working tree (untracked included, ignored excluded) into
 ;; a throwaway index and read back its tree sha — nothing touches the
@@ -258,12 +271,12 @@
                                                               path)]})))}}))))))))
 
 ;; given resolved shas: worktree the head, find-or-create the session,
-;; choose it, open the review tab. opts: {:pr-number :worktree-id
-;; :head-sha :base-sha :branch} — the gh-free seam tests use directly.
-;; PR reviews reuse their session (keyed by pr-number); others always
-;; start a fresh conversation
+;; choose it, open the review tab, then run ?done. opts: {:pr-number
+;; :worktree-id :head-sha :base-sha :branch} — the gh-free seam tests
+;; use directly. PR reviews reuse their session (keyed by pr-number);
+;; others always start a fresh conversation
 (set M.setup-review
-     (fn [opts]
+     (fn [opts ?done]
        (let [path (worktree-path (or opts.worktree-id
                                      (.. "pr" (or opts.pr-number ""))))]
          (if (not path)
@@ -288,7 +301,9 @@
                                  :ranges {}})
                    ;; choose it — the sidebar reloads its thread map
                    (review.set-session session)
-                   (load-ranges open-review-tab))))))))
+                   (load-ranges (fn []
+                                  (open-review-tab)
+                                  (when ?done (?done)))))))))))
 
 ;; :Codeboomer Review [n] — no number means pick from `gh pr list`;
 ;; choosing a PR IS opening its review
@@ -299,7 +314,7 @@
                    vim.log.levels.ERROR)
            (if ?n
                (gh-view ?n open-pr)
-               (run [:gh :pr :list :--json "number,title,headRefName"]
+               (run [:gh :pr :list :--json "number,title,headRefName,baseRefName"]
                     (fn [out]
                       (let [(ok prs) (pcall vim.json.decode out)]
                         (if (and ok (= :table (type prs))
@@ -326,6 +341,25 @@
                                   :head-sha sha
                                   :base-sha head
                                   :branch (git.branch-name)})))))))
+
+;; :Codeboomer PostReview — push my unposted annotations of the
+;; chosen PR session to GitHub: replies to pulled threads via the
+;; replies endpoint, fresh threads batched into one review per anchor
+;; commit. The open review's changed ranges gate the off-diff check
+(set M.post
+     (fn []
+       (github.post-threads {:ranges (when current current.ranges)})))
+
+;; :Codeboomer PullReview — refresh the chosen PR session with the
+;; PR's current inline comments (idempotent by gh comment id)
+(set M.pull
+     (fn []
+       (let [sid (review.current-session-id)
+             session (when sid (review.session-by-id sid))]
+         (if (and session session.pr_number)
+             (github.pull-comments session.pr_number)
+             (notify "codeboomer: the chosen session is not a PR review"
+                     vim.log.levels.WARN)))))
 
 ;; the open review's state, for callers and tests
 (set M.info (fn [] current))
