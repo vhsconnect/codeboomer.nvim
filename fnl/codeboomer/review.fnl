@@ -1,11 +1,14 @@
 (global vim vim)
 (local git (require :codeboomer.git))
 (local sqlite (require :codeboomer.sqlite))
+(local s (require :codeboomer.singleton))
 (local M {})
+
+(import-macros {: db} :codeboomer.macros)
 
 (fn with-user []
   (let [email (git.user-email)
-        entry? (sqlite.user:get {:where {: email}})]
+        entry? ((. (sqlite.user (s.get-db)) :get) {:where {: email}})]
     (if (. entry? 1) (?. entry? 1 :id)
         (sqlite.user:insert {:name (git.user-name) : email}))))
 
@@ -70,7 +73,8 @@
     (when root
       (let [repo-id (?. (sqlite.repo:get {:where {:path root}}) 1 :id)]
         (when repo-id
-          (let [sessions (or (sqlite.session:get {:where {:repo_id repo-id}}) [])]
+          (let [sessions (or (sqlite.session:get {:where {:repo_id repo-id}})
+                             [])]
             (table.sort sessions (fn [a b] (< (or a.id 0) (or b.id 0))))
             sessions))))))
 
@@ -91,11 +95,13 @@
         (let [repo-id (?. (sqlite.repo:get {:where {:path root}}) 1 :id)]
           (when repo-id
             (?. (sqlite.session:get {:where {:repo_id repo-id
-                                             :pr_number pr-number}}) 1)))))))
+                                             :pr_number pr-number}})
+                1)))))))
 
 ;; a session row by id
 (fn M.session-by-id [id]
-  (when id (?. (sqlite.session:get {:where {:id id}}) 1)))
+  (when id
+    (?. (sqlite.session:get {:where {: id}}) 1)))
 
 ;; ── gh import (pull down) ───────────────────────────── the storage
 ;; half of PR sync: pulled rows are keyed by GitHub's comment id, so
@@ -112,10 +118,10 @@
 ;; GitHub payloads carry logins, not emails — synthesize a stable
 ;; noreply address so remote authors share the user table
 (fn M.with-gh-user [login]
-  (let [email (.. (or login "unknown") "@users.noreply.github.com")
-        entry? (sqlite.user:get {:where {:email email}})]
+  (let [email (.. (or login :unknown) "@users.noreply.github.com")
+        entry? (sqlite.user:get {:where {: email}})]
     (if (?. entry? 1 :id) (?. entry? 1 :id)
-        (sqlite.user:insert {:name (or login "unknown") : email}))))
+        (sqlite.user:insert {:name (or login :unknown) : email}))))
 
 ;; one pulled PR comment that seeds a thread — position null means
 ;; outdated (the PR moved past its line); anchor best-effort at
@@ -131,7 +137,8 @@
                                          :line_end line
                                          :anchor_commit commit-id
                                          :status :open
-                                         :gh_outdated (when (not item.position) 1)
+                                         :gh_outdated (when (not item.position)
+                                                        1)
                                          :created_by (M.with-gh-user login)})]
     (sqlite.comments:insert {:thread_id thread-id
                              :author_id (M.with-gh-user login)
@@ -244,10 +251,8 @@
 ;; path then top-to-bottom within a file — the sidebar turns this into
 ;; its path → threads map in one load
 (fn M.threads-for-session [session-id]
-  (let [rows (unresolved-rows
-               (sqlite.active-rows
-                 (or (sqlite.thread:get {:where {:session_id session-id}})
-                     [])))]
+  (let [rows (unresolved-rows (sqlite.active-rows (or (sqlite.thread:get {:where {:session_id session-id}})
+                                                      [])))]
     (table.sort rows (fn [a b]
                        (let [pa (or a.file_path "")
                              pb (or b.file_path "")]
@@ -274,8 +279,10 @@
   (let [opts (or ?opts {})
         repo-id (with-repo)]
     (sqlite.session:insert {:branch (or opts.branch (git.branch-name))
-                            :head_commit (with-commit repo-id (?. opts :head-sha))
-                            :base_commit (with-commit repo-id (?. opts :base-sha))
+                            :head_commit (with-commit repo-id
+                                           (?. opts :head-sha))
+                            :base_commit (with-commit repo-id
+                                           (?. opts :base-sha))
                             :repo_id repo-id
                             :pr_number (. opts :pr-number)})))
 

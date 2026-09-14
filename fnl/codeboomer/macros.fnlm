@@ -1,0 +1,7 @@
+;; [nfnl-macro]
+(fn call [tbl-fn method ...]
+  `(let [db-mod# (require :codeboomer.singleton)
+         t# (,tbl-fn (db-mod#.get-db))]
+     (: t# ,method ,...)))
+
+{:db call}

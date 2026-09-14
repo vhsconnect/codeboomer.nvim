@@ -1,4 +1,4 @@
--- [nfnl] codeboomer/github.fnl
+-- [nfnl] fnl/codeboomer/github.fnl
 vim = vim
 local git = require("codeboomer.git")
 local review = require("codeboomer.review")

@@ -2,14 +2,6 @@
 (local sqlite (require :sqlite))
 (local tbl (require :sqlite.tbl))
 
-(local db (sqlite {:uri (.. (vim.fn.stdpath :data) :/codeboomer)
-                   :opts {:journal_mode :MEMORY
-                          :synchronous :NORMAL
-                          :busy_timeout 500
-                          :foreign_keys :ON
-                          :auto_vacuum :INCREMENTAL
-                          :wal_autocheckpoint 100}}))
-
 ;; sqlite has no enum type and the schema dsl has no CHECK constraint,
 ;; so thread status is validated app-side
 (fn assert-valid-status [status]
@@ -92,12 +84,12 @@
                                     :default (sqlite.lib.strftime "%s" :now)}
                        :deleted_at :integer})
 
-(local user (tbl :user user-schema db))
-(local repo (tbl :repo repo-schema db))
-(local session (tbl :session session-schema db))
-(local commit (tbl :git_commit commit-schema db))
-(local thread (tbl :comment_thread thread-schema db))
-(local comments (tbl :comment comment-schema db))
+(local user (fn [db] (tbl :user user-schema db)))
+(local repo (fn [db] (tbl :repo repo-schema db)))
+(local session (fn [db] (tbl :session session-schema db)))
+(local commit (fn [db] (tbl :git_commit commit-schema db)))
+(local thread (fn [db] (tbl :comment_thread thread-schema db)))
+(local comments (fn [db] (tbl :comment comment-schema db)))
 
 ;; soft deletes: rows keep deleted_at set; filter in lua because the where
 ;; dsl can't express "is null" (strings bind as equality unless prefixed < or >)
@@ -108,8 +100,7 @@
         (table.insert out row)))
     out))
 
-(local M {: db
-          : user
+(local M {: user
           : repo
           : session
           : commit

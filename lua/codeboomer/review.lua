@@ -2,10 +2,11 @@
 vim = vim
 local git = require("codeboomer.git")
 local sqlite = require("codeboomer.sqlite")
+local s = require("codeboomer.singleton")
 local M = {}
 local function with_user()
   local email = git["user-email"]()
-  local entry_3f = sqlite.user:get({where = {email = email}})
+  local entry_3f = sqlite.user(s["get-db"]()).get({where = {email = email}})
   if entry_3f[1] then
     local t_1_ = entry_3f
     if (nil ~= t_1_) then
