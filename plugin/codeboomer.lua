@@ -3,9 +3,11 @@ if vim.g.loaded_codeboomer then
 end
 vim.g.loaded_codeboomer = 1
 
--- the review sidebar attaches its gutter-marker hooks at load time;
--- markers render regardless of the Comments toggle, so it must load
--- with the plugin, not on first :Codeboomer use
+-- the review sidebar attaches its event hooks at load time; they must
+-- exist before the first CodeboomerAnnotated / SessionChanged fires
+-- (annotation flows go through init, not the sidebar), so it loads with
+-- the plugin. Attaching is db-free — the thread map loads on first
+-- sidebar use
 require("codeboomer.sidebar")
 
 -- the agent bridge generates its CLI shim (~/.local/share/nvim/

@@ -8,9 +8,11 @@
 ;; moment and it follows the cursor across windows and tabpages.
 ;; Gutter markers (▌ extmark signs) are INDEPENDENT of the toggle: they
 ;; are placed in every loaded buffer carrying threads of the chosen
-;; review session. The whole thread map is loaded once at startup and
-;; reloaded whenever a new annotation lands or the chosen session
-;; changes — buffer enters are plain map lookups, never queries.
+;; review session. The whole thread map is loaded on the first explicit
+;; sidebar use (Comments toggle, Enter, review mode) and reloaded
+;; whenever a new annotation lands or the chosen session changes —
+;; startup never touches the db, and buffer enters are plain map
+;; lookups, never queries.
 ;; The pane is not read-only: three buffer-local keys act on what it
 ;; shows (r composes a reply in the floating input, q resolves, n hops
 ;; to the file's next thread), and M.enter / :Codeboomer Enter moves
@@ -44,8 +46,8 @@
 (var sticky false)
 ;; the single pane window, nil whenever it is collapsed
 (var pane-win nil)
-;; session threads grouped by file path — loaded at startup, reloaded on
-;; CodeboomerAnnotated
+;; session threads grouped by file path — loaded on first sidebar use,
+;; reloaded on CodeboomerAnnotated
 (var threads-by-path {})
 (var timer-id nil)
 ;; in-pane context, recorded on every render: the code window the pane
@@ -299,16 +301,17 @@
   (when timer-id (vim.fn.timer_stop timer-id))
   (set timer-id (vim.fn.timer_start rest-ms check-now)))
 
-;; load every thread of the chosen session into the map: at startup,
-;; again whenever a new annotation is written, and whenever the chosen
-;; session changes. NOT on code-buffer writes — extmarks drift along
+;; load every thread of the chosen session into the map: on the first
+;; explicit sidebar use, again whenever a new annotation is written, and
+;; whenever the chosen session changes. NOT on code-buffer writes —
+;; extmarks drift along
 ;; with edits and stay accurate, while the DB's stored line numbers go
 ;; stale the moment lines shift; re-placing from it would snap marks
 ;; back to outdated positions.
 (fn M.reload-threads []
   ;; nothing chosen yet → adopt the sole session when exactly one
-  ;; exists, so the common single-session case is marker-visible at
-  ;; startup without anyone picking anything
+  ;; exists, so the common single-session case is marker-visible on the
+  ;; first sidebar use without anyone picking anything
   (when (not (review.current-session-id))
     (review.adopt-sole-session))
   (let [sid (review.current-session-id)]
@@ -330,8 +333,6 @@
 ;; attached once when the module loads and never torn down
 (fn attach-autocmds []
   (vim.api.nvim_create_augroup augroup-name {:clear true})
-  (vim.api.nvim_create_autocmd :VimEnter
-                               {:group augroup-name :callback M.reload-threads})
   (vim.api.nvim_create_autocmd :BufEnter
                                {:group augroup-name
                                 :callback (fn []
@@ -368,6 +369,9 @@
                               vim.log.levels.INFO)
                   (do
                     (set enabled true)
+                    ;; the thread map loads on demand now, so an explicit
+                    ;; enable pulls it in before the first render
+                    (M.reload-threads)
                     ;; immediate — an explicit enable needn't wait out
                     ;; the rest delay
                     (check-now)))))
@@ -387,6 +391,7 @@
 (set M.open-sticky (fn []
                      (set enabled true)
                      (set sticky true)
+                     (M.reload-threads)
                      (check-now)))
 
 (set M.toggle (fn [] (if enabled (M.close) (M.open))))
@@ -402,6 +407,7 @@
 ;; until the cursor moves back out to code (n does exactly that)
 (set M.enter (fn []
                (when (not (and pane-win (vim.api.nvim_win_is_valid pane-win)))
+                 (M.reload-threads)
                  (check-now))
                (if (and pane-win (vim.api.nvim_win_is_valid pane-win))
                    (vim.api.nvim_set_current_win pane-win)
@@ -409,8 +415,5 @@
                                vim.log.levels.INFO))))
 
 (attach-autocmds)
-;; the initial thread-map load: VimEnter covers normal startup; a module
-;; loaded after the UI is up (lazy loading) reloads immediately
-(when (= 1 vim.v.vim_did_enter) (M.reload-threads))
 
 M

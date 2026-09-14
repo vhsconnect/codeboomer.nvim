@@ -12,5 +12,17 @@ local function get_db()
     return db
   end
 end
-M = {["get-db"] = get_db}
+local function close_db()
+  if (db and db:isopen()) then
+    db:close()
+  else
+  end
+  db = nil
+  return nil
+end
+M = {["get-db"] = get_db, ["close-db"] = close_db}
+local function _3_()
+  return M["close-db"]()
+end
+vim.api.nvim_create_autocmd("VimLeavePre", {callback = _3_})
 return M

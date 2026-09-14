@@ -359,7 +359,6 @@ M["reload-threads"] = function()
 end
 local function attach_autocmds()
   vim.api.nvim_create_augroup(augroup_name, {clear = true})
-  vim.api.nvim_create_autocmd("VimEnter", {group = augroup_name, callback = M["reload-threads"]})
   local function _50_()
     if normal_buf(0) then
       local path = git["rel-path"]()
@@ -386,6 +385,7 @@ local function _54_()
     return vim.notify("codeboomer: review pane already active", vim.log.levels.INFO)
   else
     enabled = true
+    M["reload-threads"]()
     return check_now()
   end
 end
@@ -404,6 +404,7 @@ M.close = _56_
 local function _58_()
   enabled = true
   sticky = true
+  M["reload-threads"]()
   return check_now()
 end
 M["open-sticky"] = _58_
@@ -421,6 +422,7 @@ end
 M["pane-valid"] = _61_
 local function _62_()
   if not (pane_win and vim.api.nvim_win_is_valid(pane_win)) then
+    M["reload-threads"]()
     check_now()
   else
   end
@@ -432,8 +434,4 @@ local function _62_()
 end
 M.enter = _62_
 attach_autocmds()
-if (1 == vim.v.vim_did_enter) then
-  M["reload-threads"]()
-else
-end
 return M

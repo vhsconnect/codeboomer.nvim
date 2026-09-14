@@ -228,8 +228,8 @@ and the `Comments` pane operate on — the gutter marks follow immediately.
 
 Session resolution is silent in the common cases: with nothing chosen, the
 first write creates the first session, and exactly one existing session is
-adopted automatically (also at startup). The picker appears only when
-several sessions compete.
+adopted automatically (on the first sidebar use). The picker appears only
+when several sessions compete.
 
 ### `:Codeboomer PostReview`
 
@@ -302,9 +302,10 @@ thread's lines collapses the split again. At most one pane exists at a
 time and it follows the cursor across windows and tabpages.
 
 - Threads come from the chosen review session (the same one
-  `:Codeboomer Annotate` writes to); the whole thread map is loaded
-  once at startup and reloaded whenever a new annotation lands or the
-  chosen session changes (`:Codeboomer SetSession`)
+  `:Codeboomer Annotate` writes to); the whole thread map is loaded on
+  the first sidebar use (toggle, `Enter`, review mode) and reloaded
+  whenever a new annotation lands or the chosen session changes
+  (`:Codeboomer SetSession`) — startup never touches the db
 - The `▌` gutter marks are independent of the toggle: they render in
   every open buffer that carries session threads — one mark per
   commented line, colored by thread (theme groups `Title`, `Special`,
