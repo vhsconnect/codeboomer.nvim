@@ -1,12 +1,18 @@
 (global vim vim)
-(local sqlite (require :sqlite))
-(local tbl (require :sqlite.tbl))
 
 ;; sqlite has no enum type and the schema dsl has no CHECK constraint,
 ;; so thread status is validated app-side
 (fn assert-valid-status [status]
   (assert (or (= status :open) (= status :resolved))
           (.. "invalid thread status: " (tostring status))))
+
+;; the created_at default, inlined: (sqlite.lib.strftime "%s" "now")
+;; returns exactly this string and sqlite.nvim's schema parser embeds
+;; it (parenthesized) verbatim in the CREATE TABLE DDL. Building it
+;; here keeps schema construction require-free — sqlite.nvim loads
+;; only when a table helper below runs, so merely requiring this
+;; module never loads the dependency
+(local created-at-default "strftime('%s', 'now')")
 
 (local user-schema
        {:id true :name :text :email {:type :text :required true :unique true}})
@@ -53,8 +59,7 @@
                       :created_by {:type :integer
                                    :reference :user.id
                                    :on_delete :cascade}
-                      :created_at {:type :integer
-                                   :default (sqlite.lib.strftime "%s" :now)}
+                      :created_at {:type :integer :default created-at-default}
                       :deleted_at :integer})
 
 (local comment-schema {:id true
@@ -80,16 +85,36 @@
                        :gh_comment_id {:type :text :unique true}
                        :sent {:type :integer :default 0}
                        :posted {:type :integer :default 0}
-                       :created_at {:type :integer
-                                    :default (sqlite.lib.strftime "%s" :now)}
+                       :created_at {:type :integer :default created-at-default}
                        :deleted_at :integer})
 
-(local user (fn [db] (tbl :user user-schema db)))
-(local repo (fn [db] (tbl :repo repo-schema db)))
-(local session (fn [db] (tbl :session session-schema db)))
-(local commit (fn [db] (tbl :git_commit commit-schema db)))
-(local thread (fn [db] (tbl :comment_thread thread-schema db)))
-(local comments (fn [db] (tbl :comment comment-schema db)))
+;; the table helpers. NOTE: the callable class lives in the :sqlite.tbl
+;; module — (require :sqlite).tbl resolves through the module proxy to
+;; the db:tbl method, whose string-self path silently drops the db
+;; argument, so every helper would fail its first :get/:insert with
+;; "db object is not set". The require stays inside each helper so
+;; loading this module never loads sqlite.nvim
+(local user (fn [db]
+              ((require :sqlite.tbl) :user user-schema db)))
+
+(local repo (fn [db]
+              ((require :sqlite.tbl) :repo repo-schema db)))
+
+(local session
+       (fn [db]
+         ((require :sqlite.tbl) :session session-schema db)))
+
+(local commit
+       (fn [db]
+         ((require :sqlite.tbl) :git_commit commit-schema db)))
+
+(local thread
+       (fn [db]
+         ((require :sqlite.tbl) :comment_thread thread-schema db)))
+
+(local comments
+       (fn [db]
+         ((require :sqlite.tbl) :comment comment-schema db)))
 
 ;; soft deletes: rows keep deleted_at set; filter in lua because the where
 ;; dsl can't express "is null" (strings bind as equality unless prefixed < or >)
