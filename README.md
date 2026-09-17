@@ -190,7 +190,7 @@ the right.
   cursor and scroll position stay put across the flip. Annotations
   still anchor to the head — `Annotate` and the gutter bars are off
   while the old side is shown
-- Inside review buffers `]h` / `[h` hop to the next / previous
+- Inside review buffers `]a` / `[a` hop to the next / previous
   hunk of the shown side — within the file first, then wrapping
   across the changed files (the same in-memory range map the tints
   read, so hopping follows `ReviewSide` flips); the keys exist only
@@ -444,7 +444,7 @@ exist — annotations, flushes and gutter marks all follow the chosen session.
    `<leader>ca` as usual — the snapshot is read-only, but
    annotations only need a selection; flip to the base code with
    `<leader>ct` (`:Codeboomer ReviewSide`) to read what a change
-   removed; `]h`/`[h` step between hunks of the shown side
+   removed; `]a`/`[a` step between hunks of the shown side
 3. Threads show in the sticky comments pane — `r` replies, `q` resolves,
    `n` hops — exactly like the live workflow
 4. `:Codeboomer PostReview` (`<leader>cP`) pushes your annotations to

@@ -166,7 +166,7 @@
   (vim.api.nvim_win_set_cursor (vim.api.nvim_get_current_win) [start 0])
   (vim.cmd "normal! zz"))
 
-;; ]h / [h — hop to the next/previous hunk of the shown side: first
+;; ]a / [a — hop to the next/previous hunk of the shown side: first
 ;; within the current file, then wrapping across the sorted file
 ;; list. Bound buffer-locally in configure-code-buffer; exported for
 ;; callers and tests
@@ -219,11 +219,11 @@
           (set (. vim.b bufnr :codeboomer_review_side) current.side)
           (sidebar.mark-buffer bufnr)
           ;; hunk hopping lives only inside review buffers and dies
-          ;; with them: ]h next, [h previous (of the shown side)
-          (vim.keymap.set :n "]h" M.next-hunk
+          ;; with them: ]a next, [a previous (of the shown side)
+          (vim.keymap.set :n "]a" M.next-hunk
                           {:buffer bufnr
                            :desc "codeboomer: next review hunk"})
-          (vim.keymap.set :n "[h" M.prev-hunk
+          (vim.keymap.set :n "[a" M.prev-hunk
                           {:buffer bufnr
                            :desc "codeboomer: previous review hunk"})
           (place-ranges bufnr rel))))))
