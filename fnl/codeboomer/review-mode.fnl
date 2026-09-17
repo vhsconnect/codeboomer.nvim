@@ -18,14 +18,18 @@
 (local M {})
 
 (local range-ns (vim.api.nvim_create_namespace :codeboomer-review-ranges))
-;; the tint for lines the PR changes — DiffAdd reads as "new in this
-;; change" in every theme
-(local range-hl :DiffAdd)
+;; the tint for lines the diff touches, per side: DiffAdd reads as
+;; "new in this change" on the head, DiffDelete as "gone from it" on
+;; the base — both in every theme
+(fn range-hl [side]
+  (if (= side :old) :DiffDelete :DiffAdd))
 ;; the remote PR refs are fetched from — origin is the 99% case
 (local remote :origin)
 
 ;; the open review: {:pr-number :head-sha :base-sha :branch :worktree
-;; :session-id :ranges} — nil when none is open
+;; :session-id :side :head-ranges :base-ranges :ranges} — nil when none
+;; is open. side is :new (head, the default) or :old (base, what
+;; ReviewSide flips to); ranges follows the side being shown
 (var current nil)
 
 (fn notify [msg level]
@@ -78,19 +82,28 @@
                     (fn [_] (k))))))))
 
 ;; `git diff --unified=0 base..head` → {rel-path [[start last] ...]}
-;; of the head-side ranges the PR touches. Pure deletions carry no
-;; lines in the head file and are skipped (their +count is 0)
-(fn parse-ranges [diff]
-  (var file nil)
-  (let [out {}]
+;; of one side's ranges the diff touches. ?side :head (the default)
+;; reads the +++ b/ path and the +(start,count) hunk numbers — the new
+;; code; :base reads --- a/ and -(start,count) — the old code the diff
+;; removed or rewrote. A hunk whose count is 0 on the side being read
+;; (pure deletions head-side, pure additions base-side) touches no
+;; lines there and is skipped
+(fn parse-ranges [diff ?side]
+  (let [base-side (= ?side :base)
+        header-re (if base-side "^--- a/(.*)" "^%+%+%+ b/(.*)")
+        hunk-re (if base-side
+                    "^@@ %-(%d+),?(%d*) %+%d+,?%d* @@"
+                    "^@@ %-%d+,?%d* %+(%d+),?(%d*) @@")
+        out {}]
+    (var file nil)
     (each [line (string.gmatch (or diff "") "[^\n]+")]
-      (let [header (string.match line "^%+%+%+ b/(.*)")]
+      (let [header (string.match line header-re)]
         (when (and header (not= header "/dev/null"))
           (set file header))
-        (let [(c d) (string.match line "^@@ %-%d+,?%d* %+(%d+),?(%d*) @@")]
+        (let [(c d) (string.match line hunk-re)]
           (when (and file c)
-            ;; no ,count after +N means a single line; a count of 0 is a
-            ;; pure deletion — nothing in the head file to tint
+            ;; no ,count after the number means a single line; a count
+            ;; of 0 means the hunk touches nothing on this side
             (let [start (tonumber c)
                   count (tonumber (if (or (not d) (= d "")) "1" d))]
               (when (> count 0)
@@ -99,16 +112,18 @@
                   (tset out file bucket))))))))
     out))
 
-;; tint every changed line of {path} — cleared and re-placed per
-;; buffer enter so switching files just works
+;; tint every changed line of {path} with the shown side's tint —
+;; cleared and re-placed per buffer enter so switching files or
+;; sides just works
 (fn place-ranges [bufnr path]
   (when (vim.api.nvim_buf_is_valid bufnr)
-    (let [line-count (vim.api.nvim_buf_line_count bufnr)]
+    (let [line-count (vim.api.nvim_buf_line_count bufnr)
+          hl (range-hl current.side)]
       (vim.api.nvim_buf_clear_namespace bufnr range-ns 0 -1)
       (each [_ [start last] (ipairs (or (. current.ranges path) []))]
         (for [ln start (math.min last line-count)]
           (vim.api.nvim_buf_set_extmark bufnr range-ns (- ln 1) 0
-                                        {:line_hl_group range-hl}))))))
+                                        {:line_hl_group hl}))))))
 
 ;; the read-only half of the mode: any buffer entered under the review
 ;; worktree becomes unmodifiable and gets its changed ranges tinted
@@ -121,7 +136,42 @@
           ;; no drift to manage: the snapshot simply cannot be edited
           (set bo.modifiable false)
           (set bo.readonly true)
+          ;; which side this buffer shows — Annotate and the sidebar's
+          ;; marks read the stamp back; re-placing the marks HERE (not
+          ;; only in the sidebar's own BufEnter) because this hook runs
+          ;; after it and the stamp decides what belongs
+          (set (. vim.b bufnr :codeboomer_review_side) current.side)
+          (sidebar.mark-buffer bufnr)
           (place-ranges bufnr rel))))))
+
+;; the side swap rewrites every file under the worktree on disk:
+;; buffers still on screen are re-read (`:e!` re-fires BufEnter, so
+;; re-tinting and the side stamp come along for free) with each
+;; window's cursor and scroll saved and restored around the reload,
+;; so the swap causes no jump (positions clamp to the new content's
+;; length) — and buffers of files the other side does not have —
+;; PR-added files on the old side, deleted ones on the new — are
+;; wiped with a note instead of lingering as ghosts
+(fn reload-worktree-buffers []
+  (each [_ bufnr (ipairs (vim.api.nvim_list_bufs))]
+    (when (and (vim.api.nvim_buf_is_valid bufnr)
+               (vim.api.nvim_buf_is_loaded bufnr)
+               (under-worktree (vim.api.nvim_buf_get_name bufnr)))
+      (let [name (vim.api.nvim_buf_get_name bufnr)
+            wins (vim.fn.win_findbuf bufnr)
+            gone (not (vim.uv.fs_stat name))]
+        (if (and (not gone) (> (length wins) 0))
+            (each [_ w (ipairs wins)]
+              (let [view (vim.api.nvim_win_call w vim.fn.winsaveview)]
+                (vim.api.nvim_win_call w #(vim.cmd "silent! edit!"))
+                (vim.api.nvim_win_call w #(vim.fn.winrestview view))))
+            (do
+              (when gone
+                (notify (.. "codeboomer: " (vim.fs.basename name)
+                            " does not exist on the "
+                            (if (= current.side :old) "old" "new") " side")
+                        vim.log.levels.INFO))
+              (vim.api.nvim_buf_delete bufnr {:force true})))))))
 
 ;; `gh pr view` → table with number/headRefName/baseRefName, or notify
 (fn gh-view [n k]
@@ -225,14 +275,20 @@
                 :-m "codeboomer-snapshot"]
                (fn [out] (k (vim.trim out))))))))
 
-;; compute the changed ranges once for the whole diff; buffers look
-;; themselves up on enter
+;; compute the changed ranges of both sides once for the whole diff;
+;; buffers look themselves up on enter. current.ranges follows the
+;; side being shown; PostReview's off-diff gate always reads the
+;; head's
 (fn load-ranges [k]
   (run [:git :-C current.worktree
         :diff :--unified=0
         (.. current.base-sha ".." current.head-sha)]
        (fn [out]
-         (set current.ranges (parse-ranges out))
+         (set current.head-ranges (parse-ranges out))
+         (set current.base-ranges (parse-ranges out :base))
+         (set current.ranges (if (= current.side :old)
+                                 current.base-ranges
+                                 current.head-ranges))
          (k))))
 
 ;; the tab: code window (empty until a file is picked) + the sticky
@@ -246,8 +302,8 @@
       (notify "codeboomer: review open — :Codeboomer ReviewFiles to jump"
               vim.log.levels.INFO))))
 
-;; fzf over the review's changed files; picking edits the worktree
-;; copy in the code window
+;; fzf over the side being shown's changed files; picking edits the
+;; worktree copy in the code window
 (set M.files
      (fn []
        (if (not current)
@@ -261,7 +317,10 @@
                    (table.sort paths)
                    (let [fzf (require :fzf-lua)]
                      (fzf.fzf_exec paths
-                                   {:prompt "Pick a Changed File> "
+                                   {:prompt (string.format
+                                              "Pick a Changed File (%s side)> "
+                                              (if (= current.side :old)
+                                                "old" "new"))
                                     :actions
                                     {:default
                                      (fn [selected]
@@ -269,6 +328,33 @@
                                          (vim.cmd {:cmd :edit
                                                    :args [(.. current.worktree "/"
                                                               path)]})))}}))))))))
+
+;; :Codeboomer ReviewSide / <leader>ct — flip the open review between
+;; the two ends of its diff: the worktree checks out the other sha and
+;; the tints re-target, so the code the diff REMOVED becomes readable
+;; (tinted) on the old side instead of invisible. Threads and
+;; annotations stay anchored to the new side — Annotate refuses on
+;; the old one and the gutter bars hide — the old side is for reading
+(set M.toggle-side
+     (fn []
+       (if (not current)
+           (notify "codeboomer: no review open — :Codeboomer Review first"
+                   vim.log.levels.WARN)
+           (let [side (if (= current.side :old) :new :old)
+                 sha (if (= side :old) current.base-sha current.head-sha)]
+             (run [:git :-C current.worktree :checkout :--detach sha]
+                  (fn [_]
+                    (set current.side side)
+                    (set current.ranges (if (= side :old)
+                                            current.base-ranges
+                                            current.head-ranges))
+                    (reload-worktree-buffers)
+                    ;; thread numbers are new-side ones — the reload
+                    ;; re-places the marks (nowhere on the old side)
+                    (sidebar.reload-threads)
+                    (notify (.. "codeboomer: showing the "
+                                (if (= side :old) "old" "new") " code")
+                            vim.log.levels.INFO)))))))
 
 ;; given resolved shas: worktree the head, find-or-create the session,
 ;; choose it, open the review tab, then run ?done. opts: {:pr-number
@@ -298,6 +384,11 @@
                                  :branch opts.branch
                                  :worktree path
                                  :session-id session
+                                 ;; a review always opens on the new
+                                 ;; side; ReviewSide flips it
+                                 :side :new
+                                 :head-ranges {}
+                                 :base-ranges {}
                                  :ranges {}})
                    ;; choose it — the sidebar reloads its thread map
                    (review.set-session session)
@@ -345,10 +436,11 @@
 ;; :Codeboomer PostReview — push my unposted annotations of the
 ;; chosen PR session to GitHub: replies to pulled threads via the
 ;; replies endpoint, fresh threads batched into one review per anchor
-;; commit. The open review's changed ranges gate the off-diff check
+;; commit. The open review's HEAD-side ranges gate the off-diff check
+;; whichever side is being viewed
 (set M.post
      (fn []
-       (github.post-threads {:ranges (when current current.ranges)})))
+       (github.post-threads {:ranges (when current current.head-ranges)})))
 
 ;; :Codeboomer PullReview — refresh the chosen PR session with the
 ;; PR's current inline comments (idempotent by gh comment id)
@@ -364,7 +456,7 @@
 ;; the open review's state, for callers and tests
 (set M.info (fn [] current))
 
-;; pure: diff text → head-side ranges per file (unit-testable)
+;; pure: diff text → per-file ranges of one diff side (unit-testable)
 (set M.parse-ranges parse-ranges)
 
 ;; the remote PR refs would be fetched from, for callers and tests

@@ -68,24 +68,28 @@
 ;; ── gutter markers ─────────────────────────────────────────────────
 
 ;; extmarks live in buffers, so marks can only be placed once a buffer
-;; exists; clearing the namespace first makes this idempotent
+;; exists; clearing the namespace first makes this idempotent. Buffers
+;; showing a review's OLD side carry different lines than the threads'
+;; numbers describe — a side flip must still DROP their marks; placing
+;; new ones is what stops
 (fn place-marks [bufnr threads]
   (when (vim.api.nvim_buf_is_valid bufnr)
-    (let [line-count (vim.api.nvim_buf_line_count bufnr)
-          taken {}]
-      (vim.api.nvim_buf_clear_namespace bufnr extmark-ns 0 -1)
-      (each [i t (ipairs threads)]
-        (let [start (or t.line_start 0)
-              finish (math.min (or t.line_end start) line-count)
-              hl (thread-hl (or (. t :hl-index) i))]
-          (for [ln start finish]
-            ;; one symbol per line even where threads overlap — the
-            ;; topmost (earliest) thread's color wins
-            (when (not (. taken ln))
-              (tset taken ln true)
-              (vim.api.nvim_buf_set_extmark bufnr extmark-ns (- ln 1) 0
-                                            {:sign_text sign-text
-                                             :sign_hl_group hl}))))))))
+    (vim.api.nvim_buf_clear_namespace bufnr extmark-ns 0 -1)
+    (when (not= :old (?. vim.b bufnr :codeboomer_review_side))
+      (let [line-count (vim.api.nvim_buf_line_count bufnr)
+            taken {}]
+        (each [i t (ipairs threads)]
+          (let [start (or t.line_start 0)
+                finish (math.min (or t.line_end start) line-count)
+                hl (thread-hl (or (. t :hl-index) i))]
+            (for [ln start finish]
+              ;; one symbol per line even where threads overlap — the
+              ;; topmost (earliest) thread's color wins
+              (when (not (. taken ln))
+                (tset taken ln true)
+                (vim.api.nvim_buf_set_extmark bufnr extmark-ns (- ln 1) 0
+                                              {:sign_text sign-text
+                                               :sign_hl_group hl})))))))))
 
 ;; refresh every buffer that is around right now; buffers entered later
 ;; get their marks from the BufEnter hook. Buffers with no remaining
@@ -271,9 +275,14 @@
 ;; pane-resident path — after enter/r/q/n the cursor lives in the pane
 ;; itself, so re-evaluation targets the code window the pane mirrors
 (fn evaluate-at [win]
-  (let [row (?. (vim.api.nvim_win_get_cursor win) 1)
-        path (git.rel-path (vim.api.nvim_buf_get_name (vim.api.nvim_win_get_buf win)))
-        threads (threads-at path (or row 0))]
+  (let [buf (vim.api.nvim_win_get_buf win)
+        row (?. (vim.api.nvim_win_get_cursor win) 1)
+        path (git.rel-path (vim.api.nvim_buf_get_name buf))
+        ;; thread line numbers belong to the review's new side — an
+        ;; old-side buffer (ReviewSide) matches none
+        threads (if (= :old (?. vim.b buf :codeboomer_review_side))
+                   []
+                   (threads-at path (or row 0)))]
     (if (and enabled (> (length threads) 0))
         (do
           ;; remember the code window the pane mirrors — the
@@ -362,6 +371,15 @@
                                           :CodeboomerSessionChanged
                                           :CodeboomerImported]
                                 :callback M.reload-threads}))
+
+;; place (or clear) ONE buffer's marks from the loaded map — a plain
+;; lookup, no queries. Review mode calls this after stamping a review
+;; buffer's side: its BufEnter hook runs AFTER this module's, so the
+;; side stamp (which decides whether marks belong) lands last
+(set M.mark-buffer
+     (fn [bufnr]
+       (let [path (git.rel-path (vim.api.nvim_buf_get_name bufnr))]
+         (place-marks bufnr (or (. threads-by-path path) [])))))
 
 (set M.open (fn []
               (if enabled

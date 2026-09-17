@@ -9,7 +9,7 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Annotation workflow — accumulate multiple code selections for review before sending
 - **Review sessions (`SetSession`)** — annotations are grouped into sessions (one per branch or PR); annotate, flush and the comments pane all target the chosen one, and the picker appears only when several compete
-- **PR snapshot review (`Review`)** — fetch a PR head into a read-only worktree, tint its changed lines, and annotate it in a dedicated tab with the comments pane pinned open; opening a PR also imports its inline comments as threads, `PostReview` pushes your annotations up, and `ReviewWorktree` gives uncommitted working-tree changes (e.g. an agent's edits) the same read-only treatment via a dangling snapshot commit
+- **PR snapshot review (`Review`)** — fetch a PR head into a read-only worktree, tint its changed lines, and annotate it in a dedicated tab with the comments pane pinned open; `ReviewSide` flips the same review onto the base code so removed lines are readable (and tinted) too; opening a PR also imports its inline comments as threads, `PostReview` pushes your annotations up, and `ReviewWorktree` gives uncommitted working-tree changes (e.g. an agent's edits) the same read-only treatment via a dangling snapshot commit
 - **Review comments (`Comments`)** — commented ranges carry gitsigns-style `▌` gutter bars (colored per thread, visible whenever a review session exists), and with `Comments` toggled on a side split follows the cursor: rest it inside a commented range and the thread's comments appear, move off and the split collapses; `Enter` (`<leader>ce`) steps inside the split, where `r` replies, `q` resolves and `n` hops to the next thread
 - Bracketed-paste support for proper multi-line handling
 - **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane; define any number of user-named one-off commands and pick one with fzf when there is more than one
@@ -48,6 +48,7 @@ The plugin sets up no default keybindings; configure them like this:
 | Normal | `<leader>cS` | `SetSession` — pick or create the review session |
 | Normal | `<leader>cR` | `Review` — snapshot-review a pull request in a read-only worktree |
 | Normal | `<leader>cW` | `ReviewWorktree` — review the uncommitted working tree as a read-only snapshot |
+| Normal | `<leader>ct` | `ReviewSide` — toggle the open review between the new and the old code |
 | Normal | `<leader>cP` | `PostReview` — push unposted annotations to the PR |
 | Normal | `<leader>cL` | `PullReview` — pull the PR's inline comments into the session |
 | Visual | `<leader>ca` | `Annotate` — add the selection (plus an optional note) to the query context |
@@ -68,6 +69,7 @@ require("codeboomer").setup({
     session = "<leader>cS",
     review = "<leader>cR",
     review_worktree = "<leader>cW",
+    review_side = "<leader>ct",
     post_review = "<leader>cP",
     pull_review = "<leader>cL",
     annotate = "<leader>ca",
@@ -181,6 +183,13 @@ the right.
 - Changed lines (merge-base..head — the same three-dot shape GitHub
   diffs) carry a `DiffAdd` tint; a picker over the changed files opens
   with the review and reopens via `:Codeboomer ReviewFiles`
+- `:Codeboomer ReviewSide` (`<leader>ct`) flips the worktree onto the
+  base side of the same diff: the lines the PR removed or rewrote are
+  the tinted ones there (DiffDelete red — the new side keeps its
+  DiffAdd green), and files the PR deleted are readable again. The
+  cursor and scroll position stay put across the flip. Annotations
+  still anchor to the head — `Annotate` and the gutter bars are off
+  while the old side is shown
 - A PR-bound session is created (or found, keyed by `pr_number`) and
   chosen: `Annotate`, the comments pane and the gutter marks all
   target it; re-opening the same PR reuses its threads
@@ -202,6 +211,23 @@ the right.
 
 fzf over the changed files of the open review; picking one edits the
 worktree copy in the review tab's code window (read-only, tinted).
+
+### `:Codeboomer ReviewSide`
+
+Toggles the open review between the two sides of its diff. The default
+is the new code (the head, `DiffAdd` tint); toggling checks the worktree
+out at the base instead, so the lines the diff *removed* — invisible
+in the new code — are readable and tinted `DiffDelete` red, and files
+deleted by the change come back. The cursor and scroll position are
+preserved across the flip (clamped when the other side is shorter).
+Toggling again returns to the head. The old side is read-only in the
+stronger sense too: annotations and the gutter bars anchor to the
+new side's line numbers, so `Annotate` refuses there (flip back first)
+and the bars hide.
+
+```vim
+:Codeboomer ReviewSide
+```
 
 ### `:Codeboomer ReviewWorktree`
 
@@ -390,7 +416,8 @@ exist — annotations, flushes and gutter marks all follow the chosen session.
    pane on the right
 2. Jump between changed files with `:Codeboomer ReviewFiles`; annotate
    selections with `<leader>ca` as usual — the snapshot is read-only, but
-   annotations only need a selection
+   annotations only need a selection; flip to the base code with
+   `<leader>ct` (`:Codeboomer ReviewSide`) to read what a change removed
 3. Threads show in the sticky comments pane — `r` replies, `q` resolves,
    `n` hops — exactly like the live workflow
 4. `:Codeboomer PostReview` (`<leader>cP`) pushes your annotations to

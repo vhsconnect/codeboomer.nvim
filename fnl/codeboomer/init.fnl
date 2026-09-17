@@ -332,29 +332,40 @@
                              (ask (. commands 1))
                              (choose-one-off commands ask))))))
 
+;; the annotate flow itself — behind the old-side guard of M.Annotate
+;; below
+(fn annotate-flow [opts]
+  (with-pan (let [context (get-visual-lines opts)]
+    (input.open {:title " Annotate> "
+                 :on-submit (fn [lines]
+                              (let [text (concat-list lines)]
+                                ;; the DB is the only store now — an
+                                ;; empty note would only pollute threads
+                                (if (= text "")
+                                    (schedule-notify "codeboomer: empty annotation ignored"
+                                                     vim.log.levels.WARN)
+                                    (ensure-session
+                                      (fn []
+                                        (review.user-comment (review.current-session-id)
+                                                             context.file
+                                                             context.line1
+                                                             context.line2
+                                                             context.lines
+                                                             text)
+                                        ;; let an open review pane pick the
+                                        ;; fresh thread up
+                                        (vim.api.nvim_exec_autocmds :User
+                                                                    {:pattern :CodeboomerAnnotated}))))))}))))
+
+;; a review's OLD side is for reading: its line numbers belong to the
+;; other end of the diff and threads would anchor to the base sha —
+;; ReviewSide back first
 (set M.Annotate
      (fn [opts]
-       (with-pan (let [context (get-visual-lines opts)]
-                   (input.open {:title " Annotate> "
-                                :on-submit (fn [lines]
-                                             (let [text (concat-list lines)]
-                                               ;; the DB is the only store now — an
-                                               ;; empty note would only pollute threads
-                                               (if (= text "")
-                                                   (schedule-notify "codeboomer: empty annotation ignored"
-                                                                    vim.log.levels.WARN)
-                                                   (ensure-session
-                                                     (fn []
-                                                       (review.user-comment (review.current-session-id)
-                                                                            context.file
-                                                                            context.line1
-                                                                            context.line2
-                                                                            context.lines
-                                                                            text)
-                                                       ;; let an open review pane pick the
-                                                       ;; fresh thread up
-                                                       (vim.api.nvim_exec_autocmds :User
-                                                                                   {:pattern :CodeboomerAnnotated}))))))})))))
+       (if (= :old vim.b.codeboomer_review_side)
+           (schedule-notify "codeboomer: annotations anchor to the new code — :Codeboomer ReviewSide back first"
+                            vim.log.levels.WARN)
+           (annotate-flow opts))))
 
 ;; ship every unsent annotation of the chosen session to the pane,
 ;; wrapped in the directive, then mark them sent

@@ -28,6 +28,9 @@
                 :review_worktree [:n
                                   "<cmd>Codeboomer ReviewWorktree<cr>"
                                   "codeboomer: review the uncommitted working tree as a snapshot"]
+                :review_side [:n
+                              "<cmd>Codeboomer ReviewSide<cr>"
+                              "codeboomer: toggle the review between new and old code"]
                 :post_review [:n
                               "<cmd>Codeboomer PostReview<cr>"
                               "codeboomer: push unposted annotations to the PR"]

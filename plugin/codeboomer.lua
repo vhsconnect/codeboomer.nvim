@@ -36,6 +36,10 @@ subcommands.ReviewWorktree = function()
   require("codeboomer.review-mode")["review-worktree"]()
 end
 
+subcommands.ReviewSide = function()
+  require("codeboomer.review-mode")["toggle-side"]()
+end
+
 subcommands.PostReview = function()
   require("codeboomer.review-mode").post()
 end

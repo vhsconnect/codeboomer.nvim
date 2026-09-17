@@ -439,43 +439,50 @@ local function _59_(opts)
   end
 end
 M.AskOneOff = _59_
-local function _65_(opts)
+local function annotate_flow(opts)
   if state.pane then
     local context = get_visual_lines(opts)
-    local function _66_(lines)
+    local function _65_(lines)
       local text = concat_list(lines)
       if (text == "") then
         return schedule_notify("codeboomer: empty annotation ignored", vim.log.levels.WARN)
       else
-        local function _67_()
+        local function _66_()
           review["user-comment"](review["current-session-id"](), context.file, context.line1, context.line2, context.lines, text)
           return vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerAnnotated"})
         end
-        return ensure_session(_67_)
+        return ensure_session(_66_)
       end
     end
-    return input.open({title = " Annotate> ", ["on-submit"] = _66_})
+    return input.open({title = " Annotate> ", ["on-submit"] = _65_})
   else
-    local function _69_()
+    local function _68_()
       local context = get_visual_lines(opts)
-      local function _70_(lines)
+      local function _69_(lines)
         local text = concat_list(lines)
         if (text == "") then
           return schedule_notify("codeboomer: empty annotation ignored", vim.log.levels.WARN)
         else
-          local function _71_()
+          local function _70_()
             review["user-comment"](review["current-session-id"](), context.file, context.line1, context.line2, context.lines, text)
             return vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerAnnotated"})
           end
-          return ensure_session(_71_)
+          return ensure_session(_70_)
         end
       end
-      return input.open({title = " Annotate> ", ["on-submit"] = _70_})
+      return input.open({title = " Annotate> ", ["on-submit"] = _69_})
     end
-    return choose_pane(parse_panes(shell(panes_command)), _69_)
+    return choose_pane(parse_panes(shell(panes_command)), _68_)
   end
 end
-M.Annotate = _65_
+local function _73_(opts)
+  if ("old" == vim.b.codeboomer_review_side) then
+    return schedule_notify("codeboomer: annotations anchor to the new code \226\128\148 :Codeboomer ReviewSide back first", vim.log.levels.WARN)
+  else
+    return annotate_flow(opts)
+  end
+end
+M.Annotate = _73_
 local function flush_pending(directive_text)
   local pending = review["pending-annotations"](review["current-session-id"](), "sent")
   if (0 == #pending) then
@@ -497,7 +504,7 @@ local function flush_pending(directive_text)
     end
     local annotations = concat_list_with_format(messages, "==Section Start==", "====", "==Section End==")
     send_keys_to_selected_pane((annotations .. agent["reply-instructions"]() .. directive_text .. "\n"))
-    local function _75_()
+    local function _76_()
       local tbl_26_ = {}
       local i_27_ = 0
       for _, a in ipairs(pending) do
@@ -510,10 +517,10 @@ local function flush_pending(directive_text)
       end
       return tbl_26_
     end
-    return review["mark-annotations"]("sent", _75_())
+    return review["mark-annotations"]("sent", _76_())
   end
 end
-local function _78_()
+local function _79_()
   if state.pane then
     local fzf = require("fzf-lua")
     local all_directives = directives.list()
@@ -531,16 +538,16 @@ local function _78_()
       end
       lines = tbl_26_
     end
-    local function _80_(selected)
+    local function _81_(selected)
       local directive_text = directives.get(selected[1])
-      local function _81_()
+      local function _82_()
         return flush_pending(directive_text)
       end
-      return ensure_session(_81_)
+      return ensure_session(_82_)
     end
-    return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _80_}})
+    return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _81_}})
   else
-    local function _82_()
+    local function _83_()
       local fzf = require("fzf-lua")
       local all_directives = directives.list()
       local lines
@@ -557,17 +564,17 @@ local function _78_()
         end
         lines = tbl_26_
       end
-      local function _84_(selected)
+      local function _85_(selected)
         local directive_text = directives.get(selected[1])
-        local function _85_()
+        local function _86_()
           return flush_pending(directive_text)
         end
-        return ensure_session(_85_)
+        return ensure_session(_86_)
       end
-      return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _84_}})
+      return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _85_}})
     end
-    return choose_pane(parse_panes(shell(panes_command)), _82_)
+    return choose_pane(parse_panes(shell(panes_command)), _83_)
   end
 end
-M.FlushWithDirective = _78_
+M.FlushWithDirective = _79_
 return M
