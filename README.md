@@ -181,7 +181,7 @@ the right.
   anchor to the pinned PR head, so line numbers cannot drift by
   construction
 - Changed lines (merge-base..head — the same three-dot shape GitHub
-  diffs) carry a `DiffAdd` tint; a picker over the changed files opens
+  diffs) carry a `DiffAdd` tint; a quickfix of the changed files opens
   with the review and reopens via `:Codeboomer ReviewFiles`
 - `:Codeboomer ReviewSide` (`<leader>ct`) flips the worktree onto the
   base side of the same diff: the lines the PR removed or rewrote are
@@ -190,6 +190,11 @@ the right.
   cursor and scroll position stay put across the flip. Annotations
   still anchor to the head — `Annotate` and the gutter bars are off
   while the old side is shown
+- Inside review buffers `]h` / `[h` hop to the next / previous
+  hunk of the shown side — within the file first, then wrapping
+  across the changed files (the same in-memory range map the tints
+  read, so hopping follows `ReviewSide` flips); the keys exist only
+  in review buffers
 - A PR-bound session is created (or found, keyed by `pr_number`) and
   chosen: `Annotate`, the comments pane and the gutter marks all
   target it; re-opening the same PR reuses its threads
@@ -207,10 +212,24 @@ the right.
 :Codeboomer Review 42
 ```
 
-### `:Codeboomer ReviewFiles`
+### `:Codeboomer ReviewFiles [dir]`
 
-fzf over the changed files of the open review; picking one edits the
-worktree copy in the review tab's code window (read-only, tinted).
+Fills the quickfix list with the changed files of the open review and
+opens it — one entry per file, its line number on the first changed
+line (Enter jumps straight to the tint) and its text listing the
+changed line groups (`L100, L140-155, …`, capped). The list's title
+carries the side being shown, and an open list follows `ReviewSide`
+flips in place — deleted files reappear on the old side — while a
+closed one stays closed. `:cnext`/`:cprevious` step between files.
+
+An optional argument scopes the list to a directory (or a single
+file), git-diff-pathspec style — leading and trailing slashes are
+ignored. The scope sticks across `ReviewSide` flips (the title shows
+it); a bare `:Codeboomer ReviewFiles` resets to every changed file.
+
+```vim
+:Codeboomer ReviewFiles fnl/codeboomer
+```
 
 ### `:Codeboomer ReviewSide`
 
@@ -229,19 +248,25 @@ and the bars hide.
 :Codeboomer ReviewSide
 ```
 
-### `:Codeboomer ReviewWorktree`
+### `:Codeboomer ReviewWorktree [dir]`
 
-Reviews the **uncommitted working tree** against HEAD in the same
-read-only mode — the bridge for reviewing agent-made changes before
-committing them. The dirty state (untracked files included, ignored
-files excluded) is snapshotted into a dangling commit via git
-plumbing (`write-tree`/`commit-tree`), so nothing is committed, no ref
-moves, and `git status` is untouched; git forgets the snapshot at the
-next gc. Each run starts a fresh review session — no `gh`, no network
-needed.
+Reviews the **uncommitted working tree** (optionally just one
+directory's, git-diff-pathspec style — the same pathspec handler
+`ReviewFiles` scopes with) against HEAD in the same read-only mode —
+the bridge for reviewing agent-made changes before committing them.
+The dirty state (untracked files included, ignored files excluded) is
+snapshotted into a dangling commit via git plumbing
+(`read-tree`/`write-tree`/`commit-tree`): the throwaway index is
+seeded from HEAD and the working tree overlays only the scoped
+pathspec, so a scoped snapshot's diff contains exactly that
+directory's changes while nothing is committed, no ref moves, and
+`git status` is untouched. A scope with nothing uncommitted warns and
+opens nothing. Each run starts a fresh review session — no `gh`, no
+network needed; git forgets the snapshot at the next gc.
 
 ```vim
 :Codeboomer ReviewWorktree
+:Codeboomer ReviewWorktree fnl/codeboomer
 ```
 
 ### `:Codeboomer SetSession`
@@ -414,10 +439,12 @@ exist — annotations, flushes and gutter marks all follow the chosen session.
 1. `<leader>cR` (`:Codeboomer Review`) — pick a PR; its head lands in a
    read-only worktree with changed lines tinted, in a tab with the comments
    pane on the right
-2. Jump between changed files with `:Codeboomer ReviewFiles`; annotate
-   selections with `<leader>ca` as usual — the snapshot is read-only, but
+2. Jump between changed files with `:Codeboomer ReviewFiles` (Enter
+   lands on the first tinted line); annotate selections with
+   `<leader>ca` as usual — the snapshot is read-only, but
    annotations only need a selection; flip to the base code with
-   `<leader>ct` (`:Codeboomer ReviewSide`) to read what a change removed
+   `<leader>ct` (`:Codeboomer ReviewSide`) to read what a change
+   removed; `]h`/`[h` step between hunks of the shown side
 3. Threads show in the sticky comments pane — `r` replies, `q` resolves,
    `n` hops — exactly like the live workflow
 4. `:Codeboomer PostReview` (`<leader>cP`) pushes your annotations to

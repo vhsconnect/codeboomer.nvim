@@ -27,9 +27,10 @@
 (local remote :origin)
 
 ;; the open review: {:pr-number :head-sha :base-sha :branch :worktree
-;; :session-id :side :head-ranges :base-ranges :ranges} — nil when none
-;; is open. side is :new (head, the default) or :old (base, what
-;; ReviewSide flips to); ranges follows the side being shown
+;; :session-id :side :qf-dir :head-ranges :base-ranges :ranges} — nil
+;; when none is open. side is :new (head, the default) or :old (base,
+;; what ReviewSide flips to); ranges follows the side being shown;
+;; qf-dir scopes the ReviewFiles quickfix
 (var current nil)
 
 (fn notify [msg level]
@@ -51,6 +52,13 @@
 (fn under-worktree [path]
   (let [p (or path "")]
     (and current (= 1 (p:find (.. current.worktree "/") 1 true)))))
+
+;; the one pathspec shape every dir-scoped review entry shares —
+;; ReviewWorktree's snapshot scope and ReviewFiles' quickfix scope:
+;; git-diff-pathspec style, leading and trailing slashes stripped,
+;; "" meaning everything
+(fn normalize-dir [?dir]
+  (string.gsub (string.gsub (or ?dir "") "^/+" "") "/+$" ""))
 
 ;; worktrees live outside every repo, under nvim's data dir — one per
 ;; repo basename + id ("pr42", "worktree"), disposable via
@@ -125,6 +133,74 @@
           (vim.api.nvim_buf_set_extmark bufnr range-ns (- ln 1) 0
                                         {:line_hl_group hl}))))))
 
+;; ── hunk hopping ──────────────────────────────────────────────
+;; navigation over the same in-memory range map the tints read: no
+;; git calls, no extmark scraping. Pure lookup + optional file hop
+
+;; pure: the neighbor hunk of {ranges} around {line}. :next is the
+;; first range starting below the cursor, :prev the last starting
+;; above it — comparing starts on both sides never returns the hunk
+;; the cursor is on, and resting INSIDE one still finds it: prev
+;; lands on the current hunk's own start (gitsigns-style)
+(fn step-in-file [ranges line dir]
+  (if (= dir :prev)
+      (accumulate [found nil _ r (ipairs (or ranges []))]
+        (if (< (. r 1) line) r found))
+      (accumulate [found nil _ r (ipairs (or ranges []))]
+        (or found (when (> (. r 1) line) r)))))
+
+;; the shown side's changed files, sorted — the wrap order when a
+;; file's hunks run out (the whole review, not the quickfix's dir
+;; scope: that one filters the menu, hopping still crosses the diff)
+(fn side-paths []
+  (let [paths (vim.tbl_keys current.ranges)]
+    (table.sort paths)
+    paths))
+
+;; move the cursor to {path}'s hunk {start}, opening the file when
+;; the hop crosses a file boundary (the usual BufEnter hook makes it
+;; read-only and tinted)
+(fn goto-hunk [rel path start]
+  (when (not= rel path)
+    (vim.cmd {:cmd :edit :args [(.. current.worktree "/" path)]}))
+  (vim.api.nvim_win_set_cursor (vim.api.nvim_get_current_win) [start 0])
+  (vim.cmd "normal! zz"))
+
+;; ]h / [h — hop to the next/previous hunk of the shown side: first
+;; within the current file, then wrapping across the sorted file
+;; list. Bound buffer-locally in configure-code-buffer; exported for
+;; callers and tests
+(fn jump-hunk [dir]
+  (let [name (vim.api.nvim_buf_get_name 0)
+        line (?. (vim.api.nvim_win_get_cursor 0) 1)]
+    (if (not current)
+        (notify "codeboomer: no review open — :Codeboomer Review first"
+                vim.log.levels.WARN)
+        (let [paths (side-paths)]
+          (if (= 0 (length paths))
+              (notify "codeboomer: no changed files in this review"
+                      vim.log.levels.WARN)
+              (let [rel (name:sub (+ 2 (length current.worktree)))
+                    around (step-in-file (. current.ranges rel) (or line 0) dir)
+                    hop (if around
+                            [rel (. around 1)]
+                            (let [len (length paths)
+                                  idx (vim.fn.index paths rel)
+                                  pos (if (= idx -1)
+                                          (if (= dir :prev) len 1)
+                                          (+ 1 (% (+ idx (if (= dir :prev) -1 1))
+                                                  len)))
+                                  target (. paths pos)
+                                  ranges (. current.ranges target)
+                                  r (if (= dir :prev)
+                                      (. ranges (length ranges))
+                                      (. ranges 1))]
+                              [target (. r 1)]))]
+                (goto-hunk rel (. hop 1) (. hop 2))))))))
+
+(set M.next-hunk (fn [] (jump-hunk :next)))
+(set M.prev-hunk (fn [] (jump-hunk :prev)))
+
 ;; the read-only half of the mode: any buffer entered under the review
 ;; worktree becomes unmodifiable and gets its changed ranges tinted
 (fn configure-code-buffer [bufnr]
@@ -142,6 +218,14 @@
           ;; after it and the stamp decides what belongs
           (set (. vim.b bufnr :codeboomer_review_side) current.side)
           (sidebar.mark-buffer bufnr)
+          ;; hunk hopping lives only inside review buffers and dies
+          ;; with them: ]h next, [h previous (of the shown side)
+          (vim.keymap.set :n "]h" M.next-hunk
+                          {:buffer bufnr
+                           :desc "codeboomer: next review hunk"})
+          (vim.keymap.set :n "[h" M.prev-hunk
+                          {:buffer bufnr
+                           :desc "codeboomer: previous review hunk"})
           (place-ranges bufnr rel))))))
 
 ;; the side swap rewrites every file under the worktree on disk:
@@ -254,26 +338,46 @@
 
 ;; stage the working tree (untracked included, ignored excluded) into
 ;; a throwaway index and read back its tree sha — nothing touches the
-;; real index, HEAD, or any ref
-(fn stage-worktree [root k]
+;; real index, HEAD, or any ref. The index is seeded from HEAD first,
+;; then the worktree state overlays it: without a scope `add -A`
+;; overlays everything, with ?dir only that directory's — so a scoped
+;; snapshot tree is HEAD everywhere else and its diff against HEAD
+;; contains exactly the directory's uncommitted changes
+(fn stage-worktree [root head ?dir k]
   (let [index (.. root "/.git/codeboomer-snapshot-index")
-        cmd (string.format "rm -f '%s' && GIT_INDEX_FILE='%s' git -C '%s' add -A && GIT_INDEX_FILE='%s' git -C '%s' write-tree"
-                           index index root index root)]
+        dir (normalize-dir ?dir)
+        cmd (string.format
+              "rm -f '%s' && GIT_INDEX_FILE='%s' git -C '%s' read-tree %s && GIT_INDEX_FILE='%s' git -C '%s' add -A%s && GIT_INDEX_FILE='%s' git -C '%s' write-tree"
+              index index root head index root
+              (if (= "" dir) "" (string.format " -- '%s'" dir))
+              index root)]
     (run [:sh :-c cmd]
          (fn [out] (k (vim.trim out))))))
 
-;; a dangling commit of the working tree with HEAD as parent — the sha
-;; reviews exactly like a PR head, and because nothing references it,
-;; git forgets it at the next gc once the review is over
-(fn snapshot-commit [root head k]
-  (stage-worktree root
-    (fn [tree]
-      (if (or (not tree) (= "" tree))
-          (notify "codeboomer: could not snapshot the working tree"
-                  vim.log.levels.ERROR)
-          (run [:git :-C root :commit-tree tree :-p head
-                :-m "codeboomer-snapshot"]
-               (fn [out] (k (vim.trim out))))))))
+;; a commit's tree sha — sync: tree equality IS the "nothing changed
+;; under the scope" check
+(fn git-tree [root sha]
+  (let [out (vim.fn.system [:git :-C root :rev-parse (.. sha "^{tree}")])]
+    (when (= vim.v.shell_error 0) (vim.trim out))))
+
+;; a dangling commit of the (optionally pathspec-scoped) working tree
+;; with HEAD as parent — the sha reviews exactly like a PR head, and
+;; because nothing references it, git forgets it at the next gc once
+;; the review is over. A scoped snapshot matching HEAD's tree aborts
+;; early: nothing to review
+(fn snapshot-commit [root head ?dir k]
+  (let [dir (normalize-dir ?dir)]
+    (stage-worktree root head dir
+      (fn [tree]
+        (if (or (not tree) (= "" tree))
+            (notify "codeboomer: could not snapshot the working tree"
+                    vim.log.levels.ERROR)
+            (if (and (not= "" dir) (= tree (git-tree root head)))
+                (notify (.. "codeboomer: no uncommitted changes under " dir)
+                        vim.log.levels.WARN)
+                (run [:git :-C root :commit-tree tree :-p head
+                      :-m "codeboomer-snapshot"]
+                     (fn [out] (k (vim.trim out))))))))))
 
 ;; compute the changed ranges of both sides once for the whole diff;
 ;; buffers look themselves up on enter. current.ranges follows the
@@ -292,42 +396,94 @@
          (k))))
 
 ;; the tab: code window (empty until a file is picked) + the sticky
-;; comments pane; the file picker is the entry into the diff
+;; comments pane; the quickfix of changed files is the entry into the
+;; diff
 (fn open-review-tab []
   (vim.cmd :tabnew)
   (sidebar.open-sticky)
-  ;; pick where to start; headless runs (tests) cannot open fzf
+  ;; pick where to start; the pcall is safety — a bare --headless run
+  ;; without a usable quickfix still leaves the review open
   (let [(ok) (pcall M.files)]
     (when (not ok)
       (notify "codeboomer: review open — :Codeboomer ReviewFiles to jump"
               vim.log.levels.INFO))))
 
-;; fzf over the side being shown's changed files; picking edits the
-;; worktree copy in the code window
+;; every quickfix we build carries this title — a side flip can tell
+;; ours from someone else's list and refresh it in place
+(local qf-title "codeboomer review")
+
+;; one quickfix entry per changed file of the shown side: lnum lands
+;; on the file's first changed line, so Enter jumps straight to the
+;; tint; the text lists the changed line groups (capped, or the text
+;; wraps the quickfix window)
+(fn qf-item [path ranges]
+  (let [groups (icollect [_ [start last] (ipairs ranges)]
+                 (if (= start last) (.. "L" start) (.. "L" start "-" last)))
+        shown (vim.list_slice groups 1 5)
+        extra (when (> (length groups) 5)
+                (.. ", +" (tostring (- (length groups) 5)) " more"))]
+    {:filename (.. current.worktree "/" path)
+     :lnum (?. ranges 1 1)
+     :text (.. (table.concat shown ", ") (or extra ""))}))
+
+;; the shown side's changed paths, scoped with the shared pathspec
+;; handler: the file named exactly, or everything under the directory.
+;; nil/"" scopes to everything
+(fn scoped-paths [?dir]
+  (let [trimmed (normalize-dir ?dir)]
+    (if (= "" trimmed)
+        (vim.tbl_keys current.ranges)
+        (icollect [_ path (ipairs (vim.tbl_keys current.ranges))]
+          (when (or (= path trimmed)
+                    (= 1 (path:find (.. trimmed "/") 1 true)))
+            path)))))
+
+;; rebuild the quickfix from the shown side's scoped ranges — no
+;; :copen, so callers decide whether to focus it (a refresh keeps the
+;; cursor in the code)
+(fn set-qf []
+  (let [paths (scoped-paths current.qf-dir)]
+    (table.sort paths)
+    (vim.fn.setqflist {} :r
+                      {:items (icollect [_ p (ipairs paths)]
+                                (qf-item p (. current.ranges p)))
+                       :title (.. qf-title " ("
+                                  (if (= current.side :old) "old" "new")
+                                  " side)"
+                                  (if (= "" (or current.qf-dir ""))
+                                    ""
+                                    (.. " — " current.qf-dir)))})))
+
+;; a side flip invalidates a quickfix built from the other side's
+;; ranges — rebuild ours, but only while OUR list is the one being
+;; displayed: a closed quickfix stays closed, someone else's is theirs
+(fn refresh-qf []
+  (let [qf (vim.fn.getqflist {:title 1 :winid 1})
+        title (or qf.title "")]
+    (when (and (> (or qf.winid 0) 0) (= 1 (title:find qf-title 1 true)))
+      (set-qf))))
+
+;; :Codeboomer ReviewFiles [dir] — quickfix over the shown side's
+;; changed files, optionally scoped to a directory (or a single file)
+;; git-diff-pathspec style; a bare call resets the scope. Enter edits
+;; the worktree copy in the code window, read-only and tinted by the
+;; usual BufEnter hook
 (set M.files
-     (fn []
+     (fn [?dir]
        (if (not current)
            (notify "codeboomer: no review open — :Codeboomer Review first"
                    vim.log.levels.WARN)
-           (let [paths (vim.tbl_keys current.ranges)]
+           (let [paths (do (set current.qf-dir (or ?dir ""))
+                           (scoped-paths current.qf-dir))]
              (if (= 0 (length paths))
-                 (notify "codeboomer: no changed files in this review"
+                 (notify (if (= "" current.qf-dir)
+                           "codeboomer: no changed files in this review"
+                           (.. "codeboomer: no changed files under "
+                               current.qf-dir))
                          vim.log.levels.WARN)
-                 (do
-                   (table.sort paths)
-                   (let [fzf (require :fzf-lua)]
-                     (fzf.fzf_exec paths
-                                   {:prompt (string.format
-                                              "Pick a Changed File (%s side)> "
-                                              (if (= current.side :old)
-                                                "old" "new"))
-                                    :actions
-                                    {:default
-                                     (fn [selected]
-                                       (let [path (. selected 1)]
-                                         (vim.cmd {:cmd :edit
-                                                   :args [(.. current.worktree "/"
-                                                              path)]})))}}))))))))
+                 (do (set-qf)
+                     (vim.cmd {:cmd :copen
+                               :count (math.min 12 (length paths))})))))))
 
 ;; :Codeboomer ReviewSide / <leader>ct — flip the open review between
 ;; the two ends of its diff: the worktree checks out the other sha and
@@ -352,6 +508,8 @@
                     ;; thread numbers are new-side ones — the reload
                     ;; re-places the marks (nowhere on the old side)
                     (sidebar.reload-threads)
+                    ;; and an open review quickfix follows the side
+                    (refresh-qf)
                     (notify (.. "codeboomer: showing the "
                                 (if (= side :old) "old" "new") " code")
                             vim.log.levels.INFO)))))))
@@ -385,8 +543,10 @@
                                  :worktree path
                                  :session-id session
                                  ;; a review always opens on the new
-                                 ;; side; ReviewSide flips it
+                                 ;; side; ReviewSide flips it. qf-dir is
+                                 ;; the ReviewFiles scope ("" = all)
                                  :side :new
+                                 :qf-dir ""
                                  :head-ranges {}
                                  :base-ranges {}
                                  :ranges {}})
@@ -414,19 +574,20 @@
                             (notify "codeboomer: no open PRs (or `gh` unavailable)"
                                     vim.log.levels.WARN)))))))))
 
-;; :Codeboomer ReviewWorktree — review the uncommitted working tree
-;; against HEAD: snapshot it into a dangling commit (non-destructive:
-;; no ref moves, `git status` untouched) and open the standard review
-;; mode on it. The read-only bridge for reviewing agent-made changes
-;; before they are committed
+;; :Codeboomer ReviewWorktree [dir] — review the uncommitted working
+;; tree (optionally just one directory's, via the shared pathspec
+;; handler) against HEAD: snapshot it into a dangling commit
+;; (non-destructive: no ref moves, `git status` untouched) and open
+;; the standard review mode on it. The read-only bridge for reviewing
+;; agent-made changes before they are committed
 (set M.review-worktree
-     (fn []
+     (fn [?dir]
        (let [root (git.repo-root)
              head (git.head-sha)]
          (if (not (and root head))
              (notify "codeboomer: not inside a git repository with commits"
                      vim.log.levels.ERROR)
-             (snapshot-commit root head
+             (snapshot-commit root head ?dir
                (fn [sha]
                  (M.setup-review {:worktree-id :worktree
                                   :head-sha sha

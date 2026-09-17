@@ -25,15 +25,17 @@ subcommands.SetSession = function()
 end
 
 subcommands.Review = function(opts)
-  require("codeboomer.review-mode").open(tonumber(opts.fargs[1]))
+  -- fargs[1] is the subcommand name itself; the PR number, if any,
+  -- is the second farg
+  require("codeboomer.review-mode").open(tonumber(opts.fargs[2]))
 end
 
-subcommands.ReviewFiles = function()
-  require("codeboomer.review-mode").files()
+subcommands.ReviewFiles = function(opts)
+  require("codeboomer.review-mode").files(opts.fargs[2])
 end
 
-subcommands.ReviewWorktree = function()
-  require("codeboomer.review-mode")["review-worktree"]()
+subcommands.ReviewWorktree = function(opts)
+  require("codeboomer.review-mode")["review-worktree"](opts.fargs[2])
 end
 
 subcommands.ReviewSide = function()
