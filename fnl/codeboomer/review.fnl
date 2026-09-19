@@ -54,10 +54,10 @@
          :commit_id commit-id})))
 
 ;; ── the chosen session ───────────────────────────────────────
-;; Explicit module state: writes (annotate, flush) and the sidebar all
-;; target it. init's picker sets it; the zero- and one-session cases
-;; resolve silently (init's ensure-session / adopt-sole-session below)
-;; so the common single-session flow never sees a picker.
+;; Explicit module state: writes (annotate, flush) and the review pane
+;; all target it. init's picker and ensure-session set it; the zero-
+;; and one-session cases resolve silently so the common flow never
+;; sees a picker.
 (var current-session-id nil)
 
 (fn M.current-session-id [] current-session-id)
@@ -81,13 +81,6 @@
                              [])]
             (table.sort sessions (fn [a b] (< (or a.id 0) (or b.id 0))))
             sessions))))))
-
-;; adopt the sole session when exactly one exists — the marker pane is
-;; useful at startup without anyone picking anything
-(fn M.adopt-sole-session []
-  (let [sessions (or (M.existing-sessions) [])]
-    (when (= 1 (length sessions))
-      (M.set-session (?. sessions 1 :id) true))))
 
 ;; the session bound to a PR number of the current repo, if any —
 ;; re-opening a PR review finds its threads instead of minting a
@@ -282,6 +275,11 @@
                              (< (or a.id 0) (or b.id 0))
                              (< ta tb)))))
     rows))
+
+;; the author row of a comment — flush messages label each conversation
+;; entry with a real name (the local user, the agent, github logins)
+(fn M.comment-author [c]
+  (?. (db sqlite.user :get {:where {:id (or c.author_id 0)}}) 1))
 
 ;; create a session row. opts: {:branch :head-sha :base-sha :pr-number} —
 ;; live sessions pin nothing beyond HEAD-at-creation; PR sessions

@@ -3,13 +3,6 @@ if vim.g.loaded_codeboomer then
 end
 vim.g.loaded_codeboomer = 1
 
--- the review sidebar attaches its event hooks at load time; they must
--- exist before the first CodeboomerAnnotated / SessionChanged fires
--- (annotation flows go through init, not the sidebar), so it loads with
--- the plugin. Attaching is db-free — the thread map loads on first
--- sidebar use
-require("codeboomer.sidebar")
-
 -- the agent bridge generates its CLI shim (~/.local/share/nvim/
 -- codeboomer-agent) on load, baking in the running environment
 require("codeboomer.agent")
@@ -64,14 +57,6 @@ end
 
 subcommands.Annotate = function(opts)
   require("codeboomer").Annotate(opts)
-end
-
-subcommands.Comments = function()
-  require("codeboomer.sidebar").toggle()
-end
-
-subcommands.Enter = function()
-  require("codeboomer.sidebar").enter()
 end
 
 subcommands.FlushWithDirective = function()

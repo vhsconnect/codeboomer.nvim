@@ -2,8 +2,9 @@
 ;; Snapshot review of a pull request: the PR head is fetched and
 ;; materialized as a detached git worktree, and a review tab opens
 ;; with the code on the left — read-only, changed ranges tinted — and
-;; the sidebar's comments pane on the right (sticky in this mode: it
-;; follows the cursor between threads but never collapses). Threads
+;; the sidebar's comments pane on the right (following the cursor
+;; between threads; pane and gutter marks live only inside reviews).
+;; Threads
 ;; anchor to the worktree's HEAD, i.e. the fetched PR head, and
 ;; because the checkout cannot be edited, line numbers cannot drift
 ;; by construction. This is review only — nothing is posted anywhere
@@ -213,9 +214,9 @@
           (set bo.modifiable false)
           (set bo.readonly true)
           ;; which side this buffer shows — Annotate and the sidebar's
-          ;; marks read the stamp back; re-placing the marks HERE (not
-          ;; only in the sidebar's own BufEnter) because this hook runs
-          ;; after it and the stamp decides what belongs
+          ;; mark gate read the stamp back; review-mode is the sole
+          ;; marker driver, so marks are (re-)placed right here after
+          ;; the stamp lands
           (set (. vim.b bufnr :codeboomer_review_side) current.side)
           (sidebar.mark-buffer bufnr)
           ;; hunk hopping lives only inside review buffers and dies
@@ -395,12 +396,11 @@
                                  current.head-ranges))
          (k))))
 
-;; the tab: code window (empty until a file is picked) + the sticky
-;; comments pane; the quickfix of changed files is the entry into the
-;; diff
+;; the tab: code window (empty until a file is picked) + the comments
+;; pane; the quickfix of changed files is the entry into the diff
 (fn open-review-tab []
   (vim.cmd :tabnew)
-  (sidebar.open-sticky)
+  (sidebar.open)
   ;; pick where to start; the pcall is safety — a bare --headless run
   ;; without a usable quickfix still leaves the review open
   (let [(ok) (pcall M.files)]

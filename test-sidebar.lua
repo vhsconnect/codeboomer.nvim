@@ -1,8 +1,14 @@
--- headless smoke test for the ephemeral review-comments pane
+-- headless smoke test for the review-scoped comments pane + markers
 -- run: nvim --headless -u NONE --cmd "set rtp^=..." -c "luafile test-sidebar.lua"
 -- (cwd = repo root; SELF-SEEDING: creates a session and two overlapping
 -- threads through the real write path, and wipes them again at the end —
 -- the DB is expected to start empty and is left empty)
+--
+-- the pane and the gutter markers exist ONLY inside reviews: review-mode
+-- stamps every worktree buffer with codeboomer_review_side and that
+-- stamp is the gate. The test stamps a plain working buffer by hand —
+-- exactly what review-mode's configure-code-buffer does — so the real
+-- gate, not a bypass of it, decides what renders.
 --
 -- the pane opens only after the cursor RESTS ~100 ms inside a thread's
 -- range (the debounce), so every cursor move below is followed by a
@@ -35,14 +41,26 @@ local tab1 = api.nvim_get_current_tabpage()
 
 local review = require("codeboomer.review")
 local sid = review["create-session"]()
-local path = api.nvim_buf_get_name(code_buf)
-review["user-comment"](sid, path, 3, 3, "code A", "testing")
-review["user-comment"](sid, path, 1, 69, "code B", "another test")
+-- review mode's setup-review always chooses the session before the
+-- pane opens — reload-threads no longer adopts a sole session by
+-- itself, so mirror the real flow here
+review["set-session"](sid)
+-- thread paths are stored repo-relative (like Annotate's context), so
+-- seed with the relative path the real write path produces
+review["user-comment"](sid, "fnl/codeboomer/init.fnl", 3, 3, "code A", "testing")
+review["user-comment"](sid, "fnl/codeboomer/init.fnl", 1, 69, "code B", "another test")
+-- a second comment on the 3-3 thread: the pane must render the two as
+-- separate labeled messages, not one wall of text
+for _, t in ipairs(review["threads-for-session"](sid)) do
+  if t.line_start == 3 and t.line_end == 3 then
+    review["user-reply"](t.id, "a reply")
+  end
+end
 
 local sidebar = require("codeboomer.sidebar")
--- -c chunks run BEFORE VimEnter, and os.exit kills nvim before the main
--- loop would fire it — trigger the startup thread-map load by hand
-vim.cmd("doautocmd VimEnter")
+-- review mode loads the thread map when the review opens — load it
+-- here by hand so the checks below see the seeds
+sidebar["reload-threads"]()
 
 local function find_pane(tab)
   for _, w in ipairs(api.nvim_tabpage_list_wins(tab)) do
@@ -87,8 +105,15 @@ local function covering(line)
   return n
 end
 
--- ── gutter markers: always visible, independent of the toggle ─────
-check("marks placed at startup", #sign_rows(code_buf) == expected_marks)
+-- ── local (unstamped) buffers: no pane, no marks — the review gate ─
+rest(code_win, 3)
+check("local buffer: resting in a range opens no pane", find_pane(tab1) == nil)
+check("local buffer: no marks", #sign_rows(code_buf) == 0)
+
+-- ── stamped as a review's new side (what configure-code-buffer does) ─
+vim.b[code_buf].codeboomer_review_side = "new"
+sidebar["mark-buffer"](code_buf)
+check("review buffer: marks placed", #sign_rows(code_buf) == expected_marks)
 check("signcolumn left alone", vim.wo[code_win].signcolumn == "auto")
 local three = {}
 for _, m in ipairs(api.nvim_buf_get_extmarks(code_buf, ns, 0, -1, { details = true })) do
@@ -96,23 +121,9 @@ for _, m in ipairs(api.nvim_buf_get_extmarks(code_buf, ns, 0, -1, { details = tr
 end
 check(("overlap line 3 carries ONE symbol (%d covering)"):format(covering(3)),
   #three == 1 and covering(3) >= 2)
-check("symbol is a crayon", three[1] and three[1][4].sign_text == "✎ ")
+check("symbol is a half-block bar", three[1] and three[1][4].sign_text == "▌ ")
 
--- ── the pane: opens on rest, collapses off range ──────────────────
--- park the cursor on an un-commented line before toggling on
-rest(code_win, 100)
-sidebar.toggle()
-check("toggle on off-range: no pane", find_pane(tab1) == nil)
-
--- toggle-on while resting inside a range opens the pane immediately —
--- an explicit enable needn't wait out the rest delay
-rest(code_win, 3)
-sidebar.toggle()
-sidebar.toggle()
-check("toggle on inside a range opens immediately", find_pane(tab1) ~= nil)
-
--- a plain cursor move into a range does wait out the debounce
-rest(code_win, 100)
+-- the debounce: a plain cursor move into a range waits it out
 api.nvim_win_set_cursor(code_win, { 3, 0 })
 vim.cmd("doautocmd CursorMoved")
 check("no pane before the rest delay elapses", find_pane(tab1) == nil)
@@ -139,6 +150,22 @@ local both = pane_lines()
 check("line 3 -> pane shows both overlapping threads", #both > 3 and has_rule(both))
 print("      pane: " .. table.concat(both, " / "))
 
+-- ── comment separation: labels + blank lines inside a block ────
+check("blank line after the thread header", both[2] == "")
+check("first comment labeled [source] name", both[3]:match("^%[%w+%] ") ~= nil)
+local n_labels = 0
+for _, l in ipairs(both) do
+  if l:match("^%[%w+%] ") then n_labels = n_labels + 1 end
+end
+check("every comment carries a label (3 total)", n_labels == 3)
+local separated = false
+for i = 1, #both - 2 do
+  if both[i] == "" and both[i + 1]:match("^%[%w+%] ") and both[i + 2] == "a reply" then
+    separated = true
+  end
+end
+check("comments separated by a blank line", separated)
+
 -- a line covered by exactly one thread renders a single block
 local single = nil
 for l = 12, 69 do
@@ -150,64 +177,79 @@ if single then
     not has_rule(pane_lines()))
 end
 
--- off every range: the split collapses (not blanks)
+-- ── off every range: the pane keeps the last block (never collapses) ─
+local last = pane_lines()
 rest(code_win, 100)
-check("line 100 -> pane collapsed", find_pane(tab1) == nil)
-check("marks survive pane collapse", #sign_rows(code_buf) == expected_marks)
+check("off-range: pane keeps the last block", find_pane(tab1) ~= nil
+  and vim.deep_equal(pane_lines(), last))
 
--- ── the toggle gates the pane only ────────────────────────────────
-sidebar.toggle() -- off
-rest(code_win, 3)
-check("toggle off: resting in a range opens nothing", find_pane(tab1) == nil)
-check("toggle off: marks stay", #sign_rows(code_buf) == expected_marks)
-sidebar.toggle() -- back on
-
--- ── one pane globally, following the cursor across tabs ──────────
-rest(code_win, 3)
-check("pane back in tab 1", find_pane(tab1) ~= nil)
+-- ── unstamped buffers never drive the pane or carry marks ──────────
 vim.cmd("tabnew")
 vim.cmd("doautocmd TabEnter")
 local tab2 = api.nvim_get_current_tabpage()
 vim.cmd("edit README.md")
 vim.cmd("doautocmd BufEnter")
 vim.wait(300)
-check("threadless file: no pane in tab 2", find_pane(tab2) == nil)
-check("entering tab 2 collapsed tab 1's pane", find_pane(tab1) == nil)
-check("README carries no marks", #sign_rows(api.nvim_win_get_buf(api.nvim_get_current_win())) == 0)
+check("unstamped file: no pane in its tab", find_pane(tab2) == nil)
+check("the review tab's pane stays put", find_pane(tab1) ~= nil)
+check("README carries no marks",
+  #sign_rows(api.nvim_win_get_buf(api.nvim_get_current_win())) == 0)
 
--- same file from tab 2: its own pane opens, still exactly one
-vim.cmd("edit fnl/codeboomer/init.fnl")
-vim.cmd("doautocmd BufEnter")
-rest(api.nvim_get_current_win(), 3)
-check("pane opens in tab 2", find_pane(tab2) ~= nil)
-check("shared buffer not double-marked", #sign_rows(code_buf) == expected_marks)
-
--- back to tab 1 (cursor still resting in a range there): the pane
--- moves back with focus
+-- ── the old side drops the marks (thread numbers are new-side ones) ─
 vim.cmd("tabnext")
-vim.cmd("doautocmd WinEnter")
-vim.wait(300)
-check("pane follows focus back to tab 1", find_pane(tab1) ~= nil)
-check("tab 2 left without a pane", find_pane(tab2) == nil)
+vim.b[code_buf].codeboomer_review_side = "old"
+sidebar["mark-buffer"](code_buf)
+check("old side: marks dropped", #sign_rows(code_buf) == 0)
+vim.b[code_buf].codeboomer_review_side = "new"
+sidebar["mark-buffer"](code_buf)
+check("back on the new side: marks again", #sign_rows(code_buf) == expected_marks)
 
--- ── closing by hand collapses; resting reopens ────────────────────
+-- ── closing by hand: resting in a range reopens ────────────────────
+rest(code_win, 3)
 local _, pane1_win = find_pane(tab1)
 api.nvim_win_close(pane1_win, true)
 check("pane closed by :q stays closed", find_pane(tab1) == nil)
 rest(code_win, 3)
 check("pane reopens after resting again", find_pane(tab1) ~= nil)
+-- the reopen built a fresh pane buffer — rebind so the helpers read it
+pane_buf, pane_win = find_pane(tab1)
 
--- ── toggle off collapses everywhere, markers keep their hooks ─────
-sidebar.toggle()
-check("toggle off collapsed the pane", find_pane(tab1) == nil and find_pane(tab2) == nil)
-check("marks survive toggle off", #sign_rows(code_buf) == expected_marks)
-check("augroup kept for markers",
-  pcall(function() return api.nvim_get_autocmds({ group = "codeboomer-review-pane" }) end))
+-- ── resolving must not leave a stale block on screen ────────────────
+-- q resolving a thread must re-render what still covers the code line
+-- (the scheduled check skips re-rendering when nothing covers the
+-- row): resolve one of two covering threads — block count drops — and
+-- then the last one — blank pane, window stays
+local function rule_row(lines)
+  for i, l in ipairs(lines) do
+    if l:gsub("─", "") == "" and #l > 0 then return i end
+  end
+end
+
+check("pane shows both threads", rule_row(pane_lines()) ~= nil)
+-- cursor into the SECOND block (threads render in file order: 1-69
+-- first, 3-3 second) and resolve it
+api.nvim_set_current_win(pane_win)
+api.nvim_win_set_cursor(pane_win, { rule_row(pane_lines()) + 1, 0 })
+local q = vim.fn.maparg("q", "n", false, true)
+q.callback()
+vim.wait(300) -- let the reload's scheduled check run too
+check("one resolved: pane re-rendered without the separator",
+  rule_row(pane_lines()) == nil)
+check("one resolved: remaining block still shown", #pane_lines() > 0)
+
+-- resolve the last covering thread: blank pane, window kept
+api.nvim_win_set_cursor(pane_win, { 1, 0 })
+q.callback()
+vim.wait(300)
+check("last resolved: pane blanked",
+  #pane_lines() == 1 and pane_lines()[1] == "")
+check("last resolved: window stays open", find_pane(tab1) ~= nil)
+check("all resolved: marks gone", #sign_rows(code_buf) == 0)
 
 -- wipe the seeded rows — leave the DB as empty as it was found
 -- (deletes in child-first order; a fresh with_open connection does not
 -- necessarily run with pragma foreign_keys on, so cascades can't be relied on)
-require("codeboomer.sqlite").db:with_open(function(d)
+require("codeboomer.singleton")["get-db"]():with_open(function(d)
   d:execute("delete from comment")
   d:execute("delete from comment_thread")
   d:execute("delete from session")

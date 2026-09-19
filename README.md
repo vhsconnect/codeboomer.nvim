@@ -8,9 +8,9 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - Fuzzy-finder interface (via fzf-lua) to select target panes, showing each pane's last output line and working directory, with a live content preview
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Annotation workflow — accumulate multiple code selections for review before sending
-- **Review sessions (`SetSession`)** — annotations are grouped into sessions (one per branch or PR); annotate, flush and the comments pane all target the chosen one, and the picker appears only when several compete
-- **PR snapshot review (`Review`)** — fetch a PR head into a read-only worktree, tint its changed lines, and annotate it in a dedicated tab with the comments pane pinned open; `ReviewSide` flips the same review onto the base code so removed lines are readable (and tinted) too; opening a PR also imports its inline comments as threads, `PostReview` pushes your annotations up, and `ReviewWorktree` gives uncommitted working-tree changes (e.g. an agent's edits) the same read-only treatment via a dangling snapshot commit
-- **Review comments (`Comments`)** — commented ranges carry gitsigns-style `▌` gutter bars (colored per thread, visible whenever a review session exists), and with `Comments` toggled on a side split follows the cursor: rest it inside a commented range and the thread's comments appear, move off and the split collapses; `Enter` (`<leader>ce`) steps inside the split, where `r` replies, `q` resolves and `n` hops to the next thread
+- **Review sessions (`SetSession`)** — annotations are grouped into sessions (one per branch or PR); annotate and flush all target the chosen one, and the picker appears only when several compete
+- **PR snapshot review (`Review`)** — fetch a PR head into a read-only worktree, tint its changed lines, and annotate it in a dedicated tab with the comments pane pinned open; `ReviewSide` flips the same review onto the base code so removed lines are readable (and tinted) too; opening a PR also imports its inline comments as threads, `PostReview` pushes your annotations up as a pending review (a draft submitted on GitHub), and `ReviewWorktree` gives uncommitted working-tree changes (e.g. an agent's edits) the same read-only treatment via a dangling snapshot commit
+- **Review comments pane** — inside an open review (`Review` / `ReviewWorktree`) commented ranges carry gitsigns-style `▌` gutter bars (colored per thread) and a side split follows the cursor: rest it inside a commented range and the thread's comments appear; window-navigate into it, where `r` replies, `q` resolves and `n` hops to the next thread. Local self-review (annotate, flush) is pane- and marker-free
 - Bracketed-paste support for proper multi-line handling
 - **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane; define any number of user-named one-off commands and pick one with fzf when there is more than one
 
@@ -52,8 +52,6 @@ The plugin sets up no default keybindings; configure them like this:
 | Normal | `<leader>cP` | `PostReview` — push unposted annotations to the PR |
 | Normal | `<leader>cL` | `PullReview` — pull the PR's inline comments into the session |
 | Visual | `<leader>ca` | `Annotate` — add the selection (plus an optional note) to the query context |
-| Normal | `<leader>cm` | `Comments` — toggle the review comments pane |
-| Normal | `<leader>ce` | `Enter` — step into the open review comments pane |
 | Normal | `<leader>cd` | `FlushWithDirective` — flush accumulated annotations with a directive |
 
 Disable or customize any binding under `keybindings` in `setup()` (set to `false` to disable):
@@ -73,8 +71,6 @@ require("codeboomer").setup({
     post_review = "<leader>cP",
     pull_review = "<leader>cL",
     annotate = "<leader>ca",
-    comments = "<leader>cm",
-    enter_pane = "<leader>ce",
   },
 })
 ```
@@ -198,15 +194,36 @@ the right.
 - A PR-bound session is created (or found, keyed by `pr_number`) and
   chosen: `Annotate`, the comments pane and the gutter marks all
   target it; re-opening the same PR reuses its threads
-- The comments pane is sticky in this mode: it follows the cursor
-  between threads but never collapses
+- The review-comments pane lives in the review tab: resting the cursor
+  (~100 ms) inside a commented range shows that thread's comments —
+  one block per covering thread, `─`-separated, headers tinted in the
+  thread's gutter color, every comment labeled `[source] name`. Moving
+  off every range keeps the last block on screen; `:q` closes the pane
+  and the next rest reopens it. Window-navigate into it (`<C-w> w`);
+  three buffer-local keys act on the thread whose block the cursor is
+  in:
+
+| Key | Action |
+|-----|--------|
+| `r` | Reply — opens the same floating compose input `Annotate` uses; the reply is stored as a user comment on the thread and joins the next `FlushWithDirective` outbox |
+| `q` | Resolve the thread — resolved threads are treated as soft-deleted: they leave the pane, the `▌` marks and the flush outbox; the pane drops the block right away (re-rendering what still covers the code line, blanking when nothing does) |
+| `n` | Next thread — jumps the cursor back into the code window on the next thread of the same file (wrapping); the pane follows via the usual rest detection |
+
+- Commented ranges carry `▌` gutter bars in review buffers — one mark
+  per line, colored per thread (theme groups `Title`, `Special`,
+  `String`, `Function` cycled); the sign column is never modified. The
+  pane and the bars exist only inside reviews: thread line numbers
+  belong to the read-only snapshot, so local working buffers show
+  neither
 - The worktree is reused on re-review (hard-reset onto the new head)
   and lives outside the repo; dispose of it with `git worktree remove`
 - Opening the review also pulls the PR's inline comments down as
   threads (`:Codeboomer PullReview` refreshes — idempotent by GitHub
   comment id); `:Codeboomer PostReview` pushes your unposted
-  annotations up. Only your comments ever ship: agent-authored and
-  pulled comments stay local
+  annotations up as a pending review — a draft you submit on GitHub
+  (comment / approve / request changes), so nothing reaches the
+  author until you do. Only your comments ever ship: agent-authored
+  and pulled comments stay local
 
 ```vim
 :Codeboomer Review 42
@@ -274,22 +291,29 @@ network needed; git forgets the snapshot at the next gc.
 Opens fzf-lua over the repository's review sessions plus a `+ new session`
 entry. Each line shows the session id, what it reviews (`live`, or `PR <n>`
 for PR-bound sessions), and the branch it was created on; the chosen session
-is starred. Picking sets the session that `Annotate`, `FlushWithDirective`
-and the `Comments` pane operate on — the gutter marks follow immediately.
+is starred. Picking sets the session that `Annotate` and
+`FlushWithDirective` operate on.
 
 Session resolution is silent in the common cases: with nothing chosen, the
 first write creates the first session, and exactly one existing session is
-adopted automatically (on the first sidebar use). The picker appears only
+adopted automatically (on the first write). The picker appears only
 when several sessions compete.
 
 ### `:Codeboomer PostReview`
 
 Pushes the chosen PR session's unposted annotations to GitHub.
 
+- Annotations land in a **pending review** — a draft on GitHub you
+  submit there (comment / approve / request changes); nothing is
+  published until you do
 - Replies to pulled threads post via the replies endpoint (attached
-  under the thread's root GitHub comment); everything else batches
-  into one review per anchor commit, so every inline comment resolves
+  under the thread's root GitHub comment) — immediately, as that
+  endpoint has no draft state; everything else batches into one
+  pending review per anchor commit, so every inline comment resolves
   against the exact diff it was written on
+- GitHub allows one pending review per user and PR: posting again
+  while a draft is unsubmitted fails with a 422 — submit or discard
+  the draft on GitHub first
 - When a review is open, annotations whose range falls outside the PR
   diff are refused locally first — GitHub would reject them anyway
 - On success the annotations are marked `posted` and never re-ship;
@@ -307,7 +331,8 @@ threads — idempotent by GitHub comment id (re-pulls add only what's
 new), replies joined to their threads, and comments GitHub marks
 outdated anchored best-effort at their original line with an
 `outdated` flag in the thread header. `:Codeboomer Review` runs this
-automatically after opening; the comments pane reloads on arrival.
+automatically after opening; the comments pane of an open review
+reloads on arrival.
 
 ```vim
 :Codeboomer PullReview
@@ -337,66 +362,13 @@ Adds the current selection to the review session's annotation outbox. Use this t
 - With a visual range, the selection is included as context (`regarding <file> lines X to Y`); without one, the current file name is sent instead — file paths are stored repo-relative
 - The review session is resolved on write: the chosen one when set (see `:Codeboomer SetSession`), the sole existing one when exactly one exists, a fresh one when none does — a picker appears only when several compete
 - Annotations are stored in the review session's database — the single store — each as its own thread, tracked as not-yet-sent (agent) and not-yet-posted (GitHub); they are included in the next `:Codeboomer FlushWithDirective` call until sent
-- Commented ranges get `▌` gutter marks, and `:Codeboomer Comments` shows a thread's comments when the cursor rests inside its range
+- Inside an open review (`Review` / `ReviewWorktree`), commented ranges
+  get `▌` gutter marks and the comments pane shows a thread's comments
+  when the cursor rests inside its range
 - Empty notes are ignored
 
 ```
 :'<,'>Codeboomer Annotate
-```
-
-### `:Codeboomer Comments`
-
-Toggles the review-comments pane feature. While it is on, resting the
-cursor (~100 ms) inside a comment thread's line range opens a side
-split on the right showing that thread's comments; moving off every
-thread's lines collapses the split again. At most one pane exists at a
-time and it follows the cursor across windows and tabpages.
-
-- Threads come from the chosen review session (the same one
-  `:Codeboomer Annotate` writes to); the whole thread map is loaded on
-  the first sidebar use (toggle, `Enter`, review mode) and reloaded
-  whenever a new annotation lands or the chosen session changes
-  (`:Codeboomer SetSession`) — startup never touches the db
-- The `▌` gutter marks are independent of the toggle: they render in
-  every open buffer that carries session threads — one mark per
-  commented line, colored by thread (theme groups `Title`, `Special`,
-  `String`, `Function` cycled); the sign column is never modified
-- When the cursor rests on several overlapping threads the pane stacks
-  one block per thread, separated by a `─` rule; block headers are
-  tinted with the thread's mark color
-- The pane opens only after the cursor rests ~100 ms on a line, so
-  sweeping across range boundaries doesn't flicker the split; toggling
-  on while already resting inside a range opens it immediately
-- Closing the pane (`:q`) just collapses it — it reopens the next time
-  the cursor rests inside a range
-- Toggling off stops panes from opening; the gutter marks stay
-- Resolved threads are treated as soft-deleted: resolving one removes
-  it (and its `▌` marks) from the pane, the marks and the flush
-  outbox — agent and user replies to a resolved thread are rejected
-
-```vim
-:Codeboomer Comments
-```
-
-### `:Codeboomer Enter`
-
-Moves the cursor into the review-comments pane. If the pane is
-collapsed but the cursor already rests inside a thread's range (and
-`Comments` is toggled on), it opens first. The pane stays put while
-the cursor is inside it — the rest detection only watches code
-buffers. When no thread is under the cursor a notification says so.
-
-Inside the pane three buffer-local keys act on the thread whose block
-the cursor is in (they exist only in the pane buffer and die with it):
-
-| Key | Action |
-|-----|--------|
-| `r` | Reply — opens the same floating compose input `Annotate` uses; the reply is stored as a user comment on the thread and joins the next `FlushWithDirective` outbox |
-| `q` | Resolve the thread — resolved threads are treated as soft-deleted: they leave the pane, the `▌` marks and the flush outbox; the pane drops the block (or collapses) right away |
-| `n` | Next thread — jumps the cursor back into the code window on the next thread of the same file (wrapping); the pane follows via the usual rest detection |
-
-```vim
-:Codeboomer Enter
 ```
 
 ### `:Codeboomer FlushWithDirective`
@@ -408,7 +380,9 @@ Opens fzf to select a pre-defined directive, then sends it along with all unsent
 - Requires a pane to be selected first via `:Codeboomer SetPane`
 - Select from a list of pre-defined directives (see Configuration below for customizing)
 - After sending, the delivered annotations are marked `sent` in the database — they persist (with their `▌` marks) but are never re-sent; annotations survive restarts because the database is the only outbox
-- Each annotation header carries its thread id (`regarding <file> lines X to Y (thread N)`), and the payload ends with a reply instruction pointing at the generated `codeboomer-agent` shim — the agent answers each thread with `codeboomer-agent reply <thread-id> <text>`, which appends an agent comment to that thread in the database (visible in the `Comments` pane on its next reload)
+- Each message carries one **whole thread**: the header (`regarding <file> lines X to Y (thread N)`), the annotated code, and the full conversation — every comment author-labeled (`[user] vhs: …`, `[agent] agent: …`, `[github] reviewer: …`), so a reply flushed to a pulled thread ships the GitHub reviewer's words along and a re-asked thread ships the agent's earlier answers. Several unsent comments of one thread ship as one conversation, not one copy each
+- The payload ends with a reply instruction pointing at the generated `codeboomer-agent` shim — the agent answers each thread with `codeboomer-agent reply <thread-id> <text>`, which appends an agent comment to that thread in the database (visible
+in the comments pane of an open review on its next reload)
 
 ```vim
 :Codeboomer FlushWithDirective
@@ -428,7 +402,7 @@ For more complex queries, you can build up context across multiple selections:
 1. Select a pane with `<leader>cp`
 2. Select code sections and run `<leader>ca` (or `:Codeboomer Annotate`) to add annotations to your query
 3. When ready, run `<leader>cd` (or `:Codeboomer FlushWithDirective`) to send your directive along with all unsent annotations — the database is the outbox, so annotations survive restarts
-4. The agent answers each thread back with `codeboomer-agent reply <thread-id> <text>` (the instruction is included in the payload); replies land in the same threads and show up in the `Comments` pane. You can answer threads yourself from inside the pane: `<leader>ce` to enter, `r` to reply, `q` to resolve
+4. The agent answers each thread back with `codeboomer-agent reply <thread-id> <text>` (the instruction is included in the payload); replies land in the same threads and show up in the comments pane of an open review (`Review` / `ReviewWorktree`), where you can also answer threads yourself — window-navigate into the pane, then `r` to reply, `q` to resolve
 
 A review session is created (or the sole existing one adopted) on the first
 annotation; `:Codeboomer SetSession` (`<leader>cS`) switches when several
@@ -445,8 +419,8 @@ exist — annotations, flushes and gutter marks all follow the chosen session.
    annotations only need a selection; flip to the base code with
    `<leader>ct` (`:Codeboomer ReviewSide`) to read what a change
    removed; `]a`/`[a` step between hunks of the shown side
-3. Threads show in the sticky comments pane — `r` replies, `q` resolves,
-   `n` hops — exactly like the live workflow
+3. Threads show in the comments pane — `r` replies, `q` resolves,
+   `n` hops to the next thread
 4. `:Codeboomer PostReview` (`<leader>cP`) pushes your annotations to
    the PR when you're ready — nothing ships until you say so; `:Codeboomer
    PullReview` (`<leader>cL`) refreshes the PR's comments. Agent-authored
@@ -476,7 +450,7 @@ These are available automatically when nfnl is loaded (no extra config needed):
 
 ### Setting up a dev environment
 
-For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-codeboomer`. It requires `CODEBOOMER_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cr`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>cS`, `<leader>cR`, `<leader>cW`, `<leader>cP`, `<leader>cL`, `<leader>ca`, `<leader>cm`, `<leader>ce`). Extra arguments pass through to nvim, so you can land straight in a review:
+For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-codeboomer`. It requires `CODEBOOMER_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cr`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>cS`, `<leader>cR`, `<leader>cW`, `<leader>cP`, `<leader>cL`, `<leader>ca`). Extra arguments pass through to nvim, so you can land straight in a review:
 
 ```bash
 CODEBOOMER_PATH=$PWD ./test-codeboomer                          # plain launch
@@ -485,6 +459,19 @@ CODEBOOMER_PATH=$PWD ./test-codeboomer -c 'Codeboomer Review 42' # straight to P
 ```
 
 (The review commands need `gh` authentication and network — the PR head and base branch are fetched, and the review opens in its own tab once the picker resolves.)
+
+The headless smoke test for the review-scoped comments pane and gutter
+markers is `test-sidebar.lua` — it is
+self-seeding (a session, two overlapping threads, a hand-stamped review
+buffer) and **wipes the codeboomer
+database at the end**, so run it with `XDG_DATA_HOME` redirected at an empty
+temporary directory:
+
+```bash
+mkdir -p /tmp/xdg-isolate/nvim
+XDG_DATA_HOME=/tmp/xdg-isolate nvim --headless -u NONE \
+  --cmd "set rtp^=$PWD" -c 'luafile test-sidebar.lua'
+```
 
 ### Trusting the repo
 

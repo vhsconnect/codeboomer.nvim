@@ -39,13 +39,7 @@
                               "codeboomer: pull the PR's inline comments into the session"]
                 :annotate [:x
                            ":Codeboomer Annotate<cr>"
-                           "codeboomer: annotate some text"]
-                :comments [:n
-                           "<cmd>Codeboomer Comments<cr>"
-                           "codeboomer: toggle the review comments pane"]
-                :enter_pane [:n
-                             "<cmd>Codeboomer Enter<cr>"
-                             "codeboomer: step into the review comments pane"]})
+                           "codeboomer: annotate some text"]})
 
 (fn fold-by-label [defaults entries]
   ;; entries override the built-ins by label and append new labels —

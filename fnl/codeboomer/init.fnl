@@ -280,10 +280,26 @@
       (let [file (git.rel-path)]
         (.. "regarding " file "\n" text "\n"))))
 
-(fn annotation-message [t c]
-  (string.format "regarding %s lines %s to %s (thread %s)\n%s\n%s" (or t.file_path "?")
-                 (or t.line_start "?") (or t.line_end "?") (or t.id "?")
-                 (or t.code_snapshot "") (or c.body "")))
+;; one conversation entry — "[source] name: body" — so the receiving
+;; agent can tell a GitHub reviewer's words from its own earlier
+;; answers and the local user's notes
+(fn comment-line [c]
+  (let [name (or (?. (review.comment-author c) :name) "unknown")]
+    (string.format "[%s] %s: %s" (or c.source "user") name (or c.body ""))))
+
+;; one thread → one message: location and code snapshot, then the FULL
+;; conversation (every comment, author-labeled) — a reply flushed to a
+;; pulled thread carries the GitHub reviewer's words along, and an
+;; annotation whose thread carries agent answers ships those answers
+;; back for context
+(fn thread-message [t]
+  (let [conversation (icollect [_ c (ipairs (review.comments-for (or t.id 0)))]
+                       (comment-line c))]
+    (string.format "regarding %s lines %s to %s (thread %s)\n%s\n%s"
+                   (or t.file_path "?")
+                   (or t.line_start "?") (or t.line_end "?") (or t.id "?")
+                   (or t.code_snapshot "")
+                   (table.concat conversation "\n\n"))))
 
 (set M.SetPane
      (fn []
@@ -368,25 +384,34 @@
            (annotate-flow opts))))
 
 ;; ship every unsent annotation of the chosen session to the pane,
-;; wrapped in the directive, then mark them sent
+;; wrapped in the directive, then mark them sent. One message per
+;; THREAD: the message already carries the whole conversation, so
+;; several unsent comments of one thread (a back-and-forth) would
+;; otherwise ship N near-identical copies
 (fn flush-pending [directive-text]
   (let [pending (review.pending-annotations (review.current-session-id) :sent)]
     (if (= 0 (length pending))
         (schedule-notify "codeboomer: nothing to flush — no unsent annotations"
                          vim.log.levels.WARN)
-        (let [messages (icollect [_ a (ipairs pending)]
-                         (annotation-message a.thread a.comment))
-              annotations (concat-list-with-format messages
-                                                   "==Section Start=="
-                                                   "===="
-                                                   "==Section End==")]
-          (send-keys-to-selected-pane (.. annotations
-                                          (agent.reply-instructions)
-                                          directive-text
-                                          "\n"))
-          (review.mark-annotations :sent
-                                   (icollect [_ a (ipairs pending)]
-                                     a.comment.id))))))
+        (let [seen {}
+              threads []]
+          (each [_ a (ipairs pending)]
+            (when (not (. seen (or a.thread.id 0)))
+              (tset seen (or a.thread.id 0) true)
+              (table.insert threads a.thread)))
+          (let [messages (icollect [_ t (ipairs threads)]
+                           (thread-message t))
+                annotations (concat-list-with-format messages
+                                                     "==Section Start=="
+                                                     "===="
+                                                     "==Section End==")]
+            (send-keys-to-selected-pane (.. annotations
+                                            (agent.reply-instructions)
+                                            directive-text
+                                            "\n"))
+            (review.mark-annotations :sent
+                                     (icollect [_ a (ipairs pending)]
+                                       a.comment.id)))))))
 
 (set M.FlushWithDirective
      (fn []

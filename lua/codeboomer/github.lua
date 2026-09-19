@@ -75,7 +75,7 @@ local function group_pending(pending)
   end
   return groups
 end
-local function post_review(slug, pr_number, event, sha, entries)
+local function post_review(slug, pr_number, sha, entries)
   local comments
   do
     local tbl_26_ = {}
@@ -104,7 +104,7 @@ local function post_review(slug, pr_number, event, sha, entries)
     end
     ids = tbl_26_
   end
-  local payload = {body = string.format("codeboomer review \226\128\148 %d annotation(s)", #comments), event = event, comments = comments}
+  local payload = {body = string.format("codeboomer review \226\128\148 %d annotation(s)", #comments), comments = comments}
   if (sha ~= "?") then
     payload.commit_id = sha
   else
@@ -125,7 +125,7 @@ local function post_review(slug, pr_number, event, sha, entries)
         end
         or_15_ = tostring(_17_())
       end
-      return notify(string.format("codeboomer: posted %d annotation(s) \226\128\148 %s", #comments, or_15_), vim.log.levels.INFO)
+      return notify(string.format("codeboomer: drafted %d annotation(s) \226\128\148 pending review, submit it on GitHub\n%s", #comments, or_15_), vim.log.levels.INFO)
     else
       return notify(string.format("codeboomer: gh api failed (exit %d)\n%s", obj.code, (obj.stderr or "")), vim.log.levels.ERROR)
     end
@@ -194,7 +194,7 @@ local function post_pending(session, slug, pending)
     post_reply(slug, session.pr_number, a)
   end
   for sha, entries in pairs(group_pending(news)) do
-    post_review(slug, session.pr_number, "COMMENT", sha, entries)
+    post_review(slug, session.pr_number, sha, entries)
   end
   return nil
 end

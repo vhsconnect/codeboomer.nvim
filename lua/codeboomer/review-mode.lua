@@ -441,7 +441,7 @@ local function load_ranges(k)
 end
 local function open_review_tab()
   vim.cmd("tabnew")
-  sidebar["open-sticky"]()
+  sidebar.open()
   local ok = pcall(M.files)
   if not ok then
     return notify("codeboomer: review open \226\128\148 :Codeboomer ReviewFiles to jump", vim.log.levels.INFO)

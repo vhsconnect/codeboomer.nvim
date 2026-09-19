@@ -1,12 +1,14 @@
 ;; [nfnl] codeboomer/github.fnl
 ;; The gh transport, both directions:
-;;  - post-threads: push my unposted annotations of a PR session up.
-;;    Fresh threads batch into one review per anchor commit (so every
-;;    inline comment resolves against the exact diff it was written
-;;    on); replies to pulled threads post against the thread's root
-;;    gh comment. Only comments authored by me with source :user ever
-;;    ship (review.pending-annotations filters) — agent and pulled
-;;    rows never enter the outbox.
+;;  - post-threads: push my unposted annotations of a PR session up
+;;    as a PENDING review — a GitHub draft whose comments sit
+;;    unsubmitted until approved there. Fresh threads batch into one
+;;    draft review per anchor commit (so every inline comment resolves
+;;    against the exact diff it was written on); replies to pulled
+;;    threads post against the thread's root gh comment, immediately —
+;;    the replies endpoint has no draft state. Only comments authored
+;;    by me with source :user ever ship (review.pending-annotations
+;;    filters) — agent and pulled rows never enter the outbox.
 ;;  - pull-comments: import the PR's inline comments as threads —
 ;;    idempotent by gh comment id, replies joined to their threads,
 ;;    outdated comments flagged.
@@ -86,14 +88,18 @@
         (tset groups sha bucket)))
     groups))
 
-;; POST one review: gh api reads the JSON payload from stdin — on
-;; success the annotations are marked posted, so the outbox drains
-(fn post-review [slug pr-number event sha entries]
+;; POST one draft review: gh api reads the JSON payload from stdin.
+;; The payload carries no event, which GitHub reads as PENDING — the
+;; comments land in a draft review, submitted on the web (comment /
+;; approve / request changes) whenever you are ready. GitHub allows
+;; one pending review per user and PR, so a second draft while the
+;; first is unsubmitted is rejected (422). On success the annotations
+;; are marked posted, so the outbox drains
+(fn post-review [slug pr-number sha entries]
   (let [comments (icollect [_ e (ipairs entries)] e.item)
         ids (icollect [_ e (ipairs entries)] e.id)
         payload {:body (string.format "codeboomer review — %d annotation(s)"
                                       (length comments))
-                 : event
                  : comments}]
     (when (not= sha "?") (set payload.commit_id sha))
     (system [:gh
@@ -105,7 +111,7 @@
               (if (= obj.code 0)
                   (let [res (vim.json.decode (or obj.stdout "{}"))]
                     (review.mark-annotations :posted ids)
-                    (notify (string.format "codeboomer: posted %d annotation(s) — %s"
+                    (notify (string.format "codeboomer: drafted %d annotation(s) — pending review, submit it on GitHub\n%s"
                                            (length comments)
                                            (or res.html_url
                                                (tostring (?. res :id))))
@@ -155,8 +161,9 @@
         a))))
 
 ;; push the session's unposted annotations to its PR: replies to
-;; pulled threads first (replies endpoint), then fresh threads batched
-;; into one review per anchor commit
+;; pulled threads first (replies endpoint — immediately, it has no
+;; draft state), then fresh threads batched into one pending review
+;; per anchor commit
 (fn post-pending [session slug pending]
   (let [replies []
         news []]
@@ -167,7 +174,7 @@
     (each [_ a (ipairs replies)]
       (post-reply slug session.pr_number a))
     (each [sha entries (pairs (group-pending news))]
-      (post-review slug session.pr_number :COMMENT sha entries))))
+      (post-review slug session.pr_number sha entries))))
 
 (fn post-checked [session sid slug ranges]
   (let [pending (review.pending-annotations sid :posted)]
