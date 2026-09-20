@@ -141,6 +141,29 @@ check("thread-off-diff: outside refused, inside accepted",
       { file_path = "README.md", line_start = 5, line_end = 5 },
       { ["README.md"] = { { 1, 9 } } }) == false)
 
+-- ── delete-session: soft — invisible everywhere, rows kept ─────
+local sid2 = review["create-session"]({})
+review["user-comment"](sid2, "README.md", 90, 91, "code C", "other session")
+local t2 = review["threads-for-session"](sid2)[1]
+check("second session seeded", t2 ~= nil)
+if t2 then
+  review["delete-session"](sid2)
+  check("soft-deleted session hides its threads",
+    #review["threads-for-session"](sid2) == 0
+      and #review["review-rows-for-session"](sid2) == 0)
+  check("soft delete keeps the rows (history stays)",
+    #review["comments-for"](t2.id) == 1)
+  check("soft-deleted session reads as gone",
+    review["session-by-id"](sid2) == nil)
+end
+local sid3 = review["create-session"]({ ["pr-number"] = 4242 })
+review["delete-session"](sid3)
+check("a soft-deleted PR session is not reused on re-review",
+  review["session-for-pr"](4242) == nil)
+check("other sessions survive the delete",
+  review["session-by-id"](sid) ~= nil
+  and #review["threads-for-session"](sid) > 0)
+
 -- wipe the seeded rows — leave the DB as empty as it was found
 require("codeboomer.singleton")["get-db"]():with_open(function(d)
   d:execute("delete from comment")

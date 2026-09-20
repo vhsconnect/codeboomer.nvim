@@ -89,9 +89,10 @@
     (when root
       (let [repo-id (?. (db sqlite.repo :get {:where {:path root}}) 1 :id)]
         (when repo-id
-          (let [sessions (or (db sqlite.session :get
-                                 {:where {:repo_id repo-id}})
-                             [])]
+          (let [sessions (sqlite.active-rows
+                            (or (db sqlite.session :get
+                                    {:where {:repo_id repo-id}})
+                                []))]
             (table.sort sessions (fn [a b] (< (or a.id 0) (or b.id 0))))
             sessions))))))
 
@@ -101,13 +102,16 @@
       (when root
         (let [repo-id (?. (db sqlite.repo :get {:where {:path root}}) 1 :id)]
           (when repo-id
-            (?. (db sqlite.session :get
-                    {:where {:repo_id repo-id :pr_number pr-number}})
+            (?. (sqlite.active-rows (db sqlite.session :get
+                                     {:where {:repo_id repo-id
+                                              :pr_number pr-number}}))
                 1)))))))
 
+;; soft-deleted sessions read as gone everywhere: the listings, the
+;; outboxes and PR-session reuse all resolve through here
 (fn M.session-by-id [id]
   (when id
-    (?. (db sqlite.session :get {:where {: id}}) 1)))
+    (?. (sqlite.active-rows (db sqlite.session :get {:where {: id}})) 1)))
 
 ;; ── gh import (pull down) ───────────────────────────────────── the storage
 ;; half of PR sync: pulled rows are keyed by GitHub's comment id, so
@@ -431,9 +435,10 @@
 ;; half born first): plain rows pass through, and a promoted twin
 ;; pulls its root in even when that root lives in another session (a
 ;; live session's local thread promoted into the PR review still
-;; shows there). The pane, the marks and the flush all walk this
+;; shows there). The pane, the marks and the flush all walk this;
+;; a soft-deleted session reads as empty
 (fn M.threads-for-session [session-id]
-  (if (not session-id)
+  (if (not (M.session-by-id session-id))
       []
       (let [rows (unresolved-rows (sqlite.active-rows (or (db sqlite.thread
                                                               :get
@@ -451,9 +456,10 @@
 
 ;; the session's :review halves — what the posting outbox walks.
 ;; Promoted twins live in the session they were promoted into,
-;; pulled threads in the session they were imported to
+;; pulled threads in the session they were imported to; a
+;; soft-deleted session reads as empty
 (fn M.review-rows-for-session [session-id]
-  (if (not session-id)
+  (if (not (M.session-by-id session-id))
       []
       (let [rows (unresolved-rows (sqlite.active-rows (or (db sqlite.thread
                                                               :get
@@ -490,6 +496,16 @@
                      (<= line (or r.line_end 0)))
             (set found c)))))
     found))
+
+;; delete a session the soft way: deleted_at, and because every
+;; reader resolves through session-by-id, its threads and comments
+;; vanish from every listing and outbox while the rows stay —
+;; terminating a set of comments without destroying history, and
+;; leaving cross-session pairs untouched by construction
+(fn M.delete-session [session-id]
+  (db sqlite.session :update
+      {:set {:deleted_at (os.time)}
+       :where {:id (or session-id 0)}}))
 
 ;; create a session row. opts: {:branch :head-sha :base-sha :pr-number} —
 ;; live sessions pin nothing beyond HEAD-at-creation; PR sessions

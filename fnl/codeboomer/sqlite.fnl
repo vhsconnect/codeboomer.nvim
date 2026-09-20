@@ -33,7 +33,10 @@
                        :pr_number :integer
                        :repo_id {:type :integer
                                  :reference :repo.id
-                                 :on_delete :cascade}})
+                                 :on_delete :cascade}
+                       ;; set by Sessions' d — a soft-deleted session (and
+                       ;; everything under it) is invisible everywhere
+                       :deleted_at :integer})
 
 (local thread-schema {:id true
                       :session_id {:type :integer
@@ -50,10 +53,13 @@
                       ;; :local is the agent conversation (never
                       ;; ships); :review is what PostReview walks
                       :kind :text
-                      ;; the other half of the pair — see review.fnl
+                      ;; the other half of the pair — see review.fnl.
+                      ;; Never cascade across sessions: a hard parent
+                      ;; delete orphans the twin, which then becomes
+                      ;; its own root
                       :parent_id {:type :integer
                                   :reference :comment_thread.id
-                                  :on_delete :cascade}
+                                  :on_delete :null}
                       ;; set on threads seeded from outdated GitHub
                       ;; comments (position null after new commits)
                       :gh_outdated :integer

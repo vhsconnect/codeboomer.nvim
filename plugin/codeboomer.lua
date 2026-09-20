@@ -13,8 +13,8 @@ subcommands.SetPane = function()
   require("codeboomer").SetPane()
 end
 
-subcommands.SetSession = function()
-  require("codeboomer").SetSession()
+subcommands.Sessions = function()
+  require("codeboomer").Sessions()
 end
 
 subcommands.Review = function(opts)

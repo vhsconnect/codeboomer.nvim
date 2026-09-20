@@ -217,19 +217,44 @@
     (string.format "%s #%-4d %-9s %s" current (or s.id 0) kind
                    (or s.branch "?"))))
 
+;; d in the session picker — soft-delete a session: its threads and
+;; comments vanish from every list and outbox (the rows stay), the
+;; way to terminate a set of comments and start fresh. Refuses the
+;; open review's session (its worktree and pane still point at it);
+;; deleting the chosen one clears the choice, so the next write
+;; starts a fresh session (or adopts a sole survivor)
+(fn delete-session [s]
+  (let [review-mode (require :codeboomer.review-mode)
+        info (review-mode.info)]
+    (if (and info (= (or s.id 0) (or info.session-id 0)))
+        (schedule-notify "codeboomer: close the open review before deleting its session"
+                         vim.log.levels.WARN)
+        (do (review.delete-session (or s.id 0))
+            (when (= (or s.id 0) (or (review.current-session-id) -1))
+              (review.set-session nil))
+            (schedule-notify (string.format "codeboomer: session #%d deleted"
+                                            (or s.id 0))
+                             vim.log.levels.INFO)))))
+
 ;; fzf over the repo's sessions plus a create entry: picking sets the
 ;; chosen session (the sidebar reloads via CodeboomerSessionChanged)
-;; and runs ?then
+;; and runs ?then; d deletes the highlighted session in place — the
+;; function source re-runs after every reload, so the list always
+;; reflects what is left
 (fn choose-session [?then]
   (let [fzf (require :fzf-lua)
-        sessions (or (review.existing-sessions) [])
-        by-display {}
-        lines (icollect [_ s (ipairs sessions)]
-                (let [display (session-display s)]
-                  (tset by-display display s)
-                  display))]
-    (fzf.fzf_exec (vim.list_extend lines [new-session-entry])
+        by-display {}]
+    (fzf.fzf_exec (fn []
+                    (let [sessions (or (review.existing-sessions) [])]
+                      (each [display (ipairs (vim.tbl_keys by-display))]
+                        (tset by-display display nil))
+                      (vim.list_extend (icollect [_ s (ipairs sessions)]
+                                         (let [display (session-display s)]
+                                           (tset by-display display s)
+                                           display))
+                                       [new-session-entry])))
                   {:prompt "Pick a Session> "
+                   :fzf_opts {:--header "enter choose · d delete"}
                    :actions {:default (fn [selected]
                                         (let [choice (. selected 1)
                                               id (if (= choice
@@ -240,7 +265,14 @@
                                           (schedule-notify (string.format "codeboomer: session #%s chosen"
                                                                           (tostring id))
                                                            vim.log.levels.INFO)
-                                          (when ?then (?then))))}})))
+                                          (when ?then (?then))))
+                             ;; plain d — shadows typing d into the filter;
+                             ;; the list is short enough that it never
+                             ;; matters, and the key is worth the prime spot
+                             :d {:fn (fn [selected]
+                                       (let [s (. by-display (. (or selected []) 1))]
+                                         (when s (delete-session s))))
+                                 :reload true}}})))
 
 ;; resolve the session an upcoming write targets: the chosen one when
 ;; set; a fresh one when the repo has none; the sole one adopted when
@@ -316,8 +348,8 @@
      (fn []
        (choose-pane (parse-panes (shell panes-command)))))
 
-(set M.SetSession (fn []
-                    (choose-session)))
+(set M.Sessions (fn []
+                  (choose-session)))
 
 (set M.SendPrompt
      (fn [opts]

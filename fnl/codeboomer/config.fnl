@@ -20,8 +20,8 @@
                        "<cmd>Codeboomer SetPane<cr>"
                        "codeboomer: pick a tmux pane"]
                 :session [:n
-                          "<cmd>Codeboomer SetSession<cr>"
-                          "codeboomer: pick or create the review session"]
+                          "<cmd>Codeboomer Sessions<cr>"
+                          "codeboomer: manage review sessions (d deletes)"]
                 :review [:n
                          "<cmd>Codeboomer Review<cr>"
                          "codeboomer: review a pull request in a read-only worktree"]

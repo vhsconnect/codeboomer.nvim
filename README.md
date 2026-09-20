@@ -8,7 +8,7 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - Fuzzy-finder interface (via fzf-lua) to select target panes, showing each pane's last output line and working directory, with a live content preview
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Annotation workflow — accumulate multiple code selections for review before sending
-- **Review sessions (`SetSession`)** — annotations are grouped into sessions (one per branch or PR); annotate and flush all target the chosen one, and the picker appears only when several compete
+- **Review sessions (`Sessions`)** — annotations are grouped into sessions (one per branch or PR); annotate and flush all target the chosen one, the picker appears only when several compete, and `d` in the picker soft-deletes a session — its threads and comments vanish everywhere while the rows stay, the way to terminate a set of comments and start fresh
 - **PR snapshot review (`Review`)** — fetch a PR head into a read-only worktree, tint its changed lines, and annotate it in a dedicated tab with the comments pane pinned open; `ReviewSide` flips the same review onto the base code so removed lines are readable (and tinted) too; opening a PR also imports its inline comments as threads, and `PostReview` pushes the threads you **promoted** (the pane's `p`) up as a pending review (a draft submitted on GitHub); `ReviewWorktree` gives uncommitted working-tree changes (e.g. an agent's edits) the same read-only treatment via a dangling snapshot commit
 - **Local/review thread halves** — every annotation starts as a local conversation with the agent (annotate, `a`-replies, agent answers via the shim); `p` in the comments pane promotes a thread: the shipping half is born with the final wording, anchored at the pinned PR head, after an off-the-diff refusal. Nothing reaches `PostReview` without that deliberate step — agent chatter and your negotiation with it are structurally unshippable
 - **Review comments pane** — inside an open review (`Review` / `ReviewWorktree`) commented ranges carry gitsigns-style `▌` gutter bars (colored per thread) and a side split follows the cursor: rest it inside a commented range and the thread's comments appear — both halves interleaved as one conversation; window-navigate into it, where `r` replies on the review half (promoted threads and pulled ones), `a` replies to the agent, `p` promotes, `e` edits the promoted comment, `q` resolves and `n` hops to the next thread. Local self-review (annotate, flush) is marker-free
@@ -46,7 +46,7 @@ The plugin sets up no default keybindings; configure them like this:
 | Visual | `<leader>cr` | `SendSelection` — send the selection to the pane as-is, then press Enter |
 | Normal + Visual | `<leader>cc` | `AskOneOff` — run a one-off query; the answer is shown in a notification |
 | Normal | `<leader>cp` | `SetPane` — pick a tmux pane to send messages to |
-| Normal | `<leader>cS` | `SetSession` — pick or create the review session |
+| Normal | `<leader>cS` | `Sessions` — manage review sessions (pick, create, `d` deletes) |
 | Normal | `<leader>cR` | `Review` — snapshot-review a pull request in a read-only worktree |
 | Normal | `<leader>cW` | `ReviewWorktree` — review the uncommitted working tree as a read-only snapshot |
 | Normal | `<leader>ct` | `ReviewSide` — toggle the open review between the new and the old code |
@@ -292,13 +292,22 @@ network needed; git forgets the snapshot at the next gc.
 :Codeboomer ReviewWorktree fnl/codeboomer
 ```
 
-### `:Codeboomer SetSession`
+### `:Codeboomer Sessions`
 
 Opens fzf-lua over the repository's review sessions plus a `+ new session`
 entry. Each line shows the session id, what it reviews (`live`, or `PR <n>`
 for PR-bound sessions), and the branch it was created on; the chosen session
 is starred. Picking sets the session that `Annotate` and
 `FlushWithDirective` operate on.
+
+Press `d` to **delete** the highlighted session — softly: `deleted_at`
+is set and the session's threads and comments vanish from every
+listing and outbox (pane, marks, flush, post) while the rows stay in
+the database. The picker list refreshes in place, and deleting the
+chosen one clears the choice — the next write then starts a fresh
+session (or adopts a sole survivor). A soft-deleted PR session is not
+reused when you re-`Review` the same PR. Deleting the session of an
+open review is refused: close the review first.
 
 Session resolution is silent in the common cases: with nothing chosen, the
 first write creates the first session, and exactly one existing session is
@@ -375,7 +384,7 @@ Adds the current selection to the review session's annotation outbox. Use this t
 
 - Requires a pane to be selected first via `:Codeboomer SetPane`
 - With a visual range, the selection is included as context (`regarding <file> lines X to Y`); without one, the current file name is sent instead — file paths are stored repo-relative
-- The review session is resolved on write: the chosen one when set (see `:Codeboomer SetSession`), the sole existing one when exactly one exists, a fresh one when none does — a picker appears only when several compete
+- The review session is resolved on write: the chosen one when set (see `:Codeboomer Sessions`), the sole existing one when exactly one exists, a fresh one when none does — a picker appears only when several compete
 - Annotations are stored in the review session's database — the single store — each as its own **local conversation thread** (`kind = local`): tracked as not-yet-sent (agent) and invisible to `PostReview` until promoted in the comments pane (`p`). They are included in the next `:Codeboomer FlushWithDirective` call until sent
 - Inside an open review (`Review` / `ReviewWorktree`), commented ranges
   get `▌` gutter marks and the comments pane shows a thread's comments
@@ -420,7 +429,7 @@ For more complex queries, you can build up context across multiple selections:
 4. The agent answers each thread back with `codeboomer-agent reply <thread-id> <text>` (the instruction is included in the payload); replies land in the same threads — for a pulled thread they join a local twin created on demand — and show up in the comments pane of an open review (`Review` / `ReviewWorktree`), where you can also answer threads yourself — window-navigate into the pane, then `a` to talk to the agent, `r` to reply on the review half, `q` to resolve
 
 A review session is created (or the sole existing one adopted) on the first
-annotation; `:Codeboomer SetSession` (`<leader>cS`) switches when several
+annotation; `:Codeboomer Sessions` (`<leader>cS`) switches when several
 exist — annotations, flushes and gutter marks all follow the chosen session.
 
 ### PR review workflow (local)
