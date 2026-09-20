@@ -4,16 +4,25 @@
 -- threads through the real write path, and wipes them again at the end —
 -- the DB is expected to start empty and is left empty)
 --
--- the pane and the gutter markers exist ONLY inside reviews: review-mode
--- stamps every worktree buffer with codeboomer_review_side and that
--- stamp is the gate. The test stamps a plain working buffer by hand —
--- exactly what review-mode's configure-code-buffer does — so the real
--- gate, not a bypass of it, decides what renders.
+-- the gutter markers exist ONLY inside reviews: review-mode stamps every
+-- worktree buffer with codeboomer_review_side and that stamp is the gate.
+-- The test stamps a plain working buffer by hand — exactly what
+-- review-mode's configure-code-buffer does — so the real gate, not a
+-- bypass of it, decides what renders.
+--
+-- the pane is broader than the markers: any real file buffer drives it
+-- except an :old-stamped one (thread lines belong to the new side), so
+-- a plain working buffer opens the pane too, just without marks.
 --
 -- the pane opens only after the cursor RESTS ~100 ms inside a thread's
 -- range (the debounce), so every cursor move below is followed by a
 -- vim.wait — headless -c scripts never process real input, and the same
 -- callback paths real interaction takes are driven with `doautocmd`.
+--
+-- overlapping ranges show ONE thread at a time (the earliest
+-- line_start wins — the same thread the gutter bar colors), and the
+-- pane's p key promotes a thread: the review half is born through the
+-- real gate (promote-context + off-diff check + virgin fast-path).
 local api = vim.api
 local fails = 0
 
@@ -105,10 +114,14 @@ local function covering(line)
   return n
 end
 
--- ── local (unstamped) buffers: no pane, no marks — the review gate ─
+-- ── local (unstamped) buffers: the pane follows, the markers do not ─
 rest(code_win, 3)
-check("local buffer: resting in a range opens no pane", find_pane(tab1) == nil)
+check("local buffer: resting in a range opens the pane (markers stay review-only)",
+  find_pane(tab1) ~= nil)
 check("local buffer: no marks", #sign_rows(code_buf) == 0)
+-- close it so the debounce check below starts from a closed pane
+local _, close_me = find_pane(tab1)
+if close_me then api.nvim_win_close(close_me, true) end
 
 -- ── stamped as a review's new side (what configure-code-buffer does) ─
 vim.b[code_buf].codeboomer_review_side = "new"
@@ -139,42 +152,23 @@ local function pane_lines()
   return api.nvim_buf_get_lines(pane_buf, 0, -1, false)
 end
 
-local function has_rule(lines)
-  for _, l in ipairs(lines) do
-    if l:gsub("─", "") == "" and #l > 0 then return true end
-  end
-  return false
-end
-
+-- ── one covering thread at a time: the earliest line_start wins ────
 local both = pane_lines()
-check("line 3 -> pane shows both overlapping threads", #both > 3 and has_rule(both))
-print("      pane: " .. table.concat(both, " / "))
-
--- ── comment separation: labels + blank lines inside a block ────
+check("line 3 -> the earliest covering thread's block (1-69)",
+  both[1]:match("^#%d+  init%.fnl:1%-69  %(") ~= nil)
 check("blank line after the thread header", both[2] == "")
 check("first comment labeled [source] name", both[3]:match("^%[%w+%] ") ~= nil)
-local n_labels = 0
-for _, l in ipairs(both) do
-  if l:match("^%[%w+%] ") then n_labels = n_labels + 1 end
-end
-check("every comment carries a label (3 total)", n_labels == 3)
-local separated = false
-for i = 1, #both - 2 do
-  if both[i] == "" and both[i + 1]:match("^%[%w+%] ") and both[i + 2] == "a reply" then
-    separated = true
-  end
-end
-check("comments separated by a blank line", separated)
+print("      pane: " .. table.concat(both, " / "))
 
--- a line covered by exactly one thread renders a single block
+-- a line covered by exactly one thread renders that thread's block
 local single = nil
 for l = 12, 69 do
   if covering(l) == 1 then single = l break end
 end
 if single then
   rest(code_win, single)
-  check(("line %d -> single thread, no separator"):format(single),
-    not has_rule(pane_lines()))
+  check(("line %d -> single covering thread's block"):format(single),
+    pane_lines()[1]:match("^#%d+  init%.fnl:1%-69  %(") ~= nil)
 end
 
 -- ── off every range: the pane keeps the last block (never collapses) ─
@@ -183,14 +177,14 @@ rest(code_win, 100)
 check("off-range: pane keeps the last block", find_pane(tab1) ~= nil
   and vim.deep_equal(pane_lines(), last))
 
--- ── unstamped buffers never drive the pane or carry marks ──────────
+-- ── unstamped buffers never carry marks ────────────────────────────
 vim.cmd("tabnew")
 vim.cmd("doautocmd TabEnter")
 local tab2 = api.nvim_get_current_tabpage()
 vim.cmd("edit README.md")
 vim.cmd("doautocmd BufEnter")
 vim.wait(300)
-check("unstamped file: no pane in its tab", find_pane(tab2) == nil)
+check("other file: no pane in its tab", find_pane(tab2) == nil)
 check("the review tab's pane stays put", find_pane(tab1) ~= nil)
 check("README carries no marks",
   #sign_rows(api.nvim_win_get_buf(api.nvim_get_current_win())) == 0)
@@ -214,28 +208,72 @@ check("pane reopens after resting again", find_pane(tab1) ~= nil)
 -- the reopen built a fresh pane buffer — rebind so the helpers read it
 pane_buf, pane_win = find_pane(tab1)
 
+-- ── promotion: the pane's p key creates the review half ────────────
+-- line 40 is covered by the 1-69 thread only; that thread is VIRGIN
+-- (one user comment, nothing from the agent), so p promotes it as-is
+-- without opening the compose input
+sidebar["set-promote-context"](function()
+  return {
+    ["session-id"] = sid,
+    ["head-sha"] = nil,
+    ["head-ranges"] = { ["fnl/codeboomer/init.fnl"] = { { 40, 40 } } },
+  }
+end)
+rest(code_win, 40)
+api.nvim_set_current_win(pane_win)
+api.nvim_win_set_cursor(pane_win, { 1, 0 })
+local pkey = vim.fn.maparg("p", "n", false, true)
+check("p is bound in the pane", pkey and pkey.callback ~= nil)
+if pkey and pkey.callback then pkey.callback() end
+vim.wait(100)
+check("promoted: header carries the marker", pane_lines()[1]:match("promoted") ~= nil)
+local twin
+for _, t in ipairs(threads) do
+  if t.line_start == 1 and t.line_end == 69 then twin = review["twin"](t.id) end
+end
+check("promoted: the review half exists", twin ~= nil and twin.kind == "review")
+check("posting outbox holds exactly the promoted comment",
+  #review["pending-for-post"](sid) == 1)
+check("conversation spans both halves (annotation + promoted text)",
+  twin and #review["conversation-comments"](twin.parent_id) == 2)
+-- r's target exists now: a reply on the review half joins the outbox
+if twin then review["user-reply"](twin.id, "reviewer reply") end
+check("reply on the review half joins the posting outbox",
+  #review["pending-for-post"](sid) == 2)
+
+-- ── the keymap footer + n/N wrapping ─────────────────────────
+local footer_hit = false
+for _, l in ipairs(pane_lines()) do
+  if l:match("^── keys ") then footer_hit = true end
+end
+check("keymap footer rendered under the block", footer_hit)
+-- all-threads order is [1-69, 3-3]: n from the shown 1-69 advances to
+-- 3-3, and n from the LAST wraps back to the first
+local nkey = vim.fn.maparg("n", "n", false, true)
+api.nvim_win_set_cursor(pane_win, { 1, 0 })
+nkey.callback()
+vim.wait(100)
+check("n advances to the next thread", pane_lines()[1]:match("3%-3") ~= nil)
+nkey.callback()
+vim.wait(100)
+check("n wraps from the last thread back to the first",
+  pane_lines()[1]:match("1%-69") ~= nil)
+
+-- back to the overlap for the resolve section
+rest(code_win, 3)
+api.nvim_set_current_win(pane_win)
+
 -- ── resolving must not leave a stale block on screen ────────────────
 -- q resolving a thread must re-render what still covers the code line
 -- (the scheduled check skips re-rendering when nothing covers the
--- row): resolve one of two covering threads — block count drops — and
--- then the last one — blank pane, window stays
-local function rule_row(lines)
-  for i, l in ipairs(lines) do
-    if l:gsub("─", "") == "" and #l > 0 then return i end
-  end
-end
-
-check("pane shows both threads", rule_row(pane_lines()) ~= nil)
--- cursor into the SECOND block (threads render in file order: 1-69
--- first, 3-3 second) and resolve it
-api.nvim_set_current_win(pane_win)
-api.nvim_win_set_cursor(pane_win, { rule_row(pane_lines()) + 1, 0 })
+-- row) — and it closes BOTH halves of a pair at once
 local q = vim.fn.maparg("q", "n", false, true)
+api.nvim_win_set_cursor(pane_win, { 1, 0 })
+check("pane shows the 1-69 block", pane_lines()[1]:match("1%-69") ~= nil)
 q.callback()
 vim.wait(300) -- let the reload's scheduled check run too
-check("one resolved: pane re-rendered without the separator",
-  rule_row(pane_lines()) == nil)
-check("one resolved: remaining block still shown", #pane_lines() > 0)
+check("resolved the shown thread: the other covering one takes over",
+  pane_lines()[1]:match("^#%d+  init%.fnl:3%-3  %(") ~= nil)
 
 -- resolve the last covering thread: blank pane, window kept
 api.nvim_win_set_cursor(pane_win, { 1, 0 })
@@ -244,7 +282,7 @@ vim.wait(300)
 check("last resolved: pane blanked",
   #pane_lines() == 1 and pane_lines()[1] == "")
 check("last resolved: window stays open", find_pane(tab1) ~= nil)
-check("all resolved: marks gone", #sign_rows(code_buf) == 0)
+check("all resolved (pair included): marks gone", #sign_rows(code_buf) == 0)
 
 -- wipe the seeded rows — leave the DB as empty as it was found
 -- (deletes in child-first order; a fresh with_open connection does not

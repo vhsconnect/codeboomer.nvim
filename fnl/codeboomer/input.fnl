@@ -10,6 +10,9 @@
 ;; one-off query): <CR> submits AND closes the window instead. Newlines
 ;; stay available via <C-j> (insert mode) and o/O (normal mode); closing
 ;; the window manually still submits, as before.
+;;
+;; Opt-in :prefill (a string) seeds the buffer with existing text —
+;; the promote/edit flows open the input carrying current wording.
 (global vim vim)
 
 (local M {})
@@ -25,7 +28,8 @@
            :on_submit alt-on-submit
            : submit-on-enter
            :submit_on_enter alt-submit-on-enter
-           : title}]
+           : title
+           : prefill}]
   (let [on-submit (or on-submit alt-on-submit)
         submit-on-enter (or submit-on-enter alt-submit-on-enter)
         buf (vim.api.nvim_create_buf false true)
@@ -45,6 +49,11 @@
                                     :title (or title " Input ")
                                     :title_pos :center})]
     (var submitted? false)
+    ;; seed the scratch buffer when the caller passed text — the
+    ;; promote/edit flows open the input with existing wording
+    (when (and prefill (not= "" prefill))
+      (vim.api.nvim_buf_set_lines buf 0 -1 false
+                                  (vim.split prefill "\n" {:plain true})))
     ;; flag must flip BEFORE closing: WinClosed fires synchronously inside
     ;; nvim_win_close and would otherwise double-submit
     (set bo.bufhidden :wipe)

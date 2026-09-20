@@ -1,21 +1,24 @@
 ;; [nfnl] codeboomer/github.fnl
 ;; The gh transport, both directions:
-;;  - post-threads: push my unposted annotations of a PR session up
+;;  - post-threads: push the session's unposted :review comments up
 ;;    as a PENDING review — a GitHub draft whose comments sit
-;;    unsubmitted until approved there. Fresh threads batch into one
+;;    unsubmitted until approved there. Fresh halves batch into one
 ;;    draft review per anchor commit (so every inline comment resolves
 ;;    against the exact diff it was written on); replies to pulled
 ;;    threads post against the thread's root gh comment, immediately —
-;;    the replies endpoint has no draft state. Only comments authored
-;;    by me with source :user ever ship (review.pending-annotations
-;;    filters) — agent and pulled rows never enter the outbox.
-;;  - pull-comments: import the PR's inline comments as threads —
-;;    idempotent by gh comment id, replies joined to their threads,
-;;    outdated comments flagged.
+;;    the replies endpoint has no draft state. Only :review rows are
+;;    walked and only their user-source comments ship: the local
+;;    conversation halves cannot reach this path, promotion (the pane's
+;;    p key) is the only door into the outbox
+;;  - pull-comments: import the PR's inline comments as :review
+;;    threads — idempotent by gh comment id, replies joined to their
+;;    threads, outdated comments flagged; a comment that is one of my
+;;    own posted ones come home stamps its gh id onto the local row
+;;    instead of duplicating the thread
 ;; Line numbers are the snapshot's (threads anchor to the pinned PR
 ;; head), and pushes are validated against the review's changed ranges
-;; before the round trip — GitHub rejects inline comments off the diff,
-;; so we refuse them here first.
+;; before the round trip — GitHub rejects inline comments off the
+;; diff, so we refuse them here first.
 (global vim vim)
 
 (local git (require :codeboomer.git))
@@ -138,27 +141,36 @@
                  :text true}
                 (fn [obj]
                   (if (= obj.code 0)
-                      (do
+                      (let [(ok res) (pcall vim.json.decode (or obj.stdout "{}"))
+                            gh-id (when (and ok (= :table (type res))) res.id)]
                         (review.mark-annotations :posted [a.comment.id])
+                        ;; remember the gh comment this became — re-pulls
+                        ;; match back onto this row instead of duplicating
+                        (when gh-id
+                          (review.stamp-gh-comment a.comment.id gh-id))
                         (notify "codeboomer: reply posted" vim.log.levels.INFO))
                       (notify (string.format "codeboomer: reply failed (exit %d)
 %s" obj.code (or obj.stderr ""))
                               vim.log.levels.ERROR)))))))
 
-;; pending annotations that fall outside the diff: a thread is valid
-;; when its range intersects any changed range of its file. GitHub
-;; rejects inline comments off the diff — we refuse them before the
-;; round trip. Pure, for tests and the pre-post check
+;; does this thread's range intersect the diff at all — GitHub
+;; rejects inline comments off the diff, so we refuse them first.
+;; Shared by PostReview's pre-post gate and the pane's promote key;
+;; pure, for tests
+(set M.thread-off-diff
+     (fn [t ranges]
+       (let [rs (and ranges (. ranges (or t.file_path "")))]
+         (not (and rs
+                   (accumulate [hit false _ [s e] (ipairs rs)]
+                     (or hit
+                         (and (<= s (or t.line_end 0))
+                              (>= e (or t.line_start 0))))))))))
+
+;; pending annotations that fall outside the diff — the pre-post
+;; check. Pure, for tests
 (fn M.validate-ranges [pending ranges]
   (icollect [_ a (ipairs (or pending []))]
-    (let [t a.thread
-          rs (and ranges (. ranges (or t.file_path "")))]
-      (when (not (and rs
-                      (accumulate [hit false _ [s e] (ipairs rs)]
-                        (or hit
-                            (and (<= s (or t.line_end 0))
-                                 (>= e (or t.line_start 0)))))))
-        a))))
+    (when (M.thread-off-diff a.thread ranges) a)))
 
 ;; push the session's unposted annotations to its PR: replies to
 ;; pulled threads first (replies endpoint — immediately, it has no
@@ -177,7 +189,7 @@
       (post-review slug session.pr_number sha entries))))
 
 (fn post-checked [session sid slug ranges]
-  (let [pending (review.pending-annotations sid :posted)]
+  (let [pending (review.pending-for-post sid)]
     (if (= 0 (length pending))
         (notify "codeboomer: nothing to post — no unposted annotations"
                 vim.log.levels.WARN)
@@ -220,18 +232,24 @@
         item))))
 
 ;; payload items → rows: known gh ids are skipped (idempotent), a
-;; comment with in_reply_to_id joins that thread, anything else seeds
-;; one. Returns how many rows were new
+;; comment of mine come home stamps its gh id onto the local row
+;; (draft-review comments only learn their ids after GitHub
+;; submission — matched by path+body+line), a reply joins its
+;; thread, anything else seeds one. Returns how many rows were new
 (fn M.import-items [session-id items]
   (var n 0)
   (each [_ item (ipairs (or items []))]
     (when (and item.id (not (review.comment-by-gh item.id)))
       (let [parent (when item.in_reply_to_id
-                     (review.thread-id-for-gh item.in_reply_to_id))]
-        (if parent
-            (review.import-comment parent item)
-            (review.import-thread session-id item)))
-      (set n (+ n 1))))
+                     (review.thread-id-for-gh item.in_reply_to_id))
+            mine (when (not item.in_reply_to_id)
+                   (review.match-posted-comment session-id item))]
+        (if mine
+            (review.stamp-gh-comment mine.id item.id)
+            (if parent
+                (review.import-comment parent item)
+                (review.import-thread session-id item)))
+        (set n (+ n 1)))))
   n)
 
 ;; refresh a PR session with the PR's current inline comments — the

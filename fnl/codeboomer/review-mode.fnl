@@ -7,8 +7,8 @@
 ;; Threads
 ;; anchor to the worktree's HEAD, i.e. the fetched PR head, and
 ;; because the checkout cannot be edited, line numbers cannot drift
-;; by construction. This is review only — nothing is posted anywhere
-;; (posting is a later phase).
+;; by construction. Posting is deliberate and opt-in: PostReview
+;; ships only the threads promoted in the pane (p) — see github.fnl
 (global vim vim)
 
 (local git (require :codeboomer.git))
@@ -41,6 +41,16 @@
   (fn [path]
     (when (and current (= (review.current-session-id) current.session-id))
       (.. current.worktree "/" path))))
+
+;; promotion (the pane's p key) reads the open review through this
+;; hook: the session review halves are created in, the pinned head
+;; sha they anchor at, and the head-side ranges for the off-diff gate
+(sidebar.set-promote-context
+  (fn []
+    (when current
+      {:session-id current.session-id
+       :head-sha current.head-sha
+       :head-ranges current.head-ranges})))
 
 (fn notify [msg level]
   (vim.schedule #(vim.notify msg level)))

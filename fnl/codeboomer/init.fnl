@@ -298,11 +298,12 @@
 
 ;; one thread → one message: location and code snapshot, then the FULL
 ;; conversation (every comment, author-labeled) — a reply flushed to a
-;; pulled thread carries the GitHub reviewer's words along, and an
-;; annotation whose thread carries agent answers ships those answers
-;; back for context
+;; pulled thread carries the GitHub reviewer's words along, and a
+;; thread whose local half carries agent answers ships those answers
+;; back for context. Both halves of a pair interleave: the promoted
+;; wording and the discussion that produced it
 (fn thread-message [t]
-  (let [conversation (icollect [_ c (ipairs (review.comments-for (or t.id 0)))]
+  (let [conversation (icollect [_ c (ipairs (review.conversation-comments (or t.id 0)))]
                        (comment-line c))]
     (string.format "regarding %s lines %s to %s (thread %s)\n%s\n%s"
                    (or t.file_path "?") (or t.line_start "?")
@@ -390,15 +391,16 @@
                                        vim.log.levels.WARN)
                       (annotate-flow opts))))
 
-;; ship every unsent annotation of the chosen session to the pane,
+;; ship every unsent user message of the chosen session to the pane,
 ;; wrapped in the directive, then mark them sent. One message per
-;; THREAD: the message already carries the whole conversation, so
-;; several unsent comments of one thread (a back-and-forth) would
-;; otherwise ship N near-identical copies
+;; LOGICAL THREAD: the message already carries the whole conversation
+;; (both halves of the pair), so several unsent comments of one
+;; thread (a back-and-forth) would otherwise ship N near-identical
+;; copies
 (fn flush-pending [directive-text]
-  (let [pending (review.pending-annotations (review.current-session-id) :sent)]
+  (let [pending (review.pending-for-flush (review.current-session-id))]
     (if (= 0 (length pending))
-        (schedule-notify "codeboomer: nothing to flush — no unsent annotations"
+        (schedule-notify "codeboomer: nothing to flush — no unsent messages"
                          vim.log.levels.WARN)
         (let [seen {}
               threads []]

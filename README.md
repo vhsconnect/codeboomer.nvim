@@ -9,8 +9,9 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Annotation workflow — accumulate multiple code selections for review before sending
 - **Review sessions (`SetSession`)** — annotations are grouped into sessions (one per branch or PR); annotate and flush all target the chosen one, and the picker appears only when several compete
-- **PR snapshot review (`Review`)** — fetch a PR head into a read-only worktree, tint its changed lines, and annotate it in a dedicated tab with the comments pane pinned open; `ReviewSide` flips the same review onto the base code so removed lines are readable (and tinted) too; opening a PR also imports its inline comments as threads, `PostReview` pushes your annotations up as a pending review (a draft submitted on GitHub), and `ReviewWorktree` gives uncommitted working-tree changes (e.g. an agent's edits) the same read-only treatment via a dangling snapshot commit
-- **Review comments pane** — inside an open review (`Review` / `ReviewWorktree`) commented ranges carry gitsigns-style `▌` gutter bars (colored per thread) and a side split follows the cursor: rest it inside a commented range and the thread's comments appear; window-navigate into it, where `r` replies, `q` resolves and `n` hops to the next thread. Local self-review (annotate, flush) is pane- and marker-free
+- **PR snapshot review (`Review`)** — fetch a PR head into a read-only worktree, tint its changed lines, and annotate it in a dedicated tab with the comments pane pinned open; `ReviewSide` flips the same review onto the base code so removed lines are readable (and tinted) too; opening a PR also imports its inline comments as threads, and `PostReview` pushes the threads you **promoted** (the pane's `p`) up as a pending review (a draft submitted on GitHub); `ReviewWorktree` gives uncommitted working-tree changes (e.g. an agent's edits) the same read-only treatment via a dangling snapshot commit
+- **Local/review thread halves** — every annotation starts as a local conversation with the agent (annotate, `a`-replies, agent answers via the shim); `p` in the comments pane promotes a thread: the shipping half is born with the final wording, anchored at the pinned PR head, after an off-the-diff refusal. Nothing reaches `PostReview` without that deliberate step — agent chatter and your negotiation with it are structurally unshippable
+- **Review comments pane** — inside an open review (`Review` / `ReviewWorktree`) commented ranges carry gitsigns-style `▌` gutter bars (colored per thread) and a side split follows the cursor: rest it inside a commented range and the thread's comments appear — both halves interleaved as one conversation; window-navigate into it, where `r` replies on the review half (promoted threads and pulled ones), `a` replies to the agent, `p` promotes, `e` edits the promoted comment, `q` resolves and `n` hops to the next thread. Local self-review (annotate, flush) is marker-free
 - Bracketed-paste support for proper multi-line handling
 - **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane; define any number of user-named one-off commands and pick one with fzf when there is more than one
 
@@ -49,7 +50,7 @@ The plugin sets up no default keybindings; configure them like this:
 | Normal | `<leader>cR` | `Review` — snapshot-review a pull request in a read-only worktree |
 | Normal | `<leader>cW` | `ReviewWorktree` — review the uncommitted working tree as a read-only snapshot |
 | Normal | `<leader>ct` | `ReviewSide` — toggle the open review between the new and the old code |
-| Normal | `<leader>cP` | `PostReview` — push unposted annotations to the PR |
+| Normal | `<leader>cP` | `PostReview` — push the promoted threads to the PR |
 | Normal | `<leader>cL` | `PullReview` — pull the PR's inline comments into the session |
 | Visual | `<leader>ca` | `Annotate` — add the selection (plus an optional note) to the query context |
 | Normal | `<leader>cd` | `FlushWithDirective` — flush accumulated annotations with a directive |
@@ -196,18 +197,22 @@ the right.
   target it; re-opening the same PR reuses its threads
 - The review-comments pane lives in the review tab: resting the cursor
   (~100 ms) inside a commented range shows that thread's comments —
-  one block per covering thread, `─`-separated, headers tinted in the
-  thread's gutter color, every comment labeled `[source] name`. Moving
-  off every range keeps the last block on screen; `:q` closes the pane
-  and the next rest reopens it. Window-navigate into it (`<C-w> w`);
-  three buffer-local keys act on the thread whose block the cursor is
-  in:
+  one block per covering thread (overlaps pick the earliest range),
+  `─`-separated, headers tinted in the thread's gutter color, every
+  comment labeled `[source] name`, and a dimmed keymap footer under
+  the blocks. Moving off every range keeps the last block on screen;
+  `:q` closes the pane and the next rest reopens it. Window-navigate
+  into it (`<C-w> w`); buffer-local keys act on the thread whose
+  block the cursor is in:
 
 | Key | Action |
 |-----|--------|
-| `r` | Reply — opens the same floating compose input `Annotate` uses; the reply is stored as a user comment on the thread and joins the next `FlushWithDirective` outbox |
-| `q` | Resolve the thread — resolved threads are treated as soft-deleted: they leave the pane, the `▌` marks and the flush outbox; the pane drops the block right away (re-rendering what still covers the code line, blanking when nothing does) |
-| `n` | Next thread — jumps the cursor back into the code window on the next thread of the same file (wrapping); the pane follows via the usual rest detection |
+| `r` | Reply on the **review half** — the half that ships. Only exists once the thread is promoted (`p`) or pulled from GitHub; unpromoted threads refuse with a pointer to `p`, so nothing reaches the posting outbox by accident |
+| `a` | Reply to the **agent** — the local conversation half (created on demand for pulled threads). Your side of any discussion with the agent; never ships |
+| `p` | **Promote** — open the compose input prefilled with the annotation's wording and create the review half with the final text. A *virgin* thread (one user comment, nothing from the agent) promotes as-is with no input. Refuses without an open PR review, and when the range falls outside the PR diff |
+| `e` | Edit the promoted comment in place (the oldest still-unposted one) through the same prefilled input |
+| `q` | Resolve the thread — resolved threads are treated as soft-deleted: both halves of the pair leave the pane, the `▌` marks and both outboxes; the pane drops the block right away |
+| `n` | Next thread — jumps the cursor back into the code window on the next thread of the session (wrapping at both ends); the pane follows via the usual rest detection |
 
 - Commented ranges carry `▌` gutter bars in review buffers — one mark
   per line, colored per thread (theme groups `Title`, `Special`,
@@ -219,11 +224,12 @@ the right.
   and lives outside the repo; dispose of it with `git worktree remove`
 - Opening the review also pulls the PR's inline comments down as
   threads (`:Codeboomer PullReview` refreshes — idempotent by GitHub
-  comment id); `:Codeboomer PostReview` pushes your unposted
-  annotations up as a pending review — a draft you submit on GitHub
+  comment id); `:Codeboomer PostReview` pushes your **promoted**
+  threads up as a pending review — a draft you submit on GitHub
   (comment / approve / request changes), so nothing reaches the
-  author until you do. Only your comments ever ship: agent-authored
-  and pulled comments stay local
+  author until you do. Only user comments of review halves ever ship:
+  agent-authored comments and the local conversation with the agent
+  stay on your machine
 
 ```vim
 :Codeboomer Review 42
@@ -301,23 +307,30 @@ when several sessions compete.
 
 ### `:Codeboomer PostReview`
 
-Pushes the chosen PR session's unposted annotations to GitHub.
+Pushes the chosen PR session's **promoted** threads — the review halves
+created by `p` in the comments pane — to GitHub. Nothing else can enter
+the outbox: local conversation halves are unreachable from this walk.
 
-- Annotations land in a **pending review** — a draft on GitHub you
+- Comments land in a **pending review** — a draft on GitHub you
   submit there (comment / approve / request changes); nothing is
   published until you do
 - Replies to pulled threads post via the replies endpoint (attached
   under the thread's root GitHub comment) — immediately, as that
   endpoint has no draft state; everything else batches into one
-  pending review per anchor commit, so every inline comment resolves
-  against the exact diff it was written on
+  pending review per anchor commit (the pinned PR head), so every
+  inline comment resolves against the exact diff it was written on
 - GitHub allows one pending review per user and PR: posting again
   while a draft is unsubmitted fails with a 422 — submit or discard
   the draft on GitHub first
-- When a review is open, annotations whose range falls outside the PR
-  diff are refused locally first — GitHub would reject them anyway
-- On success the annotations are marked `posted` and never re-ship;
-  failures surface the exit code and stderr
+- When a review is open, threads whose range falls outside the PR
+  diff are refused locally first (the same check runs at promotion
+  time) — GitHub would reject them anyway
+- On success the comments are marked `posted` and never re-ship;
+  failures surface the exit code and stderr. After you submit the
+  draft on GitHub, `PullReview` matches your posted comments back
+  onto their local rows (by path, body and line) instead of
+  duplicating them — and the stamped gh ids give promoted pairs their
+  GitHub root, so later `r` replies post through the replies endpoint
 - Requires `gh` authentication and a GitHub remote
 
 ```vim
@@ -330,9 +343,11 @@ Imports the PR's current inline comments into the chosen PR session as
 threads — idempotent by GitHub comment id (re-pulls add only what's
 new), replies joined to their threads, and comments GitHub marks
 outdated anchored best-effort at their original line with an
-`outdated` flag in the thread header. `:Codeboomer Review` runs this
-automatically after opening; the comments pane of an open review
-reloads on arrival.
+`outdated` flag in the thread header. A comment that is one of your
+own posted ones (`PostReview` + submitted draft) comes home by
+stamping its gh id onto the local review half instead of seeding a
+duplicate thread. `:Codeboomer Review` runs this automatically after
+opening; the comments pane of an open review reloads on arrival.
 
 ```vim
 :Codeboomer PullReview
@@ -361,7 +376,7 @@ Adds the current selection to the review session's annotation outbox. Use this t
 - Requires a pane to be selected first via `:Codeboomer SetPane`
 - With a visual range, the selection is included as context (`regarding <file> lines X to Y`); without one, the current file name is sent instead — file paths are stored repo-relative
 - The review session is resolved on write: the chosen one when set (see `:Codeboomer SetSession`), the sole existing one when exactly one exists, a fresh one when none does — a picker appears only when several compete
-- Annotations are stored in the review session's database — the single store — each as its own thread, tracked as not-yet-sent (agent) and not-yet-posted (GitHub); they are included in the next `:Codeboomer FlushWithDirective` call until sent
+- Annotations are stored in the review session's database — the single store — each as its own **local conversation thread** (`kind = local`): tracked as not-yet-sent (agent) and invisible to `PostReview` until promoted in the comments pane (`p`). They are included in the next `:Codeboomer FlushWithDirective` call until sent
 - Inside an open review (`Review` / `ReviewWorktree`), commented ranges
   get `▌` gutter marks and the comments pane shows a thread's comments
   when the cursor rests inside its range
@@ -402,7 +417,7 @@ For more complex queries, you can build up context across multiple selections:
 1. Select a pane with `<leader>cp`
 2. Select code sections and run `<leader>ca` (or `:Codeboomer Annotate`) to add annotations to your query
 3. When ready, run `<leader>cd` (or `:Codeboomer FlushWithDirective`) to send your directive along with all unsent annotations — the database is the outbox, so annotations survive restarts
-4. The agent answers each thread back with `codeboomer-agent reply <thread-id> <text>` (the instruction is included in the payload); replies land in the same threads and show up in the comments pane of an open review (`Review` / `ReviewWorktree`), where you can also answer threads yourself — window-navigate into the pane, then `r` to reply, `q` to resolve
+4. The agent answers each thread back with `codeboomer-agent reply <thread-id> <text>` (the instruction is included in the payload); replies land in the same threads — for a pulled thread they join a local twin created on demand — and show up in the comments pane of an open review (`Review` / `ReviewWorktree`), where you can also answer threads yourself — window-navigate into the pane, then `a` to talk to the agent, `r` to reply on the review half, `q` to resolve
 
 A review session is created (or the sole existing one adopted) on the first
 annotation; `:Codeboomer SetSession` (`<leader>cS`) switches when several
@@ -419,12 +434,17 @@ exist — annotations, flushes and gutter marks all follow the chosen session.
    annotations only need a selection; flip to the base code with
    `<leader>ct` (`:Codeboomer ReviewSide`) to read what a change
    removed; `]a`/`[a` step between hunks of the shown side
-3. Threads show in the comments pane — `r` replies, `q` resolves,
-   `n` hops to the next thread
-4. `:Codeboomer PostReview` (`<leader>cP`) pushes your annotations to
-   the PR when you're ready — nothing ships until you say so; `:Codeboomer
-   PullReview` (`<leader>cL`) refreshes the PR's comments. Agent-authored
-   comments never ship
+3. Threads show in the comments pane — `a` discusses with the agent,
+   `q` resolves, `n` hops to the next thread
+4. `p` promotes the survivors: the compose input opens prefilled with
+   the annotation's wording (virgin threads promote as-is), the review
+   half anchors at the pinned PR head, and the header gains
+   `· promoted`; `e` refines the wording afterwards
+5. `:Codeboomer PostReview` (`<leader>cP`) pushes the promoted threads
+   to the PR when you're ready — nothing ships until you say so;
+   `:Codeboomer PullReview` (`<leader>cL`) refreshes the PR's
+   comments (your submitted ones match back onto their rows).
+   Agent-authored comments never ship
 
 ## Development
 
@@ -460,17 +480,20 @@ CODEBOOMER_PATH=$PWD ./test-codeboomer -c 'Codeboomer Review 42' # straight to P
 
 (The review commands need `gh` authentication and network — the PR head and base branch are fetched, and the review opens in its own tab once the picker resolves.)
 
-The headless smoke test for the review-scoped comments pane and gutter
-markers is `test-sidebar.lua` — it is
-self-seeding (a session, two overlapping threads, a hand-stamped review
-buffer) and **wipes the codeboomer
-database at the end**, so run it with `XDG_DATA_HOME` redirected at an empty
-temporary directory:
+The headless smoke tests are `test-sidebar.lua` (the review-scoped
+comments pane and gutter markers, including the pane's `p` promotion)
+and `test-threads.lua` (the thread-pair model: promotion, the two
+outboxes, the resolve cascade, agent diversion, gh pull matching).
+Both are self-seeding (real sessions, threads through the real write
+path) and **wipe the codeboomer database at the end**, so run them
+with `XDG_DATA_HOME` redirected at an empty temporary directory:
 
 ```bash
 mkdir -p /tmp/xdg-isolate/nvim
 XDG_DATA_HOME=/tmp/xdg-isolate nvim --headless -u NONE \
   --cmd "set rtp^=$PWD" -c 'luafile test-sidebar.lua'
+XDG_DATA_HOME=/tmp/xdg-isolate nvim --headless -u NONE \
+  --cmd "set rtp^=$PWD" -c 'luafile test-threads.lua'
 ```
 
 ### Trusting the repo

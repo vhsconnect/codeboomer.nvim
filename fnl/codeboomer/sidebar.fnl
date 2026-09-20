@@ -18,14 +18,19 @@
 ;; annotation lands, the chosen session changes or PR comments are
 ;; imported — buffer enters are plain map lookups, never queries.
 ;; The pane is not read-only: buffer-local keys act on what it shows
-;; (r composes a reply in the floating input, q resolves, n/N hop to
-;; the next/previous thread of the whole session without leaving the
-;; pane); window-navigate into it (<C-w> w).
+;; (r composes a reply on the thread's REVIEW half — gated behind
+;; promotion, a replies to the agent on the local half, p promotes
+;; the thread into the posting outbox, e edits the promoted comment,
+;; q resolves, n/N hop to the next/previous thread of the whole
+;; session without leaving the pane — wrapping at both ends); a
+;; dimmed keymap footer under the blocks reminds of them.
+;; Window-navigate into it (<C-w> w).
 (global vim vim)
 
 (local review (require :codeboomer.review))
 (local input (require :codeboomer.input))
 (local git (require :codeboomer.git))
+(local github (require :codeboomer.github))
 
 (local M {})
 
@@ -41,6 +46,13 @@
 ;; rule; a plain signcolumn=auto always has room for a single mark, so
 ;; no window options are ever touched
 (local sign-text "▌")
+;; the dimmed cheat-sheet under the rendered blocks — the keys act on
+;; the block the cursor rests in, so a reminder of them belongs in the
+;; pane itself
+(local pane-keys-footer
+  [(.. "── keys " (string.rep "─" (- pane-width 8)))
+   "r reply · a agent · p promote"
+   "e edit · q resolve · n/N thread"])
 ;; the cursor must rest this long on a line before the pane reacts, so
 ;; sweeping across range boundaries doesn't flicker the split
 (local rest-ms 100)
@@ -60,6 +72,13 @@
 ;; plain repo; nil (the default) resolves against the repo root
 (var open-path-resolver nil)
 (fn M.set-open-path [f] (set open-path-resolver f))
+
+;; set by review-mode while a review is open: the pane's p key reads
+;; the PR session to create review halves in, the pinned head sha to
+;; anchor them at, and the head-side ranges for the off-diff gate;
+;; nil (the default) means no review is open and promotion refuses
+(var promote-context nil)
+(fn M.set-promote-context [f] (set promote-context f))
 
 (fn resolve-open-path [path]
   (or (and open-path-resolver (open-path-resolver path))
@@ -116,10 +135,20 @@
 (fn normal-buf [bufnr]
   (= "" (or (?. vim.bo bufnr :buftype) "")))
 
+;; rel-path walks the tree upward (vim.fs.root) — fine once per
+;; buffer, not once per cursor rest; buffer ids are unique for the
+;; nvim session, so the cache never collides
+(var rel-path-cache {})
+(fn buf-rel-path [bufnr]
+  (or (. rel-path-cache bufnr)
+      (let [p (git.rel-path (vim.api.nvim_buf_get_name bufnr))]
+        (tset rel-path-cache bufnr p)
+        p)))
+
 (fn mark-loaded-buffers []
   (each [_ bufnr (ipairs (vim.api.nvim_list_bufs))]
     (when (and (vim.api.nvim_buf_is_loaded bufnr) (normal-buf bufnr))
-      (let [path (git.rel-path (vim.api.nvim_buf_get_name bufnr))]
+      (let [path (buf-rel-path bufnr)]
         (place-marks bufnr (or (. threads-by-path path) []))))))
 
 ;; the thread covering a line of a file, straight from the in-memory
@@ -134,20 +163,61 @@
       (set found t)))
   (if found [found] []))
 
-;; ── the pane ───────────────────────────────────────────────────────
+;; ── the pane ─────────────────────────────────────────────────────
+
+;; the pane renders from STAMPED fields, never live queries: a cursor
+;; rest re-runs evaluate-at (the debounce fires for the pane's own
+;; window too), and sqlite.lua opens a connection per call — querying
+;; per render made navigation sluggish. reload-threads and
+;; refresh-pane stamp; render only reads
+(fn stamp-thread [t]
+  (let [twin (review.twin (or t.id 0))]
+    (set t.twin-kind (when twin twin.kind))
+    (set t.conversation (review.conversation-comments (or t.id 0)))
+    (each [_ c (ipairs (or t.conversation []))]
+      (set c.author-name (or (?. (review.comment-author c) :name)
+                             :unknown)))))
+
+;; conversations also go stale from the outside — the agent shim is a
+;; separate process writing the same DB — so a rest re-stamps at most
+;; once a second: fresh enough to watch agent answers land, rare
+;; enough that the render path stays cheap. The map version moves
+;; only when a conversation actually changed, so nothing re-renders
+;; for nothing
+(local stamp-ttl-ms 1000)
+(var last-stamp-ms 0)
+(var map-version 0)
+(var rendered-sig nil)
+
+(fn conv-sig [t]
+  (accumulate [sig "" _ c (ipairs (or t.conversation []))]
+    (.. sig (tostring (or c.id 0)) ",")))
+
+(fn maybe-restamp [threads]
+  (when (> (- (vim.loop.now) (or last-stamp-ms 0)) stamp-ttl-ms)
+    (set last-stamp-ms (vim.loop.now))
+    (var changed false)
+    (each [_ t (ipairs (or threads []))]
+      (let [before (conv-sig t)]
+        (stamp-thread t)
+        (when (not= before (conv-sig t))
+          (set changed true))))
+    (when changed
+      (set map-version (+ 1 map-version)))))
 
 (fn thread-header [base t]
-  (let [status (if (and t.gh_outdated (> (or t.gh_outdated 0) 0))
-                   (.. (or t.status :open) ", outdated")
-                   (or t.status :open))]
+  (let [status (.. (or t.status :open)
+                   (or (when (and t.gh_outdated (> (or t.gh_outdated 0) 0))
+                         ", outdated") "")
+                   (or (when (= :review (or t.twin-kind :local))
+                         " · promoted") ""))]
     (string.format "#%d  %s:%s-%s  (%s)" (or t.id 0) base (or t.line_start "?")
                    (or t.line_end "?") status)))
 
 ;; one comment's label — "[source] name", so a conversation reads as
 ;; who-said-what: [github] logins, [agent] answers, [user] local notes
 (fn comment-label [c]
-  (let [name (or (?. (review.comment-author c) :name) :unknown)]
-    (string.format "[%s] %s" (or c.source :user) name)))
+  (string.format "[%s] %s" (or c.source :user) (or c.author-name :unknown)))
 
 ;; one block per covering thread: a header line tinted with the
 ;; thread's gutter color, then every comment as a Comment-tinted
@@ -168,32 +238,51 @@
                              :thread t})
       (table.insert lines (thread-header base t))
       (table.insert lines "")
-      (each [j c (ipairs (review.comments-for t.id))]
+      (each [j c (ipairs (or t.conversation []))]
         (when (> j 1) (table.insert lines ""))
         (table.insert labels {:row (+ (length lines) 1)})
         (table.insert lines (comment-label c))
         (each [_ l (ipairs (vim.split (or c.body "") "\n"))]
           (table.insert lines l))))
+    ;; the keymap footer rides along whenever anything is shown — an
+    ;; empty pane stays blank, so the resolve-to-nothing flow reads
+    ;; as before
+    (when (> (length threads) 0)
+      (table.insert lines "")
+      (each [_ l (ipairs pane-keys-footer)]
+        (table.insert labels {:row (+ (length lines) 1)})
+        (table.insert lines l)))
     {: lines : headers : labels}))
 
+;; same path, same threads, same map version → what is on screen is
+;; already right
+(fn pane-sig [path threads]
+  (.. (or path "") "|" (tostring map-version) "|"
+      (table.concat (icollect [_ t (ipairs (or threads []))]
+                      (tostring (or t.id 0))) ",")))
+
 (fn render-pane [path threads]
-  (let [buf (vim.api.nvim_win_get_buf pane-win)
-        bo (. vim.bo buf)
-        {: lines : headers : labels} (render path threads)]
-    ;; remember what is on screen — the pane keys below read it back
-    (set pane-path path)
-    (set pane-threads threads)
-    (set pane-header-rows headers)
-    (vim.api.nvim_buf_clear_namespace buf extmark-ns 0 -1)
-    (set bo.modifiable true)
-    (vim.api.nvim_buf_set_lines buf 0 -1 false lines)
-    (set bo.modifiable false)
-    (each [_ h (ipairs headers)]
-      (vim.api.nvim_buf_set_extmark buf extmark-ns (- h.row 1) 0
-                                    {:line_hl_group h.hl}))
-    (each [_ l (ipairs labels)]
-      (vim.api.nvim_buf_set_extmark buf extmark-ns (- l.row 1) 0
-                                    {:line_hl_group :Comment}))))
+  ;; identical content is already on screen — cursor rests re-run
+  ;; evaluate-at and would otherwise rewrite the buffer for nothing
+  (when (not= (pane-sig path threads) rendered-sig)
+    (set rendered-sig (pane-sig path threads))
+    (let [buf (vim.api.nvim_win_get_buf pane-win)
+          bo (. vim.bo buf)
+          {: lines : headers : labels} (render path threads)]
+      ;; remember what is on screen — the pane keys below read it back
+      (set pane-path path)
+      (set pane-threads threads)
+      (set pane-header-rows headers)
+      (vim.api.nvim_buf_clear_namespace buf extmark-ns 0 -1)
+      (set bo.modifiable true)
+      (vim.api.nvim_buf_set_lines buf 0 -1 false lines)
+      (set bo.modifiable false)
+      (each [_ h (ipairs headers)]
+        (vim.api.nvim_buf_set_extmark buf extmark-ns (- h.row 1) 0
+                                      {:line_hl_group h.hl}))
+      (each [_ l (ipairs labels)]
+        (vim.api.nvim_buf_set_extmark buf extmark-ns (- l.row 1) 0
+                                      {:line_hl_group :Comment})))))
 
 ;; ── in-pane actions ─────────────────────────────────────────────
 
@@ -206,27 +295,155 @@
     (set t h.thread))
   t)
 
-;; re-render from the recorded context — needed after in-pane edits
+;; re-render from the recorded context — needed after in-pane actions
 ;; because check-now deliberately ignores the pane window, so a focused
-;; pane would otherwise stay stale until the cursor moves back to code
+;; pane would otherwise stay stale until the cursor moves back to code.
+;; Action-time freshness: re-stamp what is on screen and force the
+;; render by bumping the map version
 (fn refresh-pane []
   (when (and pane-win (vim.api.nvim_win_is_valid pane-win))
+    (each [_ t (ipairs (or pane-threads []))] (stamp-thread t))
+    (set map-version (+ 1 map-version))
     (render-pane pane-path pane-threads)))
 
-;; r — reply to the block under the pane cursor through the same
-;; floating compose input Annotate uses; the reply is a plain user
-;; comment, so it joins the flush outbox like any annotation
+;; the shipping half of the pair shown — nil while the thread is
+;; unpromoted. Pulled threads ARE their own review half; fresh local
+;; threads need p first
+(fn review-half [t]
+  (if (= :review (or t.kind :local))
+      t
+      (let [twin (review.twin (or t.id 0))]
+        (when (and twin (= :review (or twin.kind :local))) twin))))
+
+;; r — reply on the review half through the same floating compose
+;; input Annotate uses; the key itself is the gate: unpromoted threads
+;; refuse with a pointer to p, so nothing reaches the posting outbox
+;; by accident
 (fn pane-reply []
   (let [t (pane-thread-at (?. (vim.api.nvim_win_get_cursor pane-win) 1))]
     (if (not t)
         (vim.notify "codeboomer: no thread block under the pane cursor"
                     vim.log.levels.WARN)
-        (input.open {:title (string.format " Reply to thread #%d> " (or t.id 0))
-                     :on-submit (fn [lines]
-                                  (when (review.user-reply (or t.id 0)
-                                                           (table.concat lines
-                                                                         "\n"))
-                                    (refresh-pane)))}))))
+        (let [target (review-half t)]
+          (if (not target)
+              (vim.notify "codeboomer: thread not promoted — p promotes it first"
+                          vim.log.levels.WARN)
+              (input.open {:title (string.format " Reply on thread #%d> " (or t.id 0))
+                           :on-submit (fn [lines]
+                                        (when (review.user-reply (or target.id 0)
+                                                                 (table.concat lines
+                                                                               "\n"))
+                                          (refresh-pane)))}))))))
+
+;; a — reply into the conversation half: your side of the agent
+;; discussion, stored on the local thread (created on demand for a
+;; pulled one). Structurally never ships
+(fn pane-agent-reply []
+  (let [t (pane-thread-at (?. (vim.api.nvim_win_get_cursor pane-win) 1))]
+    (if (not t)
+        (vim.notify "codeboomer: no thread block under the pane cursor"
+                    vim.log.levels.WARN)
+        (let [target (if (= :local (or t.kind :local))
+                        t
+                        (or (review.twin (or t.id 0))
+                            (review.ensure-local-twin (or t.id 0))))]
+          (if (not target)
+              (vim.notify "codeboomer: could not open the conversation"
+                          vim.log.levels.ERROR)
+              (input.open {:title (string.format " Reply to the agent on thread #%d> "
+                                                 (or t.id 0))
+                           :on-submit (fn [lines]
+                                        (when (review.user-reply (or target.id 0)
+                                                                 (table.concat lines
+                                                                               "\n"))
+                                          (refresh-pane)))}))))))
+
+;; a virgin pair — one user message, nothing from the agent — has
+;; nothing to distill: promotion can take the annotation as-is
+(fn virgin-body [t]
+  (let [cs (review.conversation-comments (or t.id 0))]
+    (when (= 1 (length cs))
+      (let [c (. cs 1)]
+        (when (= :user (or c.source :user)) (or c.body ""))))))
+
+;; the seed for the promote input: the annotation's own wording —
+;; the first message you left in the conversation
+(fn first-user-body [t]
+  (accumulate [body nil _ c (ipairs (review.conversation-comments (or t.id 0)))]
+    (or body (when (= :user (or c.source :user)) (or c.body "")))))
+
+;; p — promote: the one door into the posting outbox. The review half
+;; is born in the open PR review's session, anchored at its pinned
+;; head, after the off-diff check; the compose input opens prefilled
+;; with the annotation's wording unless the pair is virgin (then the
+;; annotation ships as-is, no input)
+(fn pane-promote []
+  (let [t (pane-thread-at (?. (vim.api.nvim_win_get_cursor pane-win) 1))]
+    (if (not t)
+        (vim.notify "codeboomer: no thread block under the pane cursor"
+                    vim.log.levels.WARN)
+        (= :review (or t.kind :local))
+        (vim.notify "codeboomer: this thread is already on github"
+                    vim.log.levels.WARN)
+        (review.twin (or t.id 0))
+        (vim.notify (string.format "codeboomer: thread #%d already promoted"
+                                   (or t.id 0))
+                    vim.log.levels.WARN)
+        (let [ctx (when promote-context (promote-context))]
+          (if (not ctx)
+              (vim.notify "codeboomer: no open PR review — :Codeboomer Review first"
+                          vim.log.levels.WARN)
+              (github.thread-off-diff t ctx.head-ranges)
+              (vim.notify "codeboomer: the range falls outside the PR diff — move or resolve the thread first"
+                          vim.log.levels.ERROR)
+              (let [as-is (virgin-body t)]
+                (if as-is
+                    (do (review.promote (or t.id 0) as-is ctx.session-id
+                                        ctx.head-sha)
+                        (refresh-pane)
+                        (vim.notify (string.format "codeboomer: thread #%d promoted"
+                                                   (or t.id 0))
+                                    vim.log.levels.INFO))
+                    (input.open {:title (string.format " Promote thread #%d> "
+                                                       (or t.id 0))
+                                 :prefill (or (first-user-body t) "")
+                                 :on-submit (fn [lines]
+                                              (let [body (table.concat lines "\n")]
+                                                (when (not= ""
+                                                            (vim.trim body))
+                                                  (review.promote (or t.id 0) body
+                                                                  ctx.session-id
+                                                                  ctx.head-sha)
+                                                  (refresh-pane)
+                                                  (vim.notify (string.format
+                                                               "codeboomer: thread #%d promoted"
+                                                               (or t.id 0))
+                                                              vim.log.levels.INFO))))}))))))))
+
+;; e — refine the promoted comment in place: the oldest still-unposted
+;; user message of the review half, rewritten through the same
+;; compose input
+(fn pane-edit []
+  (let [t (pane-thread-at (?. (vim.api.nvim_win_get_cursor pane-win) 1))]
+    (if (not t)
+        (vim.notify "codeboomer: no thread block under the pane cursor"
+                    vim.log.levels.WARN)
+        (let [target (review-half t)]
+          (if (not target)
+              (vim.notify "codeboomer: thread not promoted — p promotes it first"
+                          vim.log.levels.WARN)
+              (let [c (. (review.unposted-user-comments (or target.id 0)) 1)]
+                (if (not c)
+                    (vim.notify "codeboomer: nothing unposted to edit"
+                                vim.log.levels.WARN)
+                    (input.open {:title (string.format " Edit comment #%d> "
+                                                       (or c.id 0))
+                                 :prefill (or c.body "")
+                                 :on-submit (fn [lines]
+                                              (review.update-comment-body
+                                               (or c.id 0)
+                                               (table.concat lines "\n"))
+                                              (refresh-pane))}))))))))
 
 ;; q — resolve the block under the pane cursor: resolved threads are
 ;; soft-deleted, so a reload rebuilds the map (and the marks) without
@@ -263,10 +480,12 @@
 (var pane-jump nil)
 
 ;; nil the reference BEFORE closing so the WinClosed handler sees
-;; nothing left to react to
+;; nothing left to react to; the signature dies with the window — a
+;; reopened pane must render even when the content would be identical
 (fn hide-pane []
   (let [win pane-win]
     (set pane-win nil)
+    (set rendered-sig nil)
     (when (and win (vim.api.nvim_win_is_valid win))
       (pcall vim.api.nvim_win_close win true))))
 
@@ -299,9 +518,20 @@
       (set wo.signcolumn :no)
       (set wo.winfixwidth true)
       ;; in-pane keys exist only in this buffer and die with it: r
-      ;; reply, q resolve, n/N next/previous thread — plain keys, no prefix
+      ;; reply (review half), a reply to the agent (local half),
+      ;; p promote, e edit the promoted comment, q resolve, n/N
+      ;; next/previous thread — plain keys, no prefix
       (vim.keymap.set :n :r pane-reply
-                      {:buffer buf :desc "codeboomer: reply to this thread"})
+                      {:buffer buf :desc "codeboomer: reply on this thread"})
+      (vim.keymap.set :n :a pane-agent-reply
+                      {:buffer buf
+                       :desc "codeboomer: reply to the agent on this thread"})
+      (vim.keymap.set :n :p pane-promote
+                      {:buffer buf
+                       :desc "codeboomer: promote this thread to the PR review"})
+      (vim.keymap.set :n :e pane-edit
+                      {:buffer buf
+                       :desc "codeboomer: edit the promoted comment"})
       (vim.keymap.set :n :q pane-resolve
                       {:buffer buf :desc "codeboomer: resolve this thread"})
       (vim.keymap.set :n :n #(pane-jump 1)
@@ -312,6 +542,7 @@
     ;; keep the cursor in the code window — the pane is a follower, not
     ;; a destination
     (vim.cmd "wincmd p"))
+  (maybe-restamp threads)
   (render-pane path threads))
 
 (fn flash-line [win row]
@@ -343,8 +574,8 @@
                              (if (and t (= th.id t.id)) (- i 1) found))
                        target0 (% (+ (or idx (if (> dir 0) -1 0)) dir) n)
                        target (. all-threads (+ target0 1))
-                       cur-path (git.rel-path (vim.api.nvim_buf_get_name
-                                               (vim.api.nvim_win_get_buf pane-source-win)))]
+                       cur-path (buf-rel-path (vim.api.nvim_win_get_buf
+                                              pane-source-win))]
                    (vim.api.nvim_win_call pane-source-win
                                           (fn []
                                             (when (not= cur-path target.file_path)
@@ -366,7 +597,7 @@
         side (?. vim.b buf :codeboomer_review_side)]
     (when (and (not= side :old) (normal-buf buf))
       (let [row (?. (vim.api.nvim_win_get_cursor win) 1)
-            path (git.rel-path (vim.api.nvim_buf_get_name buf))
+            path (buf-rel-path buf)
             threads (threads-at path (or row 0))]
         (when (> (length threads) 0)
           ;; remember the code window the pane mirrors — the pane's n
@@ -401,6 +632,8 @@
   (let [sid (review.current-session-id)]
     (set threads-by-path {})
     (set all-threads (if sid (review.threads-for-session sid) []))
+    (each [_ t (ipairs all-threads)] (stamp-thread t))
+    (set map-version (+ 1 map-version))
     (each [_ t (ipairs all-threads)]
       (let [path (or t.file_path "")
             peers (vim.list_extend (or (. threads-by-path path) []) [t])]
@@ -431,7 +664,8 @@
                                 :callback (fn [ev]
                                             (when (= pane-win
                                                      (tonumber ev.match))
-                                              (set pane-win nil)))})
+                                              (set pane-win nil)
+                                              (set rendered-sig nil)))})
   (vim.api.nvim_create_autocmd :User
                                {:group augroup-name
                                 :pattern [:CodeboomerAnnotated
@@ -445,7 +679,7 @@
 ;; stamp decides whether marks belong at all
 (set M.mark-buffer
      (fn [bufnr]
-       (let [path (git.rel-path (vim.api.nvim_buf_get_name bufnr))]
+       (let [path (buf-rel-path bufnr)]
          (place-marks bufnr (or (. threads-by-path path) [])))))
 
 ;; review mode's entry, called when the review tab opens: load the

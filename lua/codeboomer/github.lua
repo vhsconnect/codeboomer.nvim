@@ -139,7 +139,18 @@ local function post_reply(slug, pr_number, a)
   else
     local function _20_(obj)
       if (obj.code == 0) then
+        local ok, res = pcall(vim.json.decode, (obj.stdout or "{}"))
+        local gh_id
+        if (ok and ("table" == type(res))) then
+          gh_id = res.id
+        else
+          gh_id = nil
+        end
         review["mark-annotations"]("posted", {a.comment.id})
+        if gh_id then
+          review["stamp-gh-comment"](a.comment.id, gh_id)
+        else
+        end
         return notify("codeboomer: reply posted", vim.log.levels.INFO)
       else
         return notify(string.format("codeboomer: reply failed (exit %d)\n%s", obj.code, (obj.stderr or "")), vim.log.levels.ERROR)
@@ -148,29 +159,30 @@ local function post_reply(slug, pr_number, a)
     return system({"gh", "api", string.format("repos/%s/pulls/%s/comments/%s/replies", slug, pr_number, root), "--input", "-"}, {stdin = vim.json.encode({body = (a.comment.body or "")}), text = true}, _20_)
   end
 end
+local function _25_(t, ranges)
+  local rs = (ranges and ranges[(t.file_path or "")])
+  local and_26_ = rs
+  if and_26_ then
+    local hit = false
+    for _, _27_ in ipairs(rs) do
+      local s = _27_[1]
+      local e = _27_[2]
+      hit = (hit or ((s <= (t.line_end or 0)) and (e >= (t.line_start or 0))))
+    end
+    and_26_ = hit
+  end
+  return not and_26_
+end
+M["thread-off-diff"] = _25_
 M["validate-ranges"] = function(pending, ranges)
   local tbl_26_ = {}
   local i_27_ = 0
   for _, a in ipairs((pending or {})) do
     local val_28_
-    do
-      local t = a.thread
-      local rs = (ranges and ranges[(t.file_path or "")])
-      local and_23_ = rs
-      if and_23_ then
-        local hit = false
-        for _0, _24_ in ipairs(rs) do
-          local s = _24_[1]
-          local e = _24_[2]
-          hit = (hit or ((s <= (t.line_end or 0)) and (e >= (t.line_start or 0))))
-        end
-        and_23_ = hit
-      end
-      if not and_23_ then
-        val_28_ = a
-      else
-        val_28_ = nil
-      end
+    if M["thread-off-diff"](a.thread, ranges) then
+      val_28_ = a
+    else
+      val_28_ = nil
     end
     if (nil ~= val_28_) then
       i_27_ = (i_27_ + 1)
@@ -199,7 +211,7 @@ local function post_pending(session, slug, pending)
   return nil
 end
 local function post_checked(session, sid, slug, ranges)
-  local pending = review["pending-annotations"](sid, "posted")
+  local pending = review["pending-for-post"](sid)
   if (0 == #pending) then
     return notify("codeboomer: nothing to post \226\128\148 no unposted annotations", vim.log.levels.WARN)
   else
@@ -263,13 +275,21 @@ M["import-items"] = function(session_id, items)
   local n = 0
   for _, item in ipairs((items or {})) do
     if (item.id and not review["comment-by-gh"](item.id)) then
-      do
-        local parent
-        if item.in_reply_to_id then
-          parent = review["thread-id-for-gh"](item.in_reply_to_id)
-        else
-          parent = nil
-        end
+      local parent
+      if item.in_reply_to_id then
+        parent = review["thread-id-for-gh"](item.in_reply_to_id)
+      else
+        parent = nil
+      end
+      local mine
+      if not item.in_reply_to_id then
+        mine = review["match-posted-comment"](session_id, item)
+      else
+        mine = nil
+      end
+      if mine then
+        review["stamp-gh-comment"](mine.id, item.id)
+      else
         if parent then
           review["import-comment"](parent, item)
         else
@@ -290,7 +310,7 @@ M["pull-comments"] = function(pr_number)
   elseif not session then
     return notify("codeboomer: no session for this PR \226\128\148 :Codeboomer Review it first", vim.log.levels.WARN)
   else
-    local function _38_(obj)
+    local function _43_(obj)
       if (obj.code == 0) then
         local n = M["import-items"](session.id, parse_jsonl(obj.stdout))
         vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerImported"})
@@ -299,7 +319,7 @@ M["pull-comments"] = function(pr_number)
         return notify(string.format("codeboomer: gh api failed (exit %d)\n%s", obj.code, (obj.stderr or "")), vim.log.levels.ERROR)
       end
     end
-    return system({"gh", "api", string.format("repos/%s/pulls/%s/comments", slug, pr_number), "--paginate", "--jq", ".[]"}, {text = true}, _38_)
+    return system({"gh", "api", string.format("repos/%s/pulls/%s/comments", slug, pr_number), "--paginate", "--jq", ".[]"}, {text = true}, _43_)
   end
 end
 return M

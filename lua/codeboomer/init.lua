@@ -371,7 +371,7 @@ local function thread_message(t)
   do
     local tbl_26_ = {}
     local i_27_ = 0
-    for _, c in ipairs(review["comments-for"]((t.id or 0))) do
+    for _, c in ipairs(review["conversation-comments"]((t.id or 0))) do
       local val_28_ = comment_line(c)
       if (nil ~= val_28_) then
         i_27_ = (i_27_ + 1)
@@ -513,9 +513,9 @@ local function _77_(opts)
 end
 M.Annotate = _77_
 local function flush_pending(directive_text)
-  local pending = review["pending-annotations"](review["current-session-id"](), "sent")
+  local pending = review["pending-for-flush"](review["current-session-id"]())
   if (0 == #pending) then
-    return schedule_notify("codeboomer: nothing to flush \226\128\148 no unsent annotations", vim.log.levels.WARN)
+    return schedule_notify("codeboomer: nothing to flush \226\128\148 no unsent messages", vim.log.levels.WARN)
   else
     local seen = {}
     local threads = {}

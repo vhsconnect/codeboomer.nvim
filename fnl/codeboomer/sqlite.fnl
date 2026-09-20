@@ -47,6 +47,13 @@
                                       :reference :git_commit.id
                                       :on_delete :cascade}
                       :status {:type :text :required true}
+                      ;; :local is the agent conversation (never
+                      ;; ships); :review is what PostReview walks
+                      :kind :text
+                      ;; the other half of the pair — see review.fnl
+                      :parent_id {:type :integer
+                                  :reference :comment_thread.id
+                                  :on_delete :cascade}
                       ;; set on threads seeded from outdated GitHub
                       ;; comments (position null after new commits)
                       :gh_outdated :integer
