@@ -4,6 +4,10 @@
 (local input (require :codeboomer.input))
 (local directives (require :codeboomer.directives))
 (local review (require :codeboomer.review))
+
+;; autocmds 
+(require :codeboomer.sidebar)
+
 (local agent (require :codeboomer.agent))
 (local one-offs (require :codeboomer.one-offs))
 (local git (require :codeboomer.git))
@@ -228,7 +232,8 @@
                   {:prompt "Pick a Session> "
                    :actions {:default (fn [selected]
                                         (let [choice (. selected 1)
-                                              id (if (= choice new-session-entry)
+                                              id (if (= choice
+                                                        new-session-entry)
                                                      (review.create-session)
                                                      (?. by-display choice :id))]
                                           (review.set-session id)
@@ -247,8 +252,12 @@
         (k)
         (let [sessions (or (review.existing-sessions) [])]
           (case (length sessions)
-            0 (do (review.set-session (review.create-session)) (k))
-            1 (do (review.set-session (?. sessions 1 :id)) (k))
+            0 (do
+                (review.set-session (review.create-session))
+                (k))
+            1 (do
+                (review.set-session (?. sessions 1 :id))
+                (k))
             _ (choose-session k))))))
 
 (set M.RunOneOff run-one-off)
@@ -284,8 +293,8 @@
 ;; agent can tell a GitHub reviewer's words from its own earlier
 ;; answers and the local user's notes
 (fn comment-line [c]
-  (let [name (or (?. (review.comment-author c) :name) "unknown")]
-    (string.format "[%s] %s: %s" (or c.source "user") name (or c.body ""))))
+  (let [name (or (?. (review.comment-author c) :name) :unknown)]
+    (string.format "[%s] %s: %s" (or c.source :user) name (or c.body ""))))
 
 ;; one thread → one message: location and code snapshot, then the FULL
 ;; conversation (every comment, author-labeled) — a reply flushed to a
@@ -296,18 +305,18 @@
   (let [conversation (icollect [_ c (ipairs (review.comments-for (or t.id 0)))]
                        (comment-line c))]
     (string.format "regarding %s lines %s to %s (thread %s)\n%s\n%s"
-                   (or t.file_path "?")
-                   (or t.line_start "?") (or t.line_end "?") (or t.id "?")
-                   (or t.code_snapshot "")
-                   (table.concat conversation "\n\n"))))
+                   (or t.file_path "?") (or t.line_start "?")
+                   (or t.line_end "?") (or t.id "?") (or t.code_snapshot "") (table.concat conversation
+                                                                                          "
+
+"))))
 
 (set M.SetPane
      (fn []
        (choose-pane (parse-panes (shell panes-command)))))
 
-(set M.SetSession
-     (fn []
-       (choose-session)))
+(set M.SetSession (fn []
+                    (choose-session)))
 
 (set M.SendPrompt
      (fn [opts]
@@ -352,36 +361,34 @@
 ;; below
 (fn annotate-flow [opts]
   (with-pan (let [context (get-visual-lines opts)]
-    (input.open {:title " Annotate> "
-                 :on-submit (fn [lines]
-                              (let [text (concat-list lines)]
-                                ;; the DB is the only store now — an
-                                ;; empty note would only pollute threads
-                                (if (= text "")
-                                    (schedule-notify "codeboomer: empty annotation ignored"
-                                                     vim.log.levels.WARN)
-                                    (ensure-session
-                                      (fn []
-                                        (review.user-comment (review.current-session-id)
-                                                             context.file
-                                                             context.line1
-                                                             context.line2
-                                                             context.lines
-                                                             text)
-                                        ;; let an open review pane pick the
-                                        ;; fresh thread up
-                                        (vim.api.nvim_exec_autocmds :User
-                                                                    {:pattern :CodeboomerAnnotated}))))))}))))
+              (input.open {:title " Annotate> "
+                           :on-submit (fn [lines]
+                                        (let [text (concat-list lines)]
+                                          ;; the DB is the only store now — an
+                                          ;; empty note would only pollute threads
+                                          (if (= text "")
+                                              (schedule-notify "codeboomer: empty annotation ignored"
+                                                               vim.log.levels.WARN)
+                                              (ensure-session (fn []
+                                                                (review.user-comment (review.current-session-id)
+                                                                                     context.file
+                                                                                     context.line1
+                                                                                     context.line2
+                                                                                     context.lines
+                                                                                     text)
+                                                                ;; let an open review pane pick the
+                                                                ;; fresh thread up
+                                                                (vim.api.nvim_exec_autocmds :User
+                                                                                            {:pattern :CodeboomerAnnotated}))))))}))))
 
 ;; a review's OLD side is for reading: its line numbers belong to the
 ;; other end of the diff and threads would anchor to the base sha —
 ;; ReviewSide back first
-(set M.Annotate
-     (fn [opts]
-       (if (= :old vim.b.codeboomer_review_side)
-           (schedule-notify "codeboomer: annotations anchor to the new code — :Codeboomer ReviewSide back first"
-                            vim.log.levels.WARN)
-           (annotate-flow opts))))
+(set M.Annotate (fn [opts]
+                  (if (= :old vim.b.codeboomer_review_side)
+                      (schedule-notify "codeboomer: annotations anchor to the new code — :Codeboomer ReviewSide back first"
+                                       vim.log.levels.WARN)
+                      (annotate-flow opts))))
 
 ;; ship every unsent annotation of the chosen session to the pane,
 ;; wrapped in the directive, then mark them sent. One message per
@@ -402,13 +409,11 @@
           (let [messages (icollect [_ t (ipairs threads)]
                            (thread-message t))
                 annotations (concat-list-with-format messages
-                                                     "==Section Start=="
-                                                     "===="
+                                                     "==Section Start==" "===="
                                                      "==Section End==")]
             (send-keys-to-selected-pane (.. annotations
                                             (agent.reply-instructions)
-                                            directive-text
-                                            "\n"))
+                                            directive-text "\n"))
             (review.mark-annotations :sent
                                      (icollect [_ a (ipairs pending)]
                                        a.comment.id)))))))
@@ -422,7 +427,8 @@
                    (fzf.fzf_exec lines
                                  {:prompt "Pick a Directive> "
                                   :actions {:default (fn [selected]
-                                                       (let [directive-text (directives.get (. selected 1))]
+                                                       (let [directive-text (directives.get (. selected
+                                                                                               1))]
                                                          (ensure-session #(flush-pending directive-text))))}})))))
 
 M

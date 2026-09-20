@@ -62,15 +62,11 @@
 
 (fn M.current-session-id [] current-session-id)
 
-;; set the chosen session; unless silent, tell the sidebar to reload —
-;; its thread map is session-scoped
 (fn M.set-session [id ?silent]
   (set current-session-id id)
   (when (not ?silent)
     (vim.api.nvim_exec_autocmds :User {:pattern :CodeboomerSessionChanged})))
 
-;; read-only session list of the current repo, ordered by id — an
-;; unregistered repo yields nil, so startup reads never write
 (fn M.existing-sessions []
   (let [root (git.repo-root)]
     (when root
@@ -82,9 +78,6 @@
             (table.sort sessions (fn [a b] (< (or a.id 0) (or b.id 0))))
             sessions))))))
 
-;; the session bound to a PR number of the current repo, if any —
-;; re-opening a PR review finds its threads instead of minting a
-;; fresh session. nil never matches
 (fn M.session-for-pr [pr-number]
   (when pr-number
     (let [root (git.repo-root)]
@@ -95,7 +88,6 @@
                     {:where {:repo_id repo-id :pr_number pr-number}})
                 1)))))))
 
-;; a session row by id
 (fn M.session-by-id [id]
   (when id
     (?. (db sqlite.session :get {:where {: id}}) 1)))
@@ -211,11 +203,6 @@
 (fn M.commit-sha [commit-id]
   (?. (db sqlite.commit :get {:where {:id commit-id}}) 1 :hash))
 
-;; the delivery outbox: my nvim-authored annotations whose flag
-;; (:sent or :posted) is still 0, oldest first, each paired with its
-;; thread for context. Agent/github-sourced rows and other authors
-;; never enter an outbox — they arrived from where they'd be going.
-;; Empty bodies are skipped: they were never part of a flush.
 (fn M.pending-annotations [session-id flag]
   (if (not session-id)
       []
@@ -228,9 +215,6 @@
               (table.insert out {:thread t :comment c}))))
         out)))
 
-;; flip a delivery flag to 1 — raw SQL through with_open (the table
-;; helpers have no update-by-id-list, and raw statements need an open
-;; connection); the flag is whitelisted, ids come from our own queries
 (fn M.mark-annotations [flag ids]
   (when (vim.tbl_contains [:sent :posted] flag)
     (: (s.get-db) :with_open
@@ -239,9 +223,6 @@
            (d:execute (string.format "update comment set %s = 1 where id = %d"
                                      (tostring flag) (or id 0))))))))
 
-;; resolved threads are soft-deleted: this filter drops them from
-;; every thread fetch, so the gutter marks, the review pane and the
-;; flush outbox all forget a thread in one place
 (fn unresolved-rows [rows]
   (let [out []]
     (each [_ row (ipairs rows)]
@@ -249,9 +230,6 @@
         (table.insert out row)))
     out))
 
-;; active threads of a session across ALL its files, ordered by file
-;; path then top-to-bottom within a file — the sidebar turns this into
-;; its path → threads map in one load
 (fn M.threads-for-session [session-id]
   (let [rows (unresolved-rows (sqlite.active-rows (or (db sqlite.thread :get
                                                           {:where {:session_id session-id}})

@@ -24,6 +24,7 @@
 ;; the base — both in every theme
 (fn range-hl [side]
   (if (= side :old) :DiffDelete :DiffAdd))
+
 ;; the remote PR refs are fetched from — origin is the 99% case
 (local remote :origin)
 
@@ -34,6 +35,13 @@
 ;; qf-dir scopes the ReviewFiles quickfix
 (var current nil)
 
+;; cross-file thread jumps (sidebar's n/N) resolve into this worktree
+;; while a review is the active session, plain repo otherwise
+(sidebar.set-open-path
+  (fn [path]
+    (when (and current (= (review.current-session-id) current.session-id))
+      (.. current.worktree "/" path))))
+
 (fn notify [msg level]
   (vim.schedule #(vim.notify msg level)))
 
@@ -42,13 +50,14 @@
 (fn run [argv k]
   (vim.system argv {:text true}
               (fn [obj]
-                (vim.schedule
-                  #(if (= obj.code 0)
-                       (k (or obj.stdout ""))
-                       (notify (.. "codeboomer: `" (table.concat argv " ")
-                                   "` failed (exit " (tostring obj.code) ")\n"
-                                   (or obj.stderr ""))
-                               vim.log.levels.ERROR))))))
+                (vim.schedule #(if (= obj.code 0)
+                                   (k (or obj.stdout ""))
+                                   (notify (.. "codeboomer: `"
+                                               (table.concat argv " ")
+                                               "` failed (exit "
+                                               (tostring obj.code) ")\n"
+                                               (or obj.stderr ""))
+                                           vim.log.levels.ERROR))))))
 
 (fn under-worktree [path]
   (let [p (or path "")]
@@ -67,8 +76,8 @@
 (fn worktree-path [id]
   (let [root (git.repo-root)]
     (when root
-      (.. (vim.fn.stdpath :data) :/codeboomer-review/
-          (vim.fs.basename root) :- id))))
+      (.. (vim.fn.stdpath :data) :/codeboomer-review/ (vim.fs.basename root)
+          "-" id))))
 
 ;; reuse an existing worktree by hard-resetting it onto the sha — the
 ;; object store is shared with the main checkout, so no re-fetch is
@@ -81,14 +90,12 @@
            (fn [_]
              (run [:git :-C path :reset :--hard sha]
                   (fn [_]
-                    (run [:git :-C path :clean :-fd]
-                         (fn [_] (k)))))))
+                    (run [:git :-C path :clean :-fd] (fn [_] (k)))))))
       (do
         (vim.fn.mkdir (or (vim.fs.dirname path) ".") :p)
         (run [:git :worktree :prune]
              (fn [_]
-               (run [:git :worktree :add :--detach path sha]
-                    (fn [_] (k))))))))
+               (run [:git :worktree :add :--detach path sha] (fn [_] (k))))))))
 
 ;; `git diff --unified=0 base..head` → {rel-path [[start last] ...]}
 ;; of one side's ranges the diff touches. ?side :head (the default)
@@ -100,21 +107,20 @@
 (fn parse-ranges [diff ?side]
   (let [base-side (= ?side :base)
         header-re (if base-side "^--- a/(.*)" "^%+%+%+ b/(.*)")
-        hunk-re (if base-side
-                    "^@@ %-(%d+),?(%d*) %+%d+,?%d* @@"
+        hunk-re (if base-side "^@@ %-(%d+),?(%d*) %+%d+,?%d* @@"
                     "^@@ %-%d+,?%d* %+(%d+),?(%d*) @@")
         out {}]
     (var file nil)
     (each [line (string.gmatch (or diff "") "[^\n]+")]
       (let [header (string.match line header-re)]
-        (when (and header (not= header "/dev/null"))
+        (when (and header (not= header :/dev/null))
           (set file header))
         (let [(c d) (string.match line hunk-re)]
           (when (and file c)
             ;; no ,count after the number means a single line; a count
             ;; of 0 means the hunk touches nothing on this side
             (let [start (tonumber c)
-                  count (tonumber (if (or (not d) (= d "")) "1" d))]
+                  count (tonumber (if (or (not d) (= d "")) :1 d))]
               (when (> count 0)
                 (let [bucket (or (. out file) [])]
                   (table.insert bucket [start (+ start count -1)])
@@ -189,13 +195,14 @@
                                   idx (vim.fn.index paths rel)
                                   pos (if (= idx -1)
                                           (if (= dir :prev) len 1)
-                                          (+ 1 (% (+ idx (if (= dir :prev) -1 1))
-                                                  len)))
+                                          (+ 1
+                                             (% (+ idx (if (= dir :prev) -1 1))
+                                                len)))
                                   target (. paths pos)
                                   ranges (. current.ranges target)
                                   r (if (= dir :prev)
-                                      (. ranges (length ranges))
-                                      (. ranges 1))]
+                                        (. ranges (length ranges))
+                                        (. ranges 1))]
                               [target (. r 1)]))]
                 (goto-hunk rel (. hop 1) (. hop 2))))))))
 
@@ -222,8 +229,7 @@
           ;; hunk hopping lives only inside review buffers and dies
           ;; with them: ]a next, [a previous (of the shown side)
           (vim.keymap.set :n "]a" M.next-hunk
-                          {:buffer bufnr
-                           :desc "codeboomer: next review hunk"})
+                          {:buffer bufnr :desc "codeboomer: next review hunk"})
           (vim.keymap.set :n "[a" M.prev-hunk
                           {:buffer bufnr
                            :desc "codeboomer: previous review hunk"})
@@ -254,7 +260,7 @@
               (when gone
                 (notify (.. "codeboomer: " (vim.fs.basename name)
                             " does not exist on the "
-                            (if (= current.side :old) "old" "new") " side")
+                            (if (= current.side :old) :old :new) " side")
                         vim.log.levels.INFO))
               (vim.api.nvim_buf_delete bufnr {:force true})))))))
 
@@ -274,8 +280,7 @@
         by-display {}
         lines (icollect [_ p (ipairs prs)]
                 (let [display (string.format "#%-5s %-55s %s"
-                                             (tostring p.number)
-                                             (or p.title "")
+                                             (tostring p.number) (or p.title "")
                                              (or p.headRefName ""))]
                   (tset by-display display p)
                   display))]
@@ -293,11 +298,11 @@
   (let [remotes (or (git.remotes) [])]
     (var pick nil)
     (each [_ r (ipairs remotes) &until pick]
-      (when (and (= r.name "origin")
-                 (string.find (or r.url "") "github.com" 1 true))
+      (when (and (= r.name :origin)
+                 (string.find (or r.url "") :github.com 1 true))
         (set pick r.name)))
     (each [_ r (ipairs remotes) &until pick]
-      (when (string.find (or r.url "") "github.com" 1 true)
+      (when (string.find (or r.url "") :github.com 1 true)
         (set pick r.name)))
     pick))
 
@@ -311,31 +316,35 @@
 ;; before the rev-parse runs, handing back the wrong commit
 (fn open-pr [pr]
   (let [fetch-remote (pick-fetch-remote)
-        head-ref (.. "refs/codeboomer/pr-" pr.number "-head")
-        base-ref (.. "refs/codeboomer/pr-" pr.number "-base")]
+        head-ref (.. :refs/codeboomer/pr- pr.number :-head)
+        base-ref (.. :refs/codeboomer/pr- pr.number :-base)]
     (if (not fetch-remote)
         (notify "codeboomer: no remote to fetch the PR from"
                 vim.log.levels.ERROR)
-        (run [:git :fetch fetch-remote
+        (run [:git
+              :fetch
+              fetch-remote
               (string.format "+pull/%d/head:%s" pr.number head-ref)]
              (fn [_]
-               (run [:git :fetch fetch-remote
+               (run [:git
+                     :fetch
+                     fetch-remote
                      (string.format "+%s:%s" pr.baseRefName base-ref)]
                     (fn [_]
                       (run [:git :rev-parse head-ref]
                            (fn [head]
                              (run [:git :rev-parse base-ref]
                                   (fn [base]
-                                    (run [:git :merge-base (vim.trim base)
+                                    (run [:git
+                                          :merge-base
+                                          (vim.trim base)
                                           (vim.trim head)]
                                          (fn [mb]
-                                           (M.setup-review
-                                             {:pr-number pr.number
-                                              :head-sha (vim.trim head)
-                                              :base-sha (vim.trim mb)
-                                              :branch pr.headRefName}
-                                             #(github.pull-comments
-                                                pr.number)))))))))))))))
+                                           (M.setup-review {:pr-number pr.number
+                                                            :head-sha (vim.trim head)
+                                                            :base-sha (vim.trim mb)
+                                                            :branch pr.headRefName}
+                                                           #(github.pull-comments pr.number)))))))))))))))
 
 ;; stage the working tree (untracked included, ignored excluded) into
 ;; a throwaway index and read back its tree sha — nothing touches the
@@ -345,15 +354,13 @@
 ;; snapshot tree is HEAD everywhere else and its diff against HEAD
 ;; contains exactly the directory's uncommitted changes
 (fn stage-worktree [root head ?dir k]
-  (let [index (.. root "/.git/codeboomer-snapshot-index")
+  (let [index (.. root :/.git/codeboomer-snapshot-index)
         dir (normalize-dir ?dir)
-        cmd (string.format
-              "rm -f '%s' && GIT_INDEX_FILE='%s' git -C '%s' read-tree %s && GIT_INDEX_FILE='%s' git -C '%s' add -A%s && GIT_INDEX_FILE='%s' git -C '%s' write-tree"
-              index index root head index root
-              (if (= "" dir) "" (string.format " -- '%s'" dir))
-              index root)]
-    (run [:sh :-c cmd]
-         (fn [out] (k (vim.trim out))))))
+        cmd (string.format "rm -f '%s' && GIT_INDEX_FILE='%s' git -C '%s' read-tree %s && GIT_INDEX_FILE='%s' git -C '%s' add -A%s && GIT_INDEX_FILE='%s' git -C '%s' write-tree"
+                           index index root head index root
+                           (if (= "" dir) "" (string.format " -- '%s'" dir))
+                           index root)]
+    (run [:sh :-c cmd] (fn [out] (k (vim.trim out))))))
 
 ;; a commit's tree sha — sync: tree equality IS the "nothing changed
 ;; under the scope" check
@@ -369,31 +376,43 @@
 (fn snapshot-commit [root head ?dir k]
   (let [dir (normalize-dir ?dir)]
     (stage-worktree root head dir
-      (fn [tree]
-        (if (or (not tree) (= "" tree))
-            (notify "codeboomer: could not snapshot the working tree"
-                    vim.log.levels.ERROR)
-            (if (and (not= "" dir) (= tree (git-tree root head)))
-                (notify (.. "codeboomer: no uncommitted changes under " dir)
-                        vim.log.levels.WARN)
-                (run [:git :-C root :commit-tree tree :-p head
-                      :-m "codeboomer-snapshot"]
-                     (fn [out] (k (vim.trim out))))))))))
+                    (fn [tree]
+                      (if (or (not tree) (= "" tree))
+                          (notify "codeboomer: could not snapshot the working tree"
+                                  vim.log.levels.ERROR)
+                          (if (and (not= "" dir) (= tree (git-tree root head)))
+                              (notify (.. "codeboomer: no uncommitted changes under "
+                                          dir)
+                                      vim.log.levels.WARN)
+                              (run [:git
+                                    :-C
+                                    root
+                                    :commit-tree
+                                    tree
+                                    :-p
+                                    head
+                                    :-m
+                                    :codeboomer-snapshot]
+                                   (fn [out] (k (vim.trim out))))))))))
 
 ;; compute the changed ranges of both sides once for the whole diff;
 ;; buffers look themselves up on enter. current.ranges follows the
 ;; side being shown; PostReview's off-diff gate always reads the
 ;; head's
 (fn load-ranges [k]
-  (run [:git :-C current.worktree
-        :diff :--unified=0
+  (run [:git
+        :-C
+        current.worktree
+        :diff
+        :--unified=0
         (.. current.base-sha ".." current.head-sha)]
        (fn [out]
          (set current.head-ranges (parse-ranges out))
          (set current.base-ranges (parse-ranges out :base))
-         (set current.ranges (if (= current.side :old)
-                                 current.base-ranges
-                                 current.head-ranges))
+         (set current.ranges
+              (if (= current.side :old)
+                  current.base-ranges
+                  current.head-ranges))
          (k))))
 
 ;; the tab: code window (empty until a file is picked) + the comments
@@ -418,7 +437,7 @@
 ;; wraps the quickfix window)
 (fn qf-item [path ranges]
   (let [groups (icollect [_ [start last] (ipairs ranges)]
-                 (if (= start last) (.. "L" start) (.. "L" start "-" last)))
+                 (if (= start last) (.. :L start) (.. :L start "-" last)))
         shown (vim.list_slice groups 1 5)
         extra (when (> (length groups) 5)
                 (.. ", +" (tostring (- (length groups) 5)) " more"))]
@@ -434,8 +453,7 @@
     (if (= "" trimmed)
         (vim.tbl_keys current.ranges)
         (icollect [_ path (ipairs (vim.tbl_keys current.ranges))]
-          (when (or (= path trimmed)
-                    (= 1 (path:find (.. trimmed "/") 1 true)))
+          (when (or (= path trimmed) (= 1 (path:find (.. trimmed "/") 1 true)))
             path)))))
 
 ;; rebuild the quickfix from the shown side's scoped ranges — no
@@ -448,11 +466,9 @@
                       {:items (icollect [_ p (ipairs paths)]
                                 (qf-item p (. current.ranges p)))
                        :title (.. qf-title " ("
-                                  (if (= current.side :old) "old" "new")
-                                  " side)"
-                                  (if (= "" (or current.qf-dir ""))
-                                    ""
-                                    (.. " — " current.qf-dir)))})))
+                                  (if (= current.side :old) :old :new) " side)"
+                                  (if (= "" (or current.qf-dir "")) ""
+                                      (.. " — " current.qf-dir)))})))
 
 ;; a side flip invalidates a quickfix built from the other side's
 ;; ranges — rebuild ours, but only while OUR list is the one being
@@ -473,17 +489,18 @@
        (if (not current)
            (notify "codeboomer: no review open — :Codeboomer Review first"
                    vim.log.levels.WARN)
-           (let [paths (do (set current.qf-dir (or ?dir ""))
-                           (scoped-paths current.qf-dir))]
+           (let [paths (do
+                         (set current.qf-dir (or ?dir ""))
+                         (scoped-paths current.qf-dir))]
              (if (= 0 (length paths))
                  (notify (if (= "" current.qf-dir)
-                           "codeboomer: no changed files in this review"
-                           (.. "codeboomer: no changed files under "
-                               current.qf-dir))
+                             "codeboomer: no changed files in this review"
+                             (.. "codeboomer: no changed files under "
+                                 current.qf-dir))
                          vim.log.levels.WARN)
-                 (do (set-qf)
-                     (vim.cmd {:cmd :copen
-                               :count (math.min 12 (length paths))})))))))
+                 (do
+                   (set-qf)
+                   (vim.cmd {:cmd :copen :count (math.min 12 (length paths))})))))))
 
 ;; :Codeboomer ReviewSide / <leader>ct — flip the open review between
 ;; the two ends of its diff: the worktree checks out the other sha and
@@ -501,9 +518,10 @@
              (run [:git :-C current.worktree :checkout :--detach sha]
                   (fn [_]
                     (set current.side side)
-                    (set current.ranges (if (= side :old)
-                                            current.base-ranges
-                                            current.head-ranges))
+                    (set current.ranges
+                         (if (= side :old)
+                             current.base-ranges
+                             current.head-ranges))
                     (reload-worktree-buffers)
                     ;; thread numbers are new-side ones — the reload
                     ;; re-places the marks (nowhere on the old side)
@@ -511,7 +529,7 @@
                     ;; and an open review quickfix follows the side
                     (refresh-qf)
                     (notify (.. "codeboomer: showing the "
-                                (if (= side :old) "old" "new") " code")
+                                (if (= side :old) :old :new) " code")
                             vim.log.levels.INFO)))))))
 
 ;; given resolved shas: worktree the head, find-or-create the session,
@@ -522,39 +540,40 @@
 (set M.setup-review
      (fn [opts ?done]
        (let [path (worktree-path (or opts.worktree-id
-                                     (.. "pr" (or opts.pr-number ""))))]
+                                     (.. :pr (or opts.pr-number ""))))]
          (if (not path)
              (notify "codeboomer: not inside a git repository"
                      vim.log.levels.ERROR)
              (ensure-worktree path opts.head-sha
-               (fn []
-                 (let [copts {:pr-number opts.pr-number
-                              :head-sha opts.head-sha
-                              :base-sha opts.base-sha
-                              :branch opts.branch}
-                       session (if opts.pr-number
-                                   (or (review.session-for-pr opts.pr-number)
-                                       (review.create-session copts))
-                                   (review.create-session copts))]
-                   (set current {:pr-number opts.pr-number
-                                 :head-sha opts.head-sha
-                                 :base-sha opts.base-sha
-                                 :branch opts.branch
-                                 :worktree path
-                                 :session-id session
-                                 ;; a review always opens on the new
-                                 ;; side; ReviewSide flips it. qf-dir is
-                                 ;; the ReviewFiles scope ("" = all)
-                                 :side :new
-                                 :qf-dir ""
-                                 :head-ranges {}
-                                 :base-ranges {}
-                                 :ranges {}})
-                   ;; choose it — the sidebar reloads its thread map
-                   (review.set-session session)
-                   (load-ranges (fn []
-                                  (open-review-tab)
-                                  (when ?done (?done)))))))))))
+                              (fn []
+                                (let [copts {:pr-number opts.pr-number
+                                             :head-sha opts.head-sha
+                                             :base-sha opts.base-sha
+                                             :branch opts.branch}
+                                      session (if opts.pr-number
+                                                  (or (review.session-for-pr opts.pr-number)
+                                                      (review.create-session copts))
+                                                  (review.create-session copts))]
+                                  (set current
+                                       {:pr-number opts.pr-number
+                                        :head-sha opts.head-sha
+                                        :base-sha opts.base-sha
+                                        :branch opts.branch
+                                        :worktree path
+                                        :session-id session
+                                        ;; a review always opens on the new
+                                        ;; side; ReviewSide flips it. qf-dir is
+                                        ;; the ReviewFiles scope ("" = all)
+                                        :side :new
+                                        :qf-dir ""
+                                        :head-ranges {}
+                                        :base-ranges {}
+                                        :ranges {}})
+                                  ;; choose it — the sidebar reloads its thread map
+                                  (review.set-session session)
+                                  (load-ranges (fn []
+                                                 (open-review-tab)
+                                                 (when ?done (?done)))))))))))
 
 ;; :Codeboomer Review [n] — no number means pick from `gh pr list`;
 ;; choosing a PR IS opening its review
@@ -565,11 +584,14 @@
                    vim.log.levels.ERROR)
            (if ?n
                (gh-view ?n open-pr)
-               (run [:gh :pr :list :--json "number,title,headRefName,baseRefName"]
+               (run [:gh
+                     :pr
+                     :list
+                     :--json
+                     "number,title,headRefName,baseRefName"]
                     (fn [out]
                       (let [(ok prs) (pcall vim.json.decode out)]
-                        (if (and ok (= :table (type prs))
-                                 (> (length prs) 0))
+                        (if (and ok (= :table (type prs)) (> (length prs) 0))
                             (choose-pr prs open-pr)
                             (notify "codeboomer: no open PRs (or `gh` unavailable)"
                                     vim.log.levels.WARN)))))))))
@@ -588,11 +610,11 @@
              (notify "codeboomer: not inside a git repository with commits"
                      vim.log.levels.ERROR)
              (snapshot-commit root head ?dir
-               (fn [sha]
-                 (M.setup-review {:worktree-id :worktree
-                                  :head-sha sha
-                                  :base-sha head
-                                  :branch (git.branch-name)})))))))
+                              (fn [sha]
+                                (M.setup-review {:worktree-id :worktree
+                                                 :head-sha sha
+                                                 :base-sha head
+                                                 :branch (git.branch-name)})))))))
 
 ;; :Codeboomer PostReview — push my unposted annotations of the
 ;; chosen PR session to GitHub: replies to pulled threads via the
@@ -605,14 +627,13 @@
 
 ;; :Codeboomer PullReview — refresh the chosen PR session with the
 ;; PR's current inline comments (idempotent by gh comment id)
-(set M.pull
-     (fn []
-       (let [sid (review.current-session-id)
-             session (when sid (review.session-by-id sid))]
-         (if (and session session.pr_number)
-             (github.pull-comments session.pr_number)
-             (notify "codeboomer: the chosen session is not a PR review"
-                     vim.log.levels.WARN)))))
+(set M.pull (fn []
+              (let [sid (review.current-session-id)
+                    session (when sid (review.session-by-id sid))]
+                (if (and session session.pr_number)
+                    (github.pull-comments session.pr_number)
+                    (notify "codeboomer: the chosen session is not a PR review"
+                            vim.log.levels.WARN)))))
 
 ;; the open review's state, for callers and tests
 (set M.info (fn [] current))

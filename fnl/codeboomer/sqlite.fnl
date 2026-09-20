@@ -6,12 +6,6 @@
   (assert (or (= status :open) (= status :resolved))
           (.. "invalid thread status: " (tostring status))))
 
-;; the created_at default, inlined: (sqlite.lib.strftime "%s" "now")
-;; returns exactly this string and sqlite.nvim's schema parser embeds
-;; it (parenthesized) verbatim in the CREATE TABLE DDL. Building it
-;; here keeps schema construction require-free — sqlite.nvim loads
-;; only when a table helper below runs, so merely requiring this
-;; module never loads the dependency
 (local created-at-default "strftime('%s', 'now')")
 
 (local user-schema

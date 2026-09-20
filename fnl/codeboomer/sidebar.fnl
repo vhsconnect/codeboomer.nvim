@@ -1,13 +1,12 @@
 ;; [nfnl] codeboomer/sidebar.fnl
-;; The review-comments pane and its gutter markers — UI owned entirely
-;; by review mode (:Codeboomer Review / ReviewWorktree): the module
-;; loads with it and nothing exists outside a review worktree. Review
-;; mode stamps every worktree buffer with codeboomer_review_side
-;; (:new or :old), and that stamp gates everything here: markers
-;; render only in :new buffers, and the pane evaluates only stamped
-;; buffers at all. The plugin's local write paths (Annotate,
-;; FlushWithDirective) work marker- and pane-free.
-;; The pane: a right-hand split opened in the review tab, following
+;; The review-comments pane and its gutter markers. Review mode stamps
+;; every worktree buffer with codeboomer_review_side (:new or :old);
+;; markers render only in :new buffers, on that stamp alone. The pane
+;; is broader: any real file buffer drives it except an :old-stamped
+;; one (thread lines belong to the new side) — so a plain working
+;; buffer under Annotate/FlushWithDirective opens it too, just without
+;; markers.
+;; The pane: a right-hand split in the current tabpage, following
 ;; the cursor (~100 ms rest) between threads — resting inside a
 ;; thread's [line_start, line_end] range renders its comments; moving
 ;; off every range keeps the last block on screen (the pane never
@@ -18,9 +17,10 @@
 ;; is loaded when the review opens and reloaded whenever a new
 ;; annotation lands, the chosen session changes or PR comments are
 ;; imported — buffer enters are plain map lookups, never queries.
-;; The pane is not read-only: three buffer-local keys act on what it
-;; shows (r composes a reply in the floating input, q resolves, n hops
-;; to the file's next thread); window-navigate into it (<C-w> w).
+;; The pane is not read-only: buffer-local keys act on what it shows
+;; (r composes a reply in the floating input, q resolves, n/N hop to
+;; the next/previous thread of the whole session without leaving the
+;; pane); window-navigate into it (<C-w> w).
 (global vim vim)
 
 (local review (require :codeboomer.review))
@@ -32,6 +32,9 @@
 (local augroup-name :codeboomer-review-pane)
 (local pane-buf-name "codeboomer://review-comments")
 (local extmark-ns (vim.api.nvim_create_namespace :codeboomer-review-pane))
+(local flash-ns (vim.api.nvim_create_namespace :codeboomer-review-flash))
+;; how long n/N's flash on the (possibly unfocused) code line lasts
+(local flash-ms 2000)
 (local pane-width 40)
 ;; one gitsigns-style vertical bar per commented line — the half-block
 ;; fills the sign-column cell so consecutive lines read as one solid
@@ -47,7 +50,20 @@
 ;; session threads grouped by file path — loaded when a review opens,
 ;; reloaded on CodeboomerAnnotated / SessionChanged / Imported
 (var threads-by-path {})
+;; the same threads flattened, file path then top-to-bottom (matching
+;; review.threads-for-session's own order) — pane-jump walks this so
+;; n/N cross file boundaries instead of stopping at the current one
+(var all-threads [])
 (var timer-id nil)
+;; set by review-mode when a review is the active session, so
+;; pane-jump opens a cross-file target in the worktree instead of the
+;; plain repo; nil (the default) resolves against the repo root
+(var open-path-resolver nil)
+(fn M.set-open-path [f] (set open-path-resolver f))
+
+(fn resolve-open-path [path]
+  (or (and open-path-resolver (open-path-resolver path))
+      (.. (or (git.repo-root) "") "/" path)))
 ;; in-pane context, recorded on every render: the code window the pane
 ;; mirrors and what the pane currently shows — the buffer-local pane
 ;; keys (r/q/n) act on these without the cursor ever leaving the pane
@@ -106,12 +122,17 @@
       (let [path (git.rel-path (vim.api.nvim_buf_get_name bufnr))]
         (place-marks bufnr (or (. threads-by-path path) []))))))
 
-;; threads covering a line of a file, straight from the in-memory map
+;; the thread covering a line of a file, straight from the in-memory
+;; map — at most one: overlapping ranges pick the earliest (smallest
+;; line_start), the same one place-marks colors the gutter with, so
+;; the pane never shows two threads' comments stacked at once
 (fn threads-at [path line]
-  (icollect [_ t (ipairs (or (. threads-by-path path) []))]
+  (var found nil)
+  (each [_ t (ipairs (or (. threads-by-path path) [])) &until found]
     (when (and t.line_start t.line_end (>= line t.line_start)
                (<= line t.line_end))
-      t)))
+      (set found t)))
+  (if found [found] []))
 
 ;; ── the pane ───────────────────────────────────────────────────────
 
@@ -125,8 +146,8 @@
 ;; one comment's label — "[source] name", so a conversation reads as
 ;; who-said-what: [github] logins, [agent] answers, [user] local notes
 (fn comment-label [c]
-  (let [name (or (?. (review.comment-author c) :name) "unknown")]
-    (string.format "[%s] %s" (or c.source "user") name)))
+  (let [name (or (?. (review.comment-author c) :name) :unknown)]
+    (string.format "[%s] %s" (or c.source :user) name)))
 
 ;; one block per covering thread: a header line tinted with the
 ;; thread's gutter color, then every comment as a Comment-tinted
@@ -237,20 +258,9 @@
           (when remaining
             (render-pane pane-path remaining))))))
 
-;; n — hop to the next thread of the same file (wrapping) in the code
-;; window the pane mirrors; focus lands back in the code and the pane
-;; follows on its own via the usual rest detection
-(fn pane-next []
-  (if (not (and pane-source-win (vim.api.nvim_win_is_valid pane-source-win)))
-      (vim.notify "codeboomer: the pane has no code window to jump from"
-                  vim.log.levels.WARN)
-      (let [t (pane-thread-at (?. (vim.api.nvim_win_get_cursor pane-win) 1))
-            all (or (. threads-by-path (or pane-path "")) [])
-            pos (if t (or (. t :hl-index) 1) 0)
-            next-t (?. all (+ 1 (% pos (length all))))
-            target (or (?. next-t :line_start) 1)]
-        (vim.api.nvim_set_current_win pane-source-win)
-        (vim.api.nvim_win_set_cursor pane-source-win [target 0]))))
+;; n/N — hop to the next/previous thread across the WHOLE session
+;; (wrapping); the real body sits after show-pane, which it calls
+(var pane-jump nil)
 
 ;; nil the reference BEFORE closing so the WinClosed handler sees
 ;; nothing left to react to
@@ -263,9 +273,8 @@
 ;; open (once) or re-render the pane — an already-open pane is updated
 ;; in place, so hopping between threads doesn't flicker the split
 (fn show-pane [path threads]
-  ;; the pane belongs to the current review's tabpage: one left behind
-  ;; in another tab (a previous review's) is closed first — there is
-  ;; ever only one
+  ;; the pane belongs to the current tabpage: one left behind in
+  ;; another tab is closed first — there is ever only one
   (when (and pane-win (vim.api.nvim_win_is_valid pane-win)
              (not= (vim.api.nvim_win_get_tabpage pane-win)
                    (vim.api.nvim_get_current_tabpage)))
@@ -290,34 +299,75 @@
       (set wo.signcolumn :no)
       (set wo.winfixwidth true)
       ;; in-pane keys exist only in this buffer and die with it: r
-      ;; reply, q resolve, n next thread — plain keys, no prefix
+      ;; reply, q resolve, n/N next/previous thread — plain keys, no prefix
       (vim.keymap.set :n :r pane-reply
                       {:buffer buf :desc "codeboomer: reply to this thread"})
       (vim.keymap.set :n :q pane-resolve
                       {:buffer buf :desc "codeboomer: resolve this thread"})
-      (vim.keymap.set :n :n pane-next
-                      {:buffer buf :desc "codeboomer: jump to the next thread"}))
+      (vim.keymap.set :n :n #(pane-jump 1)
+                      {:buffer buf :desc "codeboomer: jump to the next thread"})
+      (vim.keymap.set :n :N #(pane-jump -1)
+                      {:buffer buf
+                       :desc "codeboomer: jump to the previous thread"}))
     ;; keep the cursor in the code window — the pane is a follower, not
     ;; a destination
     (vim.cmd "wincmd p"))
   (render-pane path threads))
 
-;; the pane's whole contract evaluated for one code window. The stamp
-;; gates everything: an unstamped (local) window never opens the pane,
-;; an old-side one matches no thread numbers (they belong to the new
-;; side). A cursor resting in a thread's range renders that thread's
-;; comments; anywhere else the pane keeps showing the last block — it
-;; never collapses on its own. Shared by the cursor-rest path below
-;; and the pane-resident path — after r/q/n the cursor lives in the
-;; pane itself, so re-evaluation targets the code window the pane
-;; mirrors
+(fn flash-line [win row]
+  (let [buf (vim.api.nvim_win_get_buf win)
+        id (vim.api.nvim_buf_set_extmark buf flash-ns (- row 1) 0
+                                         {:end_row row :hl_group :IncSearch
+                                          :hl_eol true})]
+    (vim.defer_fn (fn []
+                    (when (vim.api.nvim_buf_is_valid buf)
+                      (pcall vim.api.nvim_buf_del_extmark buf flash-ns id)))
+                  flash-ms)))
+
+;; stays in the pane: pane-source-win's cursor and buffer move to the
+;; target (crossing files via resolve-open-path when needed) without
+;; taking focus, the target line flashes there, and the pane re-renders
+;; in place — n/N no longer bounce you out to the code window
+(set pane-jump
+     (fn [dir]
+       (if (not (and pane-source-win (vim.api.nvim_win_is_valid pane-source-win)))
+           (vim.notify "codeboomer: the pane has no code window to jump from"
+                       vim.log.levels.WARN)
+           (let [n (length all-threads)]
+             (if (= 0 n)
+                 (vim.notify "codeboomer: no threads to jump to"
+                             vim.log.levels.WARN)
+                 (let [t (pane-thread-at (?. (vim.api.nvim_win_get_cursor pane-win)
+                                             1))
+                       idx (accumulate [found nil i th (ipairs all-threads)]
+                             (if (and t (= th.id t.id)) (- i 1) found))
+                       target0 (% (+ (or idx (if (> dir 0) -1 0)) dir) n)
+                       target (. all-threads (+ target0 1))
+                       cur-path (git.rel-path (vim.api.nvim_buf_get_name
+                                               (vim.api.nvim_win_get_buf pane-source-win)))]
+                   (vim.api.nvim_win_call pane-source-win
+                                          (fn []
+                                            (when (not= cur-path target.file_path)
+                                              (vim.cmd {:cmd :edit
+                                                        :args [(resolve-open-path target.file_path)]}))
+                                            (vim.api.nvim_win_set_cursor pane-source-win
+                                                                        [(or target.line_start
+                                                                             1)
+                                                                         0])
+                                            (vim.cmd "normal! zz")))
+                   (flash-line pane-source-win (or target.line_start 1))
+                   (show-pane target.file_path [target])
+                   (vim.api.nvim_win_set_cursor pane-win [1 0])))))))
+
+;; called with pane-source-win when re-evaluating from the pane itself
+;; (after r/q/n), since the cursor no longer sits in the code window
 (fn evaluate-at [win]
   (let [buf (vim.api.nvim_win_get_buf win)
         side (?. vim.b buf :codeboomer_review_side)]
-    (when side
+    (when (and (not= side :old) (normal-buf buf))
       (let [row (?. (vim.api.nvim_win_get_cursor win) 1)
             path (git.rel-path (vim.api.nvim_buf_get_name buf))
-            threads (if (= side :old) [] (threads-at path (or row 0)))]
+            threads (threads-at path (or row 0))]
         (when (> (length threads) 0)
           ;; remember the code window the pane mirrors — the pane's n
           ;; key hops back into it
@@ -350,7 +400,8 @@
 (fn M.reload-threads []
   (let [sid (review.current-session-id)]
     (set threads-by-path {})
-    (each [_ t (ipairs (if sid (review.threads-for-session sid) []))]
+    (set all-threads (if sid (review.threads-for-session sid) []))
+    (each [_ t (ipairs all-threads)]
       (let [path (or t.file_path "")
             peers (vim.list_extend (or (. threads-by-path path) []) [t])]
         ;; stamp each thread's 1-based position in its file's
