@@ -167,9 +167,8 @@ preview shows the pane's recent content.
 
 Opens a snapshot review of a pull request: the PR head is fetched
 (`git fetch origin pull/<n>/head`) along with its base branch, checked
-out as a detached worktree under `stdpath` (`codeboomer-review/`), and
-opened in a review tab — code on the left, the review-comments pane on
-the right.
+out as a detached worktree, and opened in a review tab — code on the
+left, the review-comments pane on the right.
 
 - Without an argument an fzf picker over `gh pr list` opens — choosing
   a PR *is* opening its review; with a number the picker is skipped.
@@ -220,8 +219,13 @@ the right.
   pane and the bars exist only inside reviews: thread line numbers
   belong to the read-only snapshot, so local working buffers show
   neither
-- The worktree is reused on re-review (hard-reset onto the new head)
-  and lives outside the repo; dispose of it with `git worktree remove`
+- A floating input asks where to put the worktree, prefilled with its
+  previously-registered location (discovered via `git worktree list`)
+  if this PR's already been reviewed, otherwise a sibling of the repo
+  one directory up. Confirming a different location than the one
+  discovered relocates the registration; the worktree itself is reused
+  on re-review (hard-reset onto the new head) and disposed of with
+  `git worktree remove`
 - Opening the review also pulls the PR's inline comments down as
   threads (`:Codeboomer PullReview` refreshes — idempotent by GitHub
   comment id); `:Codeboomer PostReview` pushes your **promoted**

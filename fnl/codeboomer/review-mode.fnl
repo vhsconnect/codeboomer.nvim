@@ -15,6 +15,7 @@
 (local review (require :codeboomer.review))
 (local sidebar (require :codeboomer.sidebar))
 (local github (require :codeboomer.github))
+(local input (require :codeboomer.input))
 
 (local M {})
 
@@ -80,14 +81,33 @@
 (fn normalize-dir [?dir]
   (string.gsub (string.gsub (or ?dir "") "^/+" "") "/+$" ""))
 
-;; worktrees live outside every repo, under nvim's data dir — one per
+;; the leaf directory name a worktree for {id} is known by — one per
 ;; repo basename + id ("pr42", "worktree"), disposable via
-;; `git worktree remove`
-(fn worktree-path [id]
-  (let [root (git.repo-root)]
-    (when root
-      (.. (vim.fn.stdpath :data) :/codeboomer-review/ (vim.fs.basename root)
-          "-" id))))
+;; `git worktree remove`; the parent directory is the user's choice
+;; (pick-worktree-path), not assumed
+(fn worktree-leaf [root id]
+  (.. (vim.fs.basename root) "-" id))
+
+;; the path of a worktree already registered for {leaf}, wherever the
+;; user put it last time — read from git's own worktree registry
+;; rather than assumed, since the parent directory is user-editable
+(fn discover-worktree [leaf k]
+  (run [:git :worktree :list :--porcelain]
+       (fn [out]
+         (var found nil)
+         (each [line (string.gmatch out "[^\n]+")]
+           (let [p (line:match "^worktree%s+(.+)")]
+             (when (and p (= (vim.fs.basename p) leaf))
+               (set found p))))
+         (k found))))
+
+;; a worktree for the same id already registered somewhere other than
+;; {path} — drop its registration before adding the new one, or it'd
+;; linger orphaned on disk and in git's worktree list
+(fn relocate-worktree [old path k]
+  (if (and old (not= old path))
+      (run [:git :worktree :remove :--force old] (fn [_] (k)))
+      (k)))
 
 ;; reuse an existing worktree by hard-resetting it onto the sha — the
 ;; object store is shared with the main checkout, so no re-fetch is
@@ -106,6 +126,42 @@
         (run [:git :worktree :prune]
              (fn [_]
                (run [:git :worktree :add :--detach path sha] (fn [_] (k))))))))
+
+;; asks where to put the worktree via a floating input, prefilled with
+;; its previously-registered location if this id has one, otherwise a
+;; sibling of the repo (one level up — never nested inside it); k
+;; receives the confirmed path, or nil if there's no repo or the
+;; buffer was left empty (both cases already notified)
+(fn pick-worktree-path [id k]
+  (let [root (git.repo-root)]
+    (if (not root)
+        (do
+          (notify "codeboomer: not inside a git repository"
+                  vim.log.levels.ERROR)
+          (k nil))
+        (let [leaf (worktree-leaf root id)]
+          (discover-worktree leaf
+                             (fn [found]
+                               (let [default (or found
+                                                 (.. (vim.fs.dirname root) "/"
+                                                     leaf))]
+                                 (input.open
+                                  {:title " Review worktree path> "
+                                   :prefill default
+                                   :submit-on-enter true
+                                   :on-submit (fn [lines]
+                                                (let [path (vim.trim (or (. lines
+                                                                             1)
+                                                                         ""))]
+                                                  (if (= path "")
+                                                      (do
+                                                        (notify "codeboomer: worktree path required"
+                                                                vim.log.levels.WARN)
+                                                        (k nil))
+                                                      (relocate-worktree found
+                                                                         path
+                                                                         (fn []
+                                                                           (k path))))))}))))))))
 
 ;; `git diff --unified=0 base..head` → {rel-path [[start last] ...]}
 ;; of one side's ranges the diff touches. ?side :head (the default)
@@ -542,48 +598,47 @@
                                 (if (= side :old) :old :new) " code")
                             vim.log.levels.INFO)))))))
 
-;; given resolved shas: worktree the head, find-or-create the session,
-;; choose it, open the review tab, then run ?done. opts: {:pr-number
-;; :worktree-id :head-sha :base-sha :branch} — the gh-free seam tests
-;; use directly. PR reviews reuse their session (keyed by pr-number);
-;; others always start a fresh conversation
+;; given resolved shas: ask where to worktree the head (pick-worktree-path),
+;; find-or-create the session, choose it, open the review tab, then run
+;; ?done. opts: {:pr-number :worktree-id :head-sha :base-sha :branch} —
+;; the gh-free seam tests use directly. PR reviews reuse their session
+;; (keyed by pr-number); others always start a fresh conversation
 (set M.setup-review
      (fn [opts ?done]
-       (let [path (worktree-path (or opts.worktree-id
-                                     (.. :pr (or opts.pr-number ""))))]
-         (if (not path)
-             (notify "codeboomer: not inside a git repository"
-                     vim.log.levels.ERROR)
-             (ensure-worktree path opts.head-sha
-                              (fn []
-                                (let [copts {:pr-number opts.pr-number
-                                             :head-sha opts.head-sha
-                                             :base-sha opts.base-sha
-                                             :branch opts.branch}
-                                      session (if opts.pr-number
-                                                  (or (review.session-for-pr opts.pr-number)
-                                                      (review.create-session copts))
-                                                  (review.create-session copts))]
-                                  (set current
-                                       {:pr-number opts.pr-number
-                                        :head-sha opts.head-sha
-                                        :base-sha opts.base-sha
-                                        :branch opts.branch
-                                        :worktree path
-                                        :session-id session
-                                        ;; a review always opens on the new
-                                        ;; side; ReviewSide flips it. qf-dir is
-                                        ;; the ReviewFiles scope ("" = all)
-                                        :side :new
-                                        :qf-dir ""
-                                        :head-ranges {}
-                                        :base-ranges {}
-                                        :ranges {}})
-                                  ;; choose it — the sidebar reloads its thread map
-                                  (review.set-session session)
-                                  (load-ranges (fn []
-                                                 (open-review-tab)
-                                                 (when ?done (?done)))))))))))
+       (pick-worktree-path (or opts.worktree-id
+                               (.. :pr (or opts.pr-number "")))
+                           (fn [path]
+                             (when path
+                               (ensure-worktree path opts.head-sha
+                                                (fn []
+                                                  (let [copts {:pr-number opts.pr-number
+                                                               :head-sha opts.head-sha
+                                                               :base-sha opts.base-sha
+                                                               :branch opts.branch}
+                                                        session (if opts.pr-number
+                                                                    (or (review.session-for-pr opts.pr-number)
+                                                                        (review.create-session copts))
+                                                                    (review.create-session copts))]
+                                                    (set current
+                                                         {:pr-number opts.pr-number
+                                                          :head-sha opts.head-sha
+                                                          :base-sha opts.base-sha
+                                                          :branch opts.branch
+                                                          :worktree path
+                                                          :session-id session
+                                                          ;; a review always opens on the new
+                                                          ;; side; ReviewSide flips it. qf-dir is
+                                                          ;; the ReviewFiles scope ("" = all)
+                                                          :side :new
+                                                          :qf-dir ""
+                                                          :head-ranges {}
+                                                          :base-ranges {}
+                                                          :ranges {}})
+                                                    ;; choose it — the sidebar reloads its thread map
+                                                    (review.set-session session)
+                                                    (load-ranges (fn []
+                                                                   (open-review-tab)
+                                                                   (when ?done (?done))))))))))))
 
 ;; :Codeboomer Review [n] — no number means pick from `gh pr list`;
 ;; choosing a PR IS opening its review
