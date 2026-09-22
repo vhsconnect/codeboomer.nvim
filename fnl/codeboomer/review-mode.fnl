@@ -109,14 +109,6 @@
                (set found p))))
          (k found))))
 
-;; a worktree for the same id already registered somewhere other than
-;; {path} — drop its registration before adding the new one, or it'd
-;; linger orphaned on disk and in git's worktree list
-(fn relocate-worktree [old path k]
-  (if (and old (not= old path))
-      (run [:git :worktree :remove :--force old] (fn [_] (k)))
-      (k)))
-
 ;; reuse an existing worktree by hard-resetting it onto the sha — the
 ;; object store is shared with the main checkout, so no re-fetch is
 ;; needed; otherwise prune stale registrations (a worktree dir deleted
@@ -135,11 +127,13 @@
              (fn [_]
                (run [:git :worktree :add :--detach path sha] (fn [_] (k))))))))
 
-;; asks where to put the worktree via a floating input, prefilled with
-;; its previously-registered location if this id has one, otherwise a
-;; sibling of the repo (one level up — never nested inside it); k
-;; receives the confirmed path, or nil if there's no repo or the
-;; buffer was left empty (both cases already notified)
+;; a review already reviewed once reuses its worktree silently —
+;; discovered via git's own registry, no prompt, no friction; only a
+;; brand-new id (nothing registered yet) asks where to put it, via a
+;; floating input prefilled with a sibling of the repo (one level up
+;; — never nested inside it). k receives the confirmed path, or nil if
+;; there's no repo or the buffer was left empty (both cases already
+;; notified)
 (fn pick-worktree-path [id k]
   (let [root (git.repo-root)]
     (if (not root)
@@ -150,26 +144,23 @@
         (let [leaf (worktree-leaf root id)]
           (discover-worktree leaf
                              (fn [found]
-                               (let [default (or found
-                                                 (.. (vim.fs.dirname root) "/"
-                                                     leaf))]
-                                 (input.open
-                                  {:title " Review worktree path> "
-                                   :prefill default
-                                   :submit-on-enter true
-                                   :on-submit (fn [lines]
-                                                (let [path (vim.trim (or (. lines
-                                                                             1)
-                                                                         ""))]
-                                                  (if (= path "")
-                                                      (do
-                                                        (notify "codeboomer: worktree path required"
-                                                                vim.log.levels.WARN)
-                                                        (k nil))
-                                                      (relocate-worktree found
-                                                                         path
-                                                                         (fn []
-                                                                           (k path))))))}))))))))
+                               (if found
+                                   (k found)
+                                   (input.open
+                                    {:title " Review worktree path> "
+                                     :prefill (.. (vim.fs.dirname root) "/"
+                                                  leaf)
+                                     :submit-on-enter true
+                                     :on-submit (fn [lines]
+                                                  (let [path (vim.trim (or (. lines
+                                                                               1)
+                                                                           ""))]
+                                                    (if (= path "")
+                                                        (do
+                                                          (notify "codeboomer: worktree path required"
+                                                                  vim.log.levels.WARN)
+                                                          (k nil))
+                                                        (k path))))}))))))))
 
 ;; `git diff --unified=0 base..head` → {rel-path [[start last] ...]}
 ;; of one side's ranges the diff touches. ?side :head (the default)

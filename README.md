@@ -223,12 +223,11 @@ left, the review-comments pane on the right.
   pane and the bars exist only inside reviews: thread line numbers
   belong to the read-only snapshot, so local working buffers show
   neither
-- A floating input asks where to put the worktree, prefilled with its
-  previously-registered location (discovered via `git worktree list`)
-  if this PR's already been reviewed, otherwise a sibling of the repo
-  one directory up. Confirming a different location than the one
-  discovered relocates the registration; the worktree itself is reused
-  on re-review (hard-reset onto the new head) and disposed of with
+- Re-reviewing a PR reuses its worktree silently — discovered via
+  `git worktree list`, no prompt. The first time a PR is reviewed, a
+  floating input asks where to put it, prefilled with a sibling of the
+  repo one directory up; the worktree is reused on re-review
+  (hard-reset onto the new head) and disposed of with
   `git worktree remove`
 - Opening the review also pulls the PR's inline comments down as
   threads (`:Codeboomer PullReview` refreshes — idempotent by GitHub
