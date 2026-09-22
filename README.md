@@ -433,6 +433,7 @@ Opens fzf to select a pre-defined directive, then sends it along with all unsent
 - Each message carries one **whole thread**: the header (`regarding <file> lines X to Y (thread N)`), the annotated code, and the full conversation — every comment author-labeled (`[user] vhs: …`, `[agent] agent: …`, `[github] reviewer: …`), so a reply flushed to a pulled thread ships the GitHub reviewer's words along and a re-asked thread ships the agent's earlier answers. Several unsent comments of one thread ship as one conversation, not one copy each
 - The payload ends with a reply instruction pointing at the generated `codeboomer-agent` shim — the agent answers each thread with `codeboomer-agent reply <thread-id> <text>`, which appends an agent comment to that thread in the database (visible
 in the comments pane of an open review on its next reload)
+- The shim is also self-documenting: `codeboomer-agent help` (equally `-h`, `--help`, or no arguments at all) prints its full usage, so an agent that's only been handed the path can work out how to use it without any of the above spelled out in a prompt
 
 ```vim
 :Codeboomer FlushWithDirective

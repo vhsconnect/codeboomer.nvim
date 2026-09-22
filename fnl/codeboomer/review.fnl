@@ -84,15 +84,19 @@
   (when (not ?silent)
     (vim.api.nvim_exec_autocmds :User {:pattern :CodeboomerSessionChanged})))
 
+;; branch-only sessions — PR sessions are a hard-separate namespace
+;; (Review picks them by PR number via session-for-pr, never through
+;; this list/the Sessions picker/ensure-session's auto-resolve)
 (fn M.existing-sessions []
   (let [root (git.repo-root)]
     (when root
       (let [repo-id (?. (db sqlite.repo :get {:where {:path root}}) 1 :id)]
         (when repo-id
-          (let [sessions (sqlite.active-rows
-                            (or (db sqlite.session :get
-                                    {:where {:repo_id repo-id}})
-                                []))]
+          (let [sessions (icollect [_ row (ipairs (sqlite.active-rows
+                                                     (or (db sqlite.session :get
+                                                             {:where {:repo_id repo-id}})
+                                                         [])))]
+                           (when (= row.pr_number nil) row))]
             (table.sort sessions (fn [a b] (< (or a.id 0) (or b.id 0))))
             sessions))))))
 
@@ -106,6 +110,29 @@
                                      {:where {:repo_id repo-id
                                               :pr_number pr-number}}))
                 1)))))))
+
+;; the branch-only session (no pr_number) for {branch} — the live/
+;; local counterpart to session-for-pr, so ensure-session can adopt it
+;; deterministically instead of falling back to "the sole session in
+;; the repo" (which could belong to any branch). The where dsl can't
+;; express "pr_number is null" (see sqlite.fnl's active-rows comment),
+;; so the branch match comes back from the DB and the pr_number filter
+;; runs here
+(fn M.session-for-branch [branch]
+  (when branch
+    (let [root (git.repo-root)]
+      (when root
+        (let [repo-id (?. (db sqlite.repo :get {:where {:path root}}) 1 :id)]
+          (when repo-id
+            (var found nil)
+            (each [_ row (ipairs (sqlite.active-rows
+                                    (or (db sqlite.session :get
+                                            {:where {:repo_id repo-id
+                                                     : branch}})
+                                        [])))]
+              (when (and (not found) (= row.pr_number nil))
+                (set found row)))
+            found))))))
 
 ;; soft-deleted sessions read as gone everywhere: the listings, the
 ;; outboxes and PR-session reuse all resolve through here

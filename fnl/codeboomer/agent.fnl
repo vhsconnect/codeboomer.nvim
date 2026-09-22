@@ -24,31 +24,53 @@
 
 (local usage "usage: codeboomer-agent reply <thread-id> <answer text>")
 
+;; the agent's own entry point for discovering the tool cold: given
+;; nothing but the shim's path, `help`/`-h`/`--help`/no args at all
+;; print this instead of failing
+(local help-text
+  (.. usage "\n\n"
+      "codeboomer-agent posts a review agent's replies into codeboomer's\n"
+      "comment threads from outside nvim — thread ids arrive inline\n"
+      "wherever a review's annotations were sent to you.\n\n"
+      "verbs:\n"
+      "  reply <thread-id> <text...>   reply to an existing, open thread.\n"
+      "                                <text> is every argument after the\n"
+      "                                id, joined with spaces — no quoting\n"
+      "                                needed. Fails if the thread doesn't\n"
+      "                                exist or is resolved/deleted.\n"
+      "  help | -h | --help            show this message.\n\n"
+      "exit status: 0 on success, 1 on failure (the message says why).\n"))
+
 (fn fail [msg]
-  (print (.. "codeboomer-agent: " msg "\n" usage))
+  (print (.. "codeboomer-agent: " msg "\n" usage
+             "\nrun `codeboomer-agent help` for details"))
   (os.exit 1 true))
 
 (fn M.main []
   (let [args (vim.split (or (os.getenv :CODEBOOMER_AGENT_ARGS) "") " "
                         {:trimempty true})
-        verb (. args 1)
-        thread-id (tonumber (. args 2))
-        body (table.concat (vim.list_slice args 3) " ")]
-    ;; fail exits the process, so these guards are early returns
-    (when (not= verb :reply)
-      (fail "expected 'reply' as the first argument"))
-    (when (not thread-id)
-      (fail "thread id must be a number"))
-    (when (= body "")
-      (fail "missing answer text"))
-    (let [id (review.agent-reply thread-id body)]
-      (if id
-          (do
-            (print (string.format "codeboomer-agent: posted reply to thread #%d (comment %d)"
-                                  thread-id id))
-            (os.exit 0 true))
-          ;; review.agent-reply has already said why
-          (fail "reply rejected")))))
+        verb (. args 1)]
+    (if (or (not verb) (= verb :help) (= verb "-h") (= verb "--help"))
+        (do
+          (print help-text)
+          (os.exit 0 true))
+        (let [thread-id (tonumber (. args 2))
+              body (table.concat (vim.list_slice args 3) " ")]
+          ;; fail exits the process, so these guards are early returns
+          (when (not= verb :reply)
+            (fail "expected 'reply' as the first argument"))
+          (when (not thread-id)
+            (fail "thread id must be a number"))
+          (when (= body "")
+            (fail "missing answer text"))
+          (let [id (review.agent-reply thread-id body)]
+            (if id
+                (do
+                  (print (string.format "codeboomer-agent: posted reply to thread #%d (comment %d)"
+                                        thread-id id))
+                  (os.exit 0 true))
+                ;; review.agent-reply has already said why
+                (fail "reply rejected")))))))
 
 ;; the shim bakes in the running nvim's environment (plugin root,
 ;; LD_LIBRARY_PATH for libsqlite3) so the agent needs nothing but the

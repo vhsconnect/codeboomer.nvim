@@ -275,22 +275,29 @@
                                  :reload true}}})))
 
 ;; resolve the session an upcoming write targets: the chosen one when
-;; set; a fresh one when the repo has none; the sole one adopted when
-;; exactly one exists — the common live-review case never sees a
-;; picker. Several compete → picker
+;; set; otherwise the current branch's own session when one exists
+;; (deterministic — never the picker, however many other sessions the
+;; repo has on other branches); a fresh one when the repo has none at
+;; all; the sole one adopted when exactly one exists on no particular
+;; branch match — several unmatched compete → picker
 (fn ensure-session [k]
   (let [sid (review.current-session-id)]
     (if sid
         (k)
-        (let [sessions (or (review.existing-sessions) [])]
-          (case (length sessions)
-            0 (do
-                (review.set-session (review.create-session))
+        (let [branch-match (review.session-for-branch (git.branch-name))]
+          (if branch-match
+              (do
+                (review.set-session branch-match.id)
                 (k))
-            1 (do
-                (review.set-session (?. sessions 1 :id))
-                (k))
-            _ (choose-session k))))))
+              (let [sessions (or (review.existing-sessions) [])]
+                (case (length sessions)
+                  0 (do
+                      (review.set-session (review.create-session))
+                      (k))
+                  1 (do
+                      (review.set-session (?. sessions 1 :id))
+                      (k))
+                  _ (choose-session k))))))))
 
 (set M.RunOneOff run-one-off)
 

@@ -7,44 +7,50 @@ M["reply-instructions"] = function()
   return ("Reply to each thread above. Keep your responses in the thread short and consice and use the harnass to provide detail. Answer in the thread with: " .. shim_path .. " reply <thread-id> <text>\n")
 end
 local usage = "usage: codeboomer-agent reply <thread-id> <answer text>"
+local help_text = (usage .. "\n\n" .. "codeboomer-agent posts a review agent's replies into codeboomer's\n" .. "comment threads from outside nvim \226\128\148 thread ids arrive inline\n" .. "wherever a review's annotations were sent to you.\n\n" .. "verbs:\n" .. "  reply <thread-id> <text...>   reply to an existing, open thread.\n" .. "                                <text> is every argument after the\n" .. "                                id, joined with spaces \226\128\148 no quoting\n" .. "                                needed. Fails if the thread doesn't\n" .. "                                exist or is resolved/deleted.\n" .. "  help | -h | --help            show this message.\n\n" .. "exit status: 0 on success, 1 on failure (the message says why).\n")
 local function fail(msg)
-  print(("codeboomer-agent: " .. msg .. "\n" .. usage))
+  print(("codeboomer-agent: " .. msg .. "\n" .. usage .. "\nrun `codeboomer-agent help` for details"))
   return os.exit(1, true)
 end
 M.main = function()
   local args = vim.split((os.getenv("CODEBOOMER_AGENT_ARGS") or ""), " ", {trimempty = true})
   local verb = args[1]
-  local thread_id = tonumber(args[2])
-  local body = table.concat(vim.list_slice(args, 3), " ")
-  if (verb ~= "reply") then
-    fail("expected 'reply' as the first argument")
-  else
-  end
-  if not thread_id then
-    fail("thread id must be a number")
-  else
-  end
-  if (body == "") then
-    fail("missing answer text")
-  else
-  end
-  local id = review["agent-reply"](thread_id, body)
-  if id then
-    print(string.format("codeboomer-agent: posted reply to thread #%d (comment %d)", thread_id, id))
+  if (not verb or (verb == "help") or (verb == "-h") or (verb == "--help")) then
+    print(help_text)
     return os.exit(0, true)
   else
-    return fail("reply rejected")
+    local thread_id = tonumber(args[2])
+    local body = table.concat(vim.list_slice(args, 3), " ")
+    if (verb ~= "reply") then
+      fail("expected 'reply' as the first argument")
+    else
+    end
+    if not thread_id then
+      fail("thread id must be a number")
+    else
+    end
+    if (body == "") then
+      fail("missing answer text")
+    else
+    end
+    local id = review["agent-reply"](thread_id, body)
+    if id then
+      print(string.format("codeboomer-agent: posted reply to thread #%d (comment %d)", thread_id, id))
+      return os.exit(0, true)
+    else
+      return fail("reply rejected")
+    end
   end
 end
 local function shim_content()
   local entry
   do
-    local t_5_ = vim.api.nvim_get_runtime_file("plugin/codeboomer.lua", false)
-    if (nil ~= t_5_) then
-      t_5_ = t_5_[1]
+    local t_6_ = vim.api.nvim_get_runtime_file("plugin/codeboomer.lua", false)
+    if (nil ~= t_6_) then
+      t_6_ = t_6_[1]
     else
     end
-    entry = t_5_
+    entry = t_6_
   end
   if entry then
     local root = vim.fs.dirname(vim.fs.dirname(entry))
