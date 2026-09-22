@@ -80,6 +80,13 @@
 (var promote-context nil)
 (fn M.set-promote-context [f] (set promote-context f))
 
+;; set by review-mode while a review is open: the commit
+;; WalkForward/WalkBack is currently sitting on (the head, absent a
+;; walk) — thread-header shows it next to each thread's own anchor
+;; commit so drift is visible; nil means no review is open
+(var walk-context nil)
+(fn M.set-walk-context [f] (set walk-context f))
+
 (fn resolve-open-path [path]
   (or (and open-path-resolver (open-path-resolver path))
       (.. (or (git.repo-root) "") "/" path)))
@@ -176,7 +183,8 @@
     (set t.conversation (review.conversation-comments (or t.id 0)))
     (each [_ c (ipairs (or t.conversation []))]
       (set c.author-name (or (?. (review.comment-author c) :name)
-                             :unknown)))))
+                             :unknown)))
+    (set t.anchor-sha (when t.anchor_commit (review.commit-sha t.anchor_commit)))))
 
 ;; conversations also go stale from the outside — the agent shim is a
 ;; separate process writing the same DB — so a rest re-stamps at most
@@ -205,14 +213,21 @@
     (when changed
       (set map-version (+ 1 map-version)))))
 
+;; the first 7 chars of a sha, or "?" when there isn't one to show
+(fn short-sha [sha]
+  (if (and sha (>= (length sha) 7)) (sha:sub 1 7) (or sha "?")))
+
 (fn thread-header [base t]
   (let [status (.. (or t.status :open)
                    (or (when (and t.gh_outdated (> (or t.gh_outdated 0) 0))
                          ", outdated") "")
                    (or (when (= :review (or t.twin-kind :local))
-                         " · promoted") ""))]
-    (string.format "#%d  %s:%s-%s  (%s)" (or t.id 0) base (or t.line_start "?")
-                   (or t.line_end "?") status)))
+                         " · promoted") ""))
+        ctx (when walk-context (walk-context))]
+    (string.format "#%d  %s:%s-%s  (%s)  anchor %s → now %s" (or t.id 0) base
+                   (or t.line_start "?") (or t.line_end "?") status
+                   (short-sha t.anchor-sha)
+                   (short-sha (and ctx ctx.current-sha)))))
 
 ;; one comment's label — "[source] name", so a conversation reads as
 ;; who-said-what: [github] logins, [agent] answers, [user] local notes

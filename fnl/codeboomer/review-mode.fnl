@@ -53,6 +53,14 @@
        :head-sha current.head-sha
        :head-ranges current.head-ranges})))
 
+;; the thread pane's headers read this to show what commit is
+;; currently walked to (WalkForward/WalkBack), alongside each thread's
+;; own anchor commit — nil (no review, or never walked) shows the head
+(sidebar.set-walk-context
+  (fn []
+    (when current
+      {:current-sha (or current.walk-sha current.head-sha)})))
+
 (fn notify [msg level]
   (vim.schedule #(vim.notify msg level)))
 
@@ -588,6 +596,11 @@
                          (if (= side :old)
                              current.base-ranges
                              current.head-ranges))
+                    ;; the side flip always lands on a diff endpoint, not
+                    ;; a walked commit — WalkForward/WalkBack re-derive
+                    ;; their position fresh (at the head) next time
+                    (set current.walk-index nil)
+                    (set current.walk-sha nil)
                     (reload-worktree-buffers)
                     ;; thread numbers are new-side ones — the reload
                     ;; re-places the marks (nowhere on the old side)
@@ -597,6 +610,79 @@
                     (notify (.. "codeboomer: showing the "
                                 (if (= side :old) :old :new) " code")
                             vim.log.levels.INFO)))))))
+
+;; the PR's own commits, oldest first — walked one at a time by
+;; WalkForward/WalkBack; computed once per review and cached on
+;; current.commits
+(fn commits-between [worktree base head k]
+  (run [:git :-C worktree :log :--reverse (.. base ".." head) "--format=%H"]
+       (fn [out]
+         (k (icollect [line (string.gmatch out "[^\n]+")] line)))))
+
+;; current.commits/walk-index, computed lazily on first use and
+;; re-derived (at the head) whenever something else moved the worktree
+;; without walking it (see toggle-side)
+(fn ensure-commits [k]
+  (if current.commits
+      (do
+        (when (not current.walk-index)
+          (set current.walk-index (length current.commits)))
+        (k))
+      (commits-between current.worktree current.base-sha current.head-sha
+                       (fn [commits]
+                         (set current.commits commits)
+                         (set current.walk-index (length commits))
+                         (k)))))
+
+;; checks out current.commits[idx] (clamped, never wraps) — a bare
+;; checkout, same as ReviewSide: the worktree is already known-clean,
+;; so no reset/clean is needed. No re-anchoring and no tinting of what
+;; that commit itself changed (out of scope for now) — walking away
+;; from the head just clears the tint rather than show a wrong one;
+;; landing back on it restores the head's ranges
+(fn walk-to [idx]
+  (let [commits current.commits
+        n (length commits)]
+    (if (= n 0)
+        (notify "codeboomer: no commits between base and head"
+                vim.log.levels.WARN)
+        (let [clamped (math.max 1 (math.min idx n))]
+          (if (and (= clamped current.walk-index) (= current.side :new))
+              (notify (.. "codeboomer: already at the "
+                          (if (= clamped 1) "first" "last") " commit")
+                      vim.log.levels.WARN)
+              (let [sha (. commits clamped)]
+                (run [:git :-C current.worktree :checkout :--detach sha]
+                     (fn [_]
+                       (set current.side :new)
+                       (set current.walk-index clamped)
+                       (set current.walk-sha (if (= clamped n) nil sha))
+                       (set current.ranges
+                            (if (= clamped n) current.head-ranges {}))
+                       (reload-worktree-buffers)
+                       (sidebar.reload-threads)
+                       (notify (.. "codeboomer: commit " clamped "/" n " ("
+                                   (sha:sub 1 7) ")")
+                               vim.log.levels.INFO)))))))))
+
+;; :Codeboomer WalkForward / WalkBack — step the worktree through the
+;; PR's own commits one at a time, starting from the pinned head; the
+;; sidebar's thread headers show each thread's anchor commit next to
+;; whichever commit is currently walked to, so drift is visible even
+;; though nothing re-anchors automatically
+(set M.walk-forward
+     (fn []
+       (if (not current)
+           (notify "codeboomer: no review open — :Codeboomer Review first"
+                   vim.log.levels.WARN)
+           (ensure-commits (fn [] (walk-to (+ current.walk-index 1)))))))
+
+(set M.walk-back
+     (fn []
+       (if (not current)
+           (notify "codeboomer: no review open — :Codeboomer Review first"
+                   vim.log.levels.WARN)
+           (ensure-commits (fn [] (walk-to (- current.walk-index 1)))))))
 
 ;; given resolved shas: ask where to worktree the head (pick-worktree-path),
 ;; find-or-create the session, choose it, open the review tab, then run

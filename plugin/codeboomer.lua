@@ -35,6 +35,14 @@ subcommands.ReviewSide = function()
   require("codeboomer.review-mode")["toggle-side"]()
 end
 
+subcommands.WalkForward = function()
+  require("codeboomer.review-mode")["walk-forward"]()
+end
+
+subcommands.WalkBack = function()
+  require("codeboomer.review-mode")["walk-back"]()
+end
+
 subcommands.PostReview = function()
   require("codeboomer.review-mode").post()
 end

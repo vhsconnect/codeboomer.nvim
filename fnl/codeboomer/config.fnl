@@ -31,6 +31,12 @@
                 :review_side [:n
                               "<cmd>Codeboomer ReviewSide<cr>"
                               "codeboomer: toggle the review between new and old code"]
+                :walk_forward [:n
+                               "<cmd>Codeboomer WalkForward<cr>"
+                               "codeboomer: walk the review forward one commit"]
+                :walk_back [:n
+                            "<cmd>Codeboomer WalkBack<cr>"
+                            "codeboomer: walk the review back one commit"]
                 :post_review [:n
                               "<cmd>Codeboomer PostReview<cr>"
                               "codeboomer: push unposted annotations to the PR"]

@@ -9,7 +9,7 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Annotation workflow — accumulate multiple code selections for review before sending
 - **Review sessions (`Sessions`)** — annotations are grouped into sessions (one per branch or PR); annotate and flush all target the chosen one, the picker appears only when several compete, and `d` in the picker soft-deletes a session — its threads and comments vanish everywhere while the rows stay, the way to terminate a set of comments and start fresh
-- **PR snapshot review (`Review`)** — fetch a PR head into a read-only worktree, tint its changed lines, and annotate it in a dedicated tab with the comments pane pinned open; `ReviewSide` flips the same review onto the base code so removed lines are readable (and tinted) too; opening a PR also imports its inline comments as threads, and `PostReview` pushes the threads you **promoted** (the pane's `p`) up as a pending review (a draft submitted on GitHub); `ReviewWorktree` gives uncommitted working-tree changes (e.g. an agent's edits) the same read-only treatment via a dangling snapshot commit
+- **PR snapshot review (`Review`)** — fetch a PR head into a read-only worktree, tint its changed lines, and annotate it in a dedicated tab with the comments pane pinned open; `ReviewSide` flips the same review onto the base code so removed lines are readable (and tinted) too; `WalkForward`/`WalkBack` step through the PR's own commits one at a time (the pane shows each thread's anchor commit next to the one currently shown, since walking doesn't re-anchor); opening a PR also imports its inline comments as threads, and `PostReview` pushes the threads you **promoted** (the pane's `p`) up as a pending review (a draft submitted on GitHub); `ReviewWorktree` gives uncommitted working-tree changes (e.g. an agent's edits) the same read-only treatment via a dangling snapshot commit
 - **Local/review thread halves** — every annotation starts as a local conversation with the agent (annotate, `a`-replies, agent answers via the shim); `p` in the comments pane promotes a thread: the shipping half is born with the final wording, anchored at the pinned PR head, after an off-the-diff refusal. Nothing reaches `PostReview` without that deliberate step — agent chatter and your negotiation with it are structurally unshippable
 - **Review comments pane** — inside an open review (`Review` / `ReviewWorktree`) commented ranges carry gitsigns-style `▌` gutter bars (colored per thread) and a side split follows the cursor: rest it inside a commented range and the thread's comments appear — both halves interleaved as one conversation; window-navigate into it, where `r` replies on the review half (promoted threads and pulled ones), `a` replies to the agent, `p` promotes, `e` edits the promoted comment, `q` resolves and `n` hops to the next thread. Local self-review (annotate, flush) is marker-free
 - Bracketed-paste support for proper multi-line handling
@@ -50,6 +50,8 @@ The plugin sets up no default keybindings; configure them like this:
 | Normal | `<leader>cR` | `Review` — snapshot-review a pull request in a read-only worktree |
 | Normal | `<leader>cW` | `ReviewWorktree` — review the uncommitted working tree as a read-only snapshot |
 | Normal | `<leader>ct` | `ReviewSide` — toggle the open review between the new and the old code |
+| Normal | `<leader>c]` | `WalkForward` — step the open review forward one of the PR's own commits |
+| Normal | `<leader>c[` | `WalkBack` — step the open review back one of the PR's own commits |
 | Normal | `<leader>cP` | `PostReview` — push the promoted threads to the PR |
 | Normal | `<leader>cL` | `PullReview` — pull the PR's inline comments into the session |
 | Visual | `<leader>ca` | `Annotate` — add the selection (plus an optional note) to the query context |
@@ -69,6 +71,8 @@ require("codeboomer").setup({
     review = "<leader>cR",
     review_worktree = "<leader>cW",
     review_side = "<leader>ct",
+    walk_forward = "<leader>c]",
+    walk_back = "<leader>c[",
     post_review = "<leader>cP",
     pull_review = "<leader>cL",
     annotate = "<leader>ca",
@@ -273,6 +277,24 @@ and the bars hide.
 
 ```vim
 :Codeboomer ReviewSide
+```
+
+### `:Codeboomer WalkForward` / `:Codeboomer WalkBack`
+
+Steps the open review's worktree through the PR's own commits
+(`base..head`, oldest first) one at a time — a bare checkout, same as
+`ReviewSide`, with the cursor and scroll position preserved the same
+way. Neither wraps: walking past either end warns instead. Walking
+away from the head clears the changed-lines tint (what a single commit
+touched isn't computed); landing back on the head restores it.
+Threads don't re-anchor as you walk — each thread's pane header shows
+its own **anchor** commit next to the commit currently **now** shown,
+so drift is visible rather than silently wrong. Flipping `ReviewSide`
+to the old code resets the walk position back to the head.
+
+```vim
+:Codeboomer WalkForward
+:Codeboomer WalkBack
 ```
 
 ### `:Codeboomer ReviewWorktree [dir]`

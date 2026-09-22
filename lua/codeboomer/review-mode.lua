@@ -32,24 +32,32 @@ local function _4_()
   end
 end
 sidebar["set-promote-context"](_4_)
+local function _6_()
+  if current then
+    return {["current-sha"] = (current["walk-sha"] or current["head-sha"])}
+  else
+    return nil
+  end
+end
+sidebar["set-walk-context"](_6_)
 local function notify(msg, level)
-  local function _6_()
+  local function _8_()
     return vim.notify(msg, level)
   end
-  return vim.schedule(_6_)
+  return vim.schedule(_8_)
 end
 local function run(argv, k)
-  local function _7_(obj)
-    local function _8_()
+  local function _9_(obj)
+    local function _10_()
       if (obj.code == 0) then
         return k((obj.stdout or ""))
       else
         return notify(("codeboomer: `" .. table.concat(argv, " ") .. "` failed (exit " .. tostring(obj.code) .. ")\n" .. (obj.stderr or "")), vim.log.levels.ERROR)
       end
     end
-    return vim.schedule(_8_)
+    return vim.schedule(_10_)
   end
-  return vim.system(argv, {text = true}, _7_)
+  return vim.system(argv, {text = true}, _9_)
 end
 local function under_worktree(path)
   local p = (path or "")
@@ -62,7 +70,7 @@ local function worktree_leaf(root, id)
   return (vim.fs.basename(root) .. "-" .. id)
 end
 local function discover_worktree(leaf, k)
-  local function _10_(out)
+  local function _12_(out)
     local found = nil
     for line in string.gmatch(out, "[^\n]+") do
       local p = line:match("^worktree%s+(.+)")
@@ -73,39 +81,39 @@ local function discover_worktree(leaf, k)
     end
     return k(found)
   end
-  return run({"git", "worktree", "list", "--porcelain"}, _10_)
+  return run({"git", "worktree", "list", "--porcelain"}, _12_)
 end
 local function relocate_worktree(old, path, k)
   if (old and (old ~= path)) then
-    local function _12_(_)
+    local function _14_(_)
       return k()
     end
-    return run({"git", "worktree", "remove", "--force", old}, _12_)
+    return run({"git", "worktree", "remove", "--force", old}, _14_)
   else
     return k()
   end
 end
 local function ensure_worktree(path, sha, k)
   if vim.uv.fs_stat(path) then
-    local function _14_(_)
-      local function _15_(_0)
-        local function _16_(_1)
+    local function _16_(_)
+      local function _17_(_0)
+        local function _18_(_1)
           return k()
         end
-        return run({"git", "-C", path, "clean", "-fd"}, _16_)
+        return run({"git", "-C", path, "clean", "-fd"}, _18_)
       end
-      return run({"git", "-C", path, "reset", "--hard", sha}, _15_)
+      return run({"git", "-C", path, "reset", "--hard", sha}, _17_)
     end
-    return run({"git", "-C", path, "checkout", "--detach", sha}, _14_)
+    return run({"git", "-C", path, "checkout", "--detach", sha}, _16_)
   else
     vim.fn.mkdir((vim.fs.dirname(path) or "."), "p")
-    local function _17_(_)
-      local function _18_(_0)
+    local function _19_(_)
+      local function _20_(_0)
         return k()
       end
-      return run({"git", "worktree", "add", "--detach", path, sha}, _18_)
+      return run({"git", "worktree", "add", "--detach", path, sha}, _20_)
     end
-    return run({"git", "worktree", "prune"}, _17_)
+    return run({"git", "worktree", "prune"}, _19_)
   end
 end
 local function pick_worktree_path(id, k)
@@ -115,23 +123,23 @@ local function pick_worktree_path(id, k)
     return k(nil)
   else
     local leaf = worktree_leaf(root, id)
-    local function _20_(found)
+    local function _22_(found)
       local default = (found or (vim.fs.dirname(root) .. "/" .. leaf))
-      local function _21_(lines)
+      local function _23_(lines)
         local path = vim.trim((lines[1] or ""))
         if (path == "") then
           notify("codeboomer: worktree path required", vim.log.levels.WARN)
           return k(nil)
         else
-          local function _22_()
+          local function _24_()
             return k(path)
           end
-          return relocate_worktree(found, path, _22_)
+          return relocate_worktree(found, path, _24_)
         end
       end
-      return input.open({title = " Review worktree path> ", prefill = default, ["submit-on-enter"] = true, ["on-submit"] = _21_})
+      return input.open({title = " Review worktree path> ", prefill = default, ["submit-on-enter"] = true, ["on-submit"] = _23_})
     end
-    return discover_worktree(leaf, _20_)
+    return discover_worktree(leaf, _22_)
   end
 end
 local function parse_ranges(diff, _3fside)
@@ -160,14 +168,14 @@ local function parse_ranges(diff, _3fside)
     if (file and c) then
       local start = tonumber(c)
       local count
-      local function _28_()
+      local function _30_()
         if (not d or (d == "")) then
           return "1"
         else
           return d
         end
       end
-      count = tonumber(_28_())
+      count = tonumber(_30_())
       if (count > 0) then
         local bucket = (out[file] or {})
         table.insert(bucket, {start, (start + count + -1)})
@@ -184,9 +192,9 @@ local function place_ranges(bufnr, path)
     local line_count = vim.api.nvim_buf_line_count(bufnr)
     local hl = range_hl(current.side)
     vim.api.nvim_buf_clear_namespace(bufnr, range_ns, 0, -1)
-    for _, _31_ in ipairs((current.ranges[path] or {})) do
-      local start = _31_[1]
-      local last = _31_[2]
+    for _, _33_ in ipairs((current.ranges[path] or {})) do
+      local start = _33_[1]
+      local last = _33_[2]
       for ln = start, math.min(last, line_count) do
         vim.api.nvim_buf_set_extmark(bufnr, range_ns, (ln - 1), 0, {line_hl_group = hl})
       end
@@ -210,15 +218,15 @@ local function step_in_file(ranges, line, dir)
   else
     local found = nil
     for _, r in ipairs((ranges or {})) do
-      local or_34_ = found
-      if not or_34_ then
+      local or_36_ = found
+      if not or_36_ then
         if (r[1] > line) then
-          or_34_ = r
+          or_36_ = r
         else
-          or_34_ = nil
+          or_36_ = nil
         end
       end
-      found = or_34_
+      found = or_36_
     end
     return found
   end
@@ -240,12 +248,12 @@ local function jump_hunk(dir)
   local name = vim.api.nvim_buf_get_name(0)
   local line
   do
-    local t_38_ = vim.api.nvim_win_get_cursor(0)
-    if (nil ~= t_38_) then
-      t_38_ = t_38_[1]
+    local t_40_ = vim.api.nvim_win_get_cursor(0)
+    if (nil ~= t_40_) then
+      t_40_ = t_40_[1]
     else
     end
-    line = t_38_
+    line = t_40_
   end
   if not current then
     return notify("codeboomer: no review open \226\128\148 :Codeboomer Review first", vim.log.levels.WARN)
@@ -270,13 +278,13 @@ local function jump_hunk(dir)
             pos = 1
           end
         else
-          local _41_
+          local _43_
           if (dir == "prev") then
-            _41_ = -1
+            _43_ = -1
           else
-            _41_ = 1
+            _43_ = 1
           end
-          pos = (1 + ((idx + _41_) % len))
+          pos = (1 + ((idx + _43_) % len))
         end
         local target = paths[pos]
         local ranges = current.ranges[target]
@@ -292,14 +300,14 @@ local function jump_hunk(dir)
     end
   end
 end
-local function _48_()
+local function _50_()
   return jump_hunk("next")
 end
-M["next-hunk"] = _48_
-local function _49_()
+M["next-hunk"] = _50_
+local function _51_()
   return jump_hunk("prev")
 end
-M["prev-hunk"] = _49_
+M["prev-hunk"] = _51_
 local function configure_code_buffer(bufnr)
   if (current and vim.api.nvim_buf_is_valid(bufnr)) then
     local path = vim.api.nvim_buf_get_name(bufnr)
@@ -329,24 +337,24 @@ local function reload_worktree_buffers()
       if (not gone and (#wins > 0)) then
         for _0, w in ipairs(wins) do
           local view = vim.api.nvim_win_call(w, vim.fn.winsaveview)
-          local function _52_()
+          local function _54_()
             return vim.cmd("silent! edit!")
           end
-          vim.api.nvim_win_call(w, _52_)
-          local function _53_()
+          vim.api.nvim_win_call(w, _54_)
+          local function _55_()
             return vim.fn.winrestview(view)
           end
-          vim.api.nvim_win_call(w, _53_)
+          vim.api.nvim_win_call(w, _55_)
         end
       else
         if gone then
-          local _54_
+          local _56_
           if (current.side == "old") then
-            _54_ = "old"
+            _56_ = "old"
           else
-            _54_ = "new"
+            _56_ = "new"
           end
-          notify(("codeboomer: " .. vim.fs.basename(name) .. " does not exist on the " .. _54_ .. " side"), vim.log.levels.INFO)
+          notify(("codeboomer: " .. vim.fs.basename(name) .. " does not exist on the " .. _56_ .. " side"), vim.log.levels.INFO)
         else
         end
         vim.api.nvim_buf_delete(bufnr, {force = true})
@@ -357,7 +365,7 @@ local function reload_worktree_buffers()
   return nil
 end
 local function gh_view(n, k)
-  local function _59_(out)
+  local function _61_(out)
     local ok, pr = pcall(vim.json.decode, out)
     if (ok and ("table" == type(pr)) and pr.number) then
       return k(pr)
@@ -365,7 +373,7 @@ local function gh_view(n, k)
       return notify(("codeboomer: `gh pr view " .. tostring(n) .. "` gave nothing usable"), vim.log.levels.ERROR)
     end
   end
-  return run({"gh", "pr", "view", tostring(n), "--json", "number,headRefName,baseRefName"}, _59_)
+  return run({"gh", "pr", "view", tostring(n), "--json", "number,headRefName,baseRefName"}, _61_)
 end
 local function choose_pr(prs, k)
   local fzf = require("fzf-lua")
@@ -389,7 +397,7 @@ local function choose_pr(prs, k)
     end
     lines = tbl_26_
   end
-  local function _62_(selected)
+  local function _64_(selected)
     local pr = by_display[selected[1]]
     if pr then
       return k(pr)
@@ -397,7 +405,7 @@ local function choose_pr(prs, k)
       return nil
     end
   end
-  return fzf.fzf_exec(lines, {prompt = "Pick a PR> ", actions = {default = _62_}})
+  return fzf.fzf_exec(lines, {prompt = "Pick a PR> ", actions = {default = _64_}})
 end
 local function pick_fetch_remote()
   local remotes = (git.remotes() or {})
@@ -425,42 +433,42 @@ local function open_pr(pr)
   if not fetch_remote then
     return notify("codeboomer: no remote to fetch the PR from", vim.log.levels.ERROR)
   else
-    local function _66_(_)
-      local function _67_(_0)
-        local function _68_(head)
-          local function _69_(base)
-            local function _70_(mb)
-              local function _71_()
+    local function _68_(_)
+      local function _69_(_0)
+        local function _70_(head)
+          local function _71_(base)
+            local function _72_(mb)
+              local function _73_()
                 return github["pull-comments"](pr.number)
               end
-              return M["setup-review"]({["pr-number"] = pr.number, ["head-sha"] = vim.trim(head), ["base-sha"] = vim.trim(mb), branch = pr.headRefName}, _71_)
+              return M["setup-review"]({["pr-number"] = pr.number, ["head-sha"] = vim.trim(head), ["base-sha"] = vim.trim(mb), branch = pr.headRefName}, _73_)
             end
-            return run({"git", "merge-base", vim.trim(base), vim.trim(head)}, _70_)
+            return run({"git", "merge-base", vim.trim(base), vim.trim(head)}, _72_)
           end
-          return run({"git", "rev-parse", base_ref}, _69_)
+          return run({"git", "rev-parse", base_ref}, _71_)
         end
-        return run({"git", "rev-parse", head_ref}, _68_)
+        return run({"git", "rev-parse", head_ref}, _70_)
       end
-      return run({"git", "fetch", fetch_remote, string.format("+%s:%s", pr.baseRefName, base_ref)}, _67_)
+      return run({"git", "fetch", fetch_remote, string.format("+%s:%s", pr.baseRefName, base_ref)}, _69_)
     end
-    return run({"git", "fetch", fetch_remote, string.format("+pull/%d/head:%s", pr.number, head_ref)}, _66_)
+    return run({"git", "fetch", fetch_remote, string.format("+pull/%d/head:%s", pr.number, head_ref)}, _68_)
   end
 end
 local function stage_worktree(root, head, _3fdir, k)
   local index = (root .. "/.git/codeboomer-snapshot-index")
   local dir = normalize_dir(_3fdir)
   local cmd
-  local _73_
+  local _75_
   if ("" == dir) then
-    _73_ = ""
+    _75_ = ""
   else
-    _73_ = string.format(" -- '%s'", dir)
+    _75_ = string.format(" -- '%s'", dir)
   end
-  cmd = string.format("rm -f '%s' && GIT_INDEX_FILE='%s' git -C '%s' read-tree %s && GIT_INDEX_FILE='%s' git -C '%s' add -A%s && GIT_INDEX_FILE='%s' git -C '%s' write-tree", index, index, root, head, index, root, _73_, index, root)
-  local function _75_(out)
+  cmd = string.format("rm -f '%s' && GIT_INDEX_FILE='%s' git -C '%s' read-tree %s && GIT_INDEX_FILE='%s' git -C '%s' add -A%s && GIT_INDEX_FILE='%s' git -C '%s' write-tree", index, index, root, head, index, root, _75_, index, root)
+  local function _77_(out)
     return k(vim.trim(out))
   end
-  return run({"sh", "-c", cmd}, _75_)
+  return run({"sh", "-c", cmd}, _77_)
 end
 local function git_tree(root, sha)
   local out = vim.fn.system({"git", "-C", root, "rev-parse", (sha .. "^{tree}")})
@@ -472,24 +480,24 @@ local function git_tree(root, sha)
 end
 local function snapshot_commit(root, head, _3fdir, k)
   local dir = normalize_dir(_3fdir)
-  local function _77_(tree)
+  local function _79_(tree)
     if (not tree or ("" == tree)) then
       return notify("codeboomer: could not snapshot the working tree", vim.log.levels.ERROR)
     else
       if (("" ~= dir) and (tree == git_tree(root, head))) then
         return notify(("codeboomer: no uncommitted changes under " .. dir), vim.log.levels.WARN)
       else
-        local function _78_(out)
+        local function _80_(out)
           return k(vim.trim(out))
         end
-        return run({"git", "-C", root, "commit-tree", tree, "-p", head, "-m", "codeboomer-snapshot"}, _78_)
+        return run({"git", "-C", root, "commit-tree", tree, "-p", head, "-m", "codeboomer-snapshot"}, _80_)
       end
     end
   end
-  return stage_worktree(root, head, dir, _77_)
+  return stage_worktree(root, head, dir, _79_)
 end
 local function load_ranges(k)
-  local function _81_(out)
+  local function _83_(out)
     current["head-ranges"] = parse_ranges(out)
     current["base-ranges"] = parse_ranges(out, "base")
     if (current.side == "old") then
@@ -499,7 +507,7 @@ local function load_ranges(k)
     end
     return k()
   end
-  return run({"git", "-C", current.worktree, "diff", "--unified=0", (current["base-sha"] .. ".." .. current["head-sha"])}, _81_)
+  return run({"git", "-C", current.worktree, "diff", "--unified=0", (current["base-sha"] .. ".." .. current["head-sha"])}, _83_)
 end
 local function open_review_tab()
   vim.cmd("tabnew")
@@ -517,9 +525,9 @@ local function qf_item(path, ranges)
   do
     local tbl_26_ = {}
     local i_27_ = 0
-    for _, _84_ in ipairs(ranges) do
-      local start = _84_[1]
-      local last = _84_[2]
+    for _, _86_ in ipairs(ranges) do
+      local start = _86_[1]
+      local last = _86_[2]
       local val_28_
       if (start == last) then
         val_28_ = ("L" .. start)
@@ -541,20 +549,20 @@ local function qf_item(path, ranges)
   else
     extra = nil
   end
-  local _89_
+  local _91_
   do
-    local t_88_ = ranges
-    if (nil ~= t_88_) then
-      t_88_ = t_88_[1]
+    local t_90_ = ranges
+    if (nil ~= t_90_) then
+      t_90_ = t_90_[1]
     else
     end
-    if (nil ~= t_88_) then
-      t_88_ = t_88_[1]
+    if (nil ~= t_90_) then
+      t_90_ = t_90_[1]
     else
     end
-    _89_ = t_88_
+    _91_ = t_90_
   end
-  return {filename = (current.worktree .. "/" .. path), lnum = _89_, text = (table.concat(shown, ", ") .. (extra or ""))}
+  return {filename = (current.worktree .. "/" .. path), lnum = _91_, text = (table.concat(shown, ", ") .. (extra or ""))}
 end
 local function scoped_paths(_3fdir)
   local trimmed = normalize_dir(_3fdir)
@@ -582,7 +590,7 @@ end
 local function set_qf()
   local paths = scoped_paths(current["qf-dir"])
   table.sort(paths)
-  local _95_
+  local _97_
   do
     local tbl_26_ = {}
     local i_27_ = 0
@@ -594,21 +602,21 @@ local function set_qf()
       else
       end
     end
-    _95_ = tbl_26_
-  end
-  local _97_
-  if (current.side == "old") then
-    _97_ = "old"
-  else
-    _97_ = "new"
+    _97_ = tbl_26_
   end
   local _99_
-  if ("" == (current["qf-dir"] or "")) then
-    _99_ = ""
+  if (current.side == "old") then
+    _99_ = "old"
   else
-    _99_ = (" \226\128\148 " .. current["qf-dir"])
+    _99_ = "new"
   end
-  return vim.fn.setqflist({}, "r", {items = _95_, title = (qf_title .. " (" .. _97_ .. " side)" .. _99_)})
+  local _101_
+  if ("" == (current["qf-dir"] or "")) then
+    _101_ = ""
+  else
+    _101_ = (" \226\128\148 " .. current["qf-dir"])
+  end
+  return vim.fn.setqflist({}, "r", {items = _97_, title = (qf_title .. " (" .. _99_ .. " side)" .. _101_)})
 end
 local function refresh_qf()
   local qf = vim.fn.getqflist({title = 1, winid = 1})
@@ -619,7 +627,7 @@ local function refresh_qf()
     return nil
   end
 end
-local function _102_(_3fdir)
+local function _104_(_3fdir)
   if not current then
     return notify("codeboomer: no review open \226\128\148 :Codeboomer Review first", vim.log.levels.WARN)
   else
@@ -629,21 +637,21 @@ local function _102_(_3fdir)
       paths = scoped_paths(current["qf-dir"])
     end
     if (0 == #paths) then
-      local _103_
+      local _105_
       if ("" == current["qf-dir"]) then
-        _103_ = "codeboomer: no changed files in this review"
+        _105_ = "codeboomer: no changed files in this review"
       else
-        _103_ = ("codeboomer: no changed files under " .. current["qf-dir"])
+        _105_ = ("codeboomer: no changed files under " .. current["qf-dir"])
       end
-      return notify(_103_, vim.log.levels.WARN)
+      return notify(_105_, vim.log.levels.WARN)
     else
       set_qf()
       return vim.cmd({cmd = "copen", count = math.min(12, #paths)})
     end
   end
 end
-M.files = _102_
-local function _107_()
+M.files = _104_
+local function _109_()
   if not current then
     return notify("codeboomer: no review open \226\128\148 :Codeboomer Review first", vim.log.levels.WARN)
   else
@@ -659,32 +667,129 @@ local function _107_()
     else
       sha = current["head-sha"]
     end
-    local function _110_(_)
+    local function _112_(_)
       current.side = side
       if (side == "old") then
         current.ranges = current["base-ranges"]
       else
         current.ranges = current["head-ranges"]
       end
+      current["walk-index"] = nil
+      current["walk-sha"] = nil
       reload_worktree_buffers()
       sidebar["reload-threads"]()
       refresh_qf()
-      local _112_
+      local _114_
       if (side == "old") then
-        _112_ = "old"
+        _114_ = "old"
       else
-        _112_ = "new"
+        _114_ = "new"
       end
-      return notify(("codeboomer: showing the " .. _112_ .. " code"), vim.log.levels.INFO)
+      return notify(("codeboomer: showing the " .. _114_ .. " code"), vim.log.levels.INFO)
     end
-    return run({"git", "-C", current.worktree, "checkout", "--detach", sha}, _110_)
+    return run({"git", "-C", current.worktree, "checkout", "--detach", sha}, _112_)
   end
 end
-M["toggle-side"] = _107_
-local function _115_(opts, _3fdone)
-  local function _116_(path)
+M["toggle-side"] = _109_
+local function commits_between(worktree, base, head, k)
+  local function _117_(out)
+    local function _118_()
+      local tbl_26_ = {}
+      local i_27_ = 0
+      for line in string.gmatch(out, "[^\n]+") do
+        local val_28_ = line
+        if (nil ~= val_28_) then
+          i_27_ = (i_27_ + 1)
+          tbl_26_[i_27_] = val_28_
+        else
+        end
+      end
+      return tbl_26_
+    end
+    return k(_118_())
+  end
+  return run({"git", "-C", worktree, "log", "--reverse", (base .. ".." .. head), "--format=%H"}, _117_)
+end
+local function ensure_commits(k)
+  if current.commits then
+    if not current["walk-index"] then
+      current["walk-index"] = #current.commits
+    else
+    end
+    return k()
+  else
+    local function _121_(commits)
+      current.commits = commits
+      current["walk-index"] = #commits
+      return k()
+    end
+    return commits_between(current.worktree, current["base-sha"], current["head-sha"], _121_)
+  end
+end
+local function walk_to(idx)
+  local commits = current.commits
+  local n = #commits
+  if (n == 0) then
+    return notify("codeboomer: no commits between base and head", vim.log.levels.WARN)
+  else
+    local clamped = math.max(1, math.min(idx, n))
+    if ((clamped == current["walk-index"]) and (current.side == "new")) then
+      local _123_
+      if (clamped == 1) then
+        _123_ = "first"
+      else
+        _123_ = "last"
+      end
+      return notify(("codeboomer: already at the " .. _123_ .. " commit"), vim.log.levels.WARN)
+    else
+      local sha = commits[clamped]
+      local function _125_(_)
+        current.side = "new"
+        current["walk-index"] = clamped
+        if (clamped == n) then
+          current["walk-sha"] = nil
+        else
+          current["walk-sha"] = sha
+        end
+        if (clamped == n) then
+          current.ranges = current["head-ranges"]
+        else
+          current.ranges = {}
+        end
+        reload_worktree_buffers()
+        sidebar["reload-threads"]()
+        return notify(("codeboomer: commit " .. clamped .. "/" .. n .. " (" .. sha:sub(1, 7) .. ")"), vim.log.levels.INFO)
+      end
+      return run({"git", "-C", current.worktree, "checkout", "--detach", sha}, _125_)
+    end
+  end
+end
+local function _130_()
+  if not current then
+    return notify("codeboomer: no review open \226\128\148 :Codeboomer Review first", vim.log.levels.WARN)
+  else
+    local function _131_()
+      return walk_to((current["walk-index"] + 1))
+    end
+    return ensure_commits(_131_)
+  end
+end
+M["walk-forward"] = _130_
+local function _133_()
+  if not current then
+    return notify("codeboomer: no review open \226\128\148 :Codeboomer Review first", vim.log.levels.WARN)
+  else
+    local function _134_()
+      return walk_to((current["walk-index"] - 1))
+    end
+    return ensure_commits(_134_)
+  end
+end
+M["walk-back"] = _133_
+local function _136_(opts, _3fdone)
+  local function _137_(path)
     if path then
-      local function _117_()
+      local function _138_()
         local copts = {["pr-number"] = opts["pr-number"], ["head-sha"] = opts["head-sha"], ["base-sha"] = opts["base-sha"], branch = opts.branch}
         local session
         if opts["pr-number"] then
@@ -694,7 +799,7 @@ local function _115_(opts, _3fdone)
         end
         current = {["pr-number"] = opts["pr-number"], ["head-sha"] = opts["head-sha"], ["base-sha"] = opts["base-sha"], branch = opts.branch, worktree = path, ["session-id"] = session, side = "new", ["qf-dir"] = "", ["head-ranges"] = {}, ["base-ranges"] = {}, ranges = {}}
         review["set-session"](session)
-        local function _119_()
+        local function _140_()
           open_review_tab()
           if _3fdone then
             return _3fdone()
@@ -702,24 +807,24 @@ local function _115_(opts, _3fdone)
             return nil
           end
         end
-        return load_ranges(_119_)
+        return load_ranges(_140_)
       end
-      return ensure_worktree(path, opts["head-sha"], _117_)
+      return ensure_worktree(path, opts["head-sha"], _138_)
     else
       return nil
     end
   end
-  return pick_worktree_path((opts["worktree-id"] or ("pr" .. (opts["pr-number"] or ""))), _116_)
+  return pick_worktree_path((opts["worktree-id"] or ("pr" .. (opts["pr-number"] or ""))), _137_)
 end
-M["setup-review"] = _115_
-local function _122_(_3fn)
+M["setup-review"] = _136_
+local function _143_(_3fn)
   if not git["repo-root"]() then
     return notify("codeboomer: not inside a git repository", vim.log.levels.ERROR)
   else
     if _3fn then
       return gh_view(_3fn, open_pr)
     else
-      local function _123_(out)
+      local function _144_(out)
         local ok, prs = pcall(vim.json.decode, out)
         if (ok and ("table" == type(prs)) and (#prs > 0)) then
           return choose_pr(prs, open_pr)
@@ -727,35 +832,35 @@ local function _122_(_3fn)
           return notify("codeboomer: no open PRs (or `gh` unavailable)", vim.log.levels.WARN)
         end
       end
-      return run({"gh", "pr", "list", "--json", "number,title,headRefName,baseRefName"}, _123_)
+      return run({"gh", "pr", "list", "--json", "number,title,headRefName,baseRefName"}, _144_)
     end
   end
 end
-M.open = _122_
-local function _127_(_3fdir)
+M.open = _143_
+local function _148_(_3fdir)
   local root = git["repo-root"]()
   local head = git["head-sha"]()
   if not (root and head) then
     return notify("codeboomer: not inside a git repository with commits", vim.log.levels.ERROR)
   else
-    local function _128_(sha)
+    local function _149_(sha)
       return M["setup-review"]({["worktree-id"] = "worktree", ["head-sha"] = sha, ["base-sha"] = head, branch = git["branch-name"]()})
     end
-    return snapshot_commit(root, head, _3fdir, _128_)
+    return snapshot_commit(root, head, _3fdir, _149_)
   end
 end
-M["review-worktree"] = _127_
-local function _130_()
-  local _131_
+M["review-worktree"] = _148_
+local function _151_()
+  local _152_
   if current then
-    _131_ = current["head-ranges"]
+    _152_ = current["head-ranges"]
   else
-    _131_ = nil
+    _152_ = nil
   end
-  return github["post-threads"]({ranges = _131_})
+  return github["post-threads"]({ranges = _152_})
 end
-M.post = _130_
-local function _133_()
+M.post = _151_
+local function _154_()
   local sid = review["current-session-id"]()
   local session
   if sid then
@@ -769,20 +874,20 @@ local function _133_()
     return notify("codeboomer: the chosen session is not a PR review", vim.log.levels.WARN)
   end
 end
-M.pull = _133_
-local function _136_()
+M.pull = _154_
+local function _157_()
   return current
 end
-M.info = _136_
+M.info = _157_
 M["parse-ranges"] = parse_ranges
 M["fetch-remote"] = pick_fetch_remote
 vim.api.nvim_create_augroup("codeboomer-review-mode", {clear = true})
-local function _137_()
+local function _158_()
   if current then
     return configure_code_buffer(0)
   else
     return nil
   end
 end
-vim.api.nvim_create_autocmd("BufEnter", {group = "codeboomer-review-mode", callback = _137_})
+vim.api.nvim_create_autocmd("BufEnter", {group = "codeboomer-review-mode", callback = _158_})
 return M
