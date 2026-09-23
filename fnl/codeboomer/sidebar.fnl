@@ -6,17 +6,24 @@
 ;; one (thread lines belong to the new side) — so a plain working
 ;; buffer under Annotate/FlushWithDirective opens it too, just without
 ;; markers.
-;; The pane: a right-hand split in the current tabpage, following
-;; the cursor (~100 ms rest) between threads — resting inside a
-;; thread's [line_start, line_end] range renders its comments; moving
-;; off every range keeps the last block on screen (the pane never
-;; collapses on its own; :q closes it and resting in a range reopens).
-;; At most one pane exists at any moment, in the review's tabpage.
+;; The pane: a right-hand split in the current tabpage. Two loads
+;; drive it: entering a review file — the ReviewFiles quickfix is the
+;; usual door — renders EVERY thread of that file straight away, and
+;; the cursor-following rest detection (~100 ms) narrows to the
+;; covering thread once the cursor settles inside a thread's
+;; [line_start, line_end] range; moving off every range keeps the
+;; last block on screen (the pane never collapses on its own; :q
+;; closes it and resting in a range reopens). At most one pane
+;; exists at any moment, in the review's tabpage.
 ;; Gutter markers (▌ extmark signs) render in every :new review
 ;; buffer carrying threads of the review session. The whole thread map
 ;; is loaded when the review opens and reloaded whenever a new
 ;; annotation lands, the chosen session changes or PR comments are
 ;; imported — buffer enters are plain map lookups, never queries.
+;; A cursor completely still for ~3 s re-queries the db the same way:
+;; the agent shim and PullReview write the same db from outside this
+;; process, so new comments and threads reach the map, the marks and
+;; the pane without a manual reload.
 ;; The pane is not read-only: buffer-local keys act on what it shows
 ;; (r composes a reply on the thread's REVIEW half — gated behind
 ;; promotion, a replies to the agent on the local half, p promotes
@@ -56,6 +63,9 @@
 ;; the cursor must rest this long on a line before the pane reacts, so
 ;; sweeping across range boundaries doesn't flicker the split
 (local rest-ms 100)
+;; ... and be completely still this long before the db is queried for
+;; new comments and threads — the idle refresh below
+(local db-refresh-ms 3000)
 
 ;; the single pane window, nil whenever it is closed
 (var pane-win nil)
@@ -67,6 +77,10 @@
 ;; n/N cross file boundaries instead of stopping at the current one
 (var all-threads [])
 (var timer-id nil)
+;; the idle db refresh's timer — restarted by the same events that
+;; drive the rest detection, so only a completely still cursor lets
+;; it fire
+(var db-refresh-timer nil)
 ;; set by review-mode when a review is the active session, so
 ;; pane-jump opens a cross-file target in the worktree instead of the
 ;; plain repo; nil (the default) resolves against the repo root
@@ -120,17 +134,19 @@
       (let [line-count (vim.api.nvim_buf_line_count bufnr)
             taken {}]
         (each [i t (ipairs threads)]
-          (let [start (or t.line_start 0)
-                finish (math.min (or t.line_end start) line-count)
-                hl (thread-hl (or (. t :hl-index) i))]
-            (for [ln start finish]
-              ;; one symbol per line even where threads overlap — the
-              ;; topmost (earliest) thread's color wins
-              (when (not (. taken ln))
-                (tset taken ln true)
-                (vim.api.nvim_buf_set_extmark bufnr extmark-ns (- ln 1) 0
-                                              {:sign_text sign-text
-                                               :sign_hl_group hl})))))))))
+          ;; file-scoped threads carry no lines — nothing to mark
+          (when (= :line (or t.type :line))
+            (let [start (or t.line_start 0)
+                  finish (math.min (or t.line_end start) line-count)
+                  hl (thread-hl (or (. t :hl-index) i))]
+              (for [ln start finish]
+                ;; one symbol per line even where threads overlap — the
+                ;; topmost (earliest) thread's color wins
+                (when (not (. taken ln))
+                  (tset taken ln true)
+                  (vim.api.nvim_buf_set_extmark bufnr extmark-ns (- ln 1) 0
+                                                {:sign_text sign-text
+                                                 :sign_hl_group hl}))))))))))
 
 ;; refresh every buffer that is around right now; review buffers
 ;; entered later get their marks from review-mode's own BufEnter hook
@@ -187,13 +203,10 @@
     (set t.anchor-sha (when t.anchor_commit (review.commit-sha t.anchor_commit)))))
 
 ;; conversations also go stale from the outside — the agent shim is a
-;; separate process writing the same DB — so a rest re-stamps at most
-;; once a second: fresh enough to watch agent answers land, rare
-;; enough that the render path stays cheap. The map version moves
-;; only when a conversation actually changed, so nothing re-renders
-;; for nothing
-(local stamp-ttl-ms 1000)
-(var last-stamp-ms 0)
+;; separate process writing the same DB — which is what the idle db
+;; refresh re-stamps through reload-threads; the map version moves
+;; only when the map actually changed, so nothing re-renders for
+;; nothing
 (var map-version 0)
 (var rendered-sig nil)
 
@@ -201,17 +214,13 @@
   (accumulate [sig "" _ c (ipairs (or t.conversation []))]
     (.. sig (tostring (or c.id 0)) ",")))
 
-(fn maybe-restamp [threads]
-  (when (> (- (vim.loop.now) (or last-stamp-ms 0)) stamp-ttl-ms)
-    (set last-stamp-ms (vim.loop.now))
-    (var changed false)
-    (each [_ t (ipairs (or threads []))]
-      (let [before (conv-sig t)]
-        (stamp-thread t)
-        (when (not= before (conv-sig t))
-          (set changed true))))
-    (when changed
-      (set map-version (+ 1 map-version)))))
+;; what the pane renders of the map: the threads in order plus each
+;; one's conversation — two maps with the same signature render
+;; identically, so an idle refresh against a quiet db skips the
+;; version bump and with it the re-render
+(fn map-sig []
+  (accumulate [sig "" _ t (ipairs all-threads)]
+    (.. sig (tostring (or t.id 0)) ":" (conv-sig t) ";")))
 
 ;; the first 7 chars of a sha, or "?" when there isn't one to show
 (fn short-sha [sha]
@@ -223,11 +232,14 @@
                          ", outdated") "")
                    (or (when (= :review (or t.twin-kind :local))
                          " · promoted") ""))
-        ctx (when walk-context (walk-context))]
-    (string.format "#%d  %s:%s-%s  (%s)  anchor %s → now %s" (or t.id 0) base
-                   (or t.line_start "?") (or t.line_end "?") status
+        ctx (when walk-context (walk-context))
+        pos (if (= :file (or t.type :line))
+                "file"
+                (.. (or t.line_start "?") "-" (or t.line_end "?")))]
+    (string.format "#%d  %s:%s  (%s)  anchor %s → now %s" (or t.id 0) base
+                   pos status
                    (short-sha t.anchor-sha)
-                   (short-sha (and ctx ctx.current-sha)))))
+                   (short-sha (and ctx ctx.current-sha)))))$
 
 ;; one comment's label — "[source] name", so a conversation reads as
 ;; who-said-what: [github] logins, [agent] answers, [user] local notes
@@ -557,8 +569,29 @@
     ;; keep the cursor in the code window — the pane is a follower, not
     ;; a destination
     (vim.cmd "wincmd p"))
-  (maybe-restamp threads)
   (render-pane path threads))
+
+;; entering a review file loads its comments straight into the pane —
+;; the quickfix pick path: every thread of the file stacked
+;; top-to-bottom (file-level first), no cursor rest required. Review
+;; mode calls this from its own BufEnter hook once the side stamp has
+;; landed, so only review buffers reach it; the :old side refuses —
+;; thread lines belong to the new one. A pane already mirroring the
+;; file keeps its (possibly cursor-narrowed) view, so window
+;; round-trips don't widen it back
+(set M.enter-file
+     (fn [bufnr]
+       (when (and (vim.api.nvim_buf_is_valid bufnr)
+                  (normal-buf bufnr)
+                  (= :new (?. vim.b bufnr :codeboomer_review_side)))
+         (let [path (buf-rel-path bufnr)
+               threads (or (. threads-by-path path) [])]
+           (when (and (> (length threads) 0)
+                      (or (not pane-win)
+                          (not (vim.api.nvim_win_is_valid pane-win))
+                          (not= path pane-path)))
+             (set pane-source-win (vim.api.nvim_get_current_win))
+             (show-pane path threads))))))
 
 (fn flash-line [win row]
   (let [buf (vim.api.nvim_win_get_buf win)
@@ -636,19 +669,32 @@
   (when timer-id (vim.fn.timer_stop timer-id))
   (set timer-id (vim.fn.timer_start rest-ms check-now)))
 
+;; the idle refresh: the same events restart a longer timer too — a
+;; cursor completely still for db-refresh-ms queries the db for new
+;; comments and threads and reloads the map, marks and pane from
+;; whatever came back. Nothing to query without a chosen session
+(fn idle-refresh []
+  (when (review.current-session-id)
+    (M.reload-threads)))
+
+(fn schedule-db-refresh []
+  (when db-refresh-timer (vim.fn.timer_stop db-refresh-timer))
+  (set db-refresh-timer (vim.fn.timer_start db-refresh-ms idle-refresh)))
+
 ;; load every thread of the chosen session into the map: when a review
-;; opens, again whenever a new annotation is written, and whenever the
-;; chosen session changes. NOT on code-buffer writes — extmarks drift
-;; along with edits and stay accurate, while the DB's stored line
+;; opens, again whenever a new annotation is written, whenever the
+;; chosen session changes, and whenever the idle refresh finds the
+;; cursor still and the db moved. NOT on code-buffer writes — extmarks
+;; drift along with edits and stay accurate, while the DB's stored line
 ;; numbers go stale the moment lines shift; re-placing from it would
 ;; snap marks back to outdated positions. (review mode always sets the
 ;; session before the pane opens, so sid is nil only for stray events)
 (fn M.reload-threads []
-  (let [sid (review.current-session-id)]
+  (let [sid (review.current-session-id)
+        before (map-sig)]
     (set threads-by-path {})
     (set all-threads (if sid (review.threads-for-session sid) []))
     (each [_ t (ipairs all-threads)] (stamp-thread t))
-    (set map-version (+ 1 map-version))
     (each [_ t (ipairs all-threads)]
       (let [path (or t.file_path "")
             peers (vim.list_extend (or (. threads-by-path path) []) [t])]
@@ -658,9 +704,14 @@
         ;; the pane shows only a covering subset of the file
         (set t.hl-index (length peers))
         (tset threads-by-path path peers)))
+    ;; marks always re-place — the sweep is idempotent and needs no
+    ;; version — but the pane only re-checks when the db actually
+    ;; moved: an idle refresh against a quiet db re-renders nothing
     (mark-loaded-buffers)
-    ;; an open pane may now be showing stale comments
-    (schedule-check)))
+    (when (not= before (map-sig))
+      (set map-version (+ 1 map-version))
+      ;; an open pane may now be showing stale comments
+      (schedule-check))))
 
 ;; the pane's hooks, attached once when the module loads (with review
 ;; mode, on the first :Codeboomer Review) and never torn down. Marks
@@ -669,9 +720,15 @@
 (fn attach-autocmds []
   (vim.api.nvim_create_augroup augroup-name {:clear true})
   (vim.api.nvim_create_autocmd :BufEnter
-                               {:group augroup-name :callback schedule-check})
+                               {:group augroup-name
+                                :callback (fn []
+                                            (schedule-check)
+                                            (schedule-db-refresh))})
   (vim.api.nvim_create_autocmd [:WinEnter :TabEnter :CursorMoved :CursorMovedI]
-                               {:group augroup-name :callback schedule-check})
+                               {:group augroup-name
+                                :callback (fn []
+                                            (schedule-check)
+                                            (schedule-db-refresh))})
   ;; a pane closed by hand (:q, <C-w>c, the tab closing, ...) just drops
   ;; the reference; it reopens when the cursor next rests in a range
   (vim.api.nvim_create_autocmd :WinClosed

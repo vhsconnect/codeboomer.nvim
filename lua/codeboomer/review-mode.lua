@@ -308,6 +308,7 @@ local function configure_code_buffer(bufnr)
       bo.readonly = true
       vim.b[bufnr]["codeboomer_review_side"] = current.side
       sidebar["mark-buffer"](bufnr)
+      sidebar["enter-file"](bufnr)
       vim.keymap.set("n", "]a", M["next-hunk"], {buffer = bufnr, desc = "codeboomer: next review hunk"})
       vim.keymap.set("n", "[a", M["prev-hunk"], {buffer = bufnr, desc = "codeboomer: previous review hunk"})
       return place_ranges(bufnr, rel)

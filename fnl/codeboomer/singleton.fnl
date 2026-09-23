@@ -2,6 +2,31 @@
 
 (var db nil)
 
+;; sqlite.lua's auto-alter cannot grow a table (it asserts equal key
+;; counts), so schema additions migrate by hand: run once per
+;; session on the first connection — pragma_table_info sees through
+;; to the real DDL, and SQLite's ADD COLUMN backfills existing rows
+;; with the column's default
+(var migrated nil)
+(fn migrate []
+  (when (and (not migrated) db)
+    (set migrated true)
+    (db:with_open
+      (fn [d]
+        ;; eval yields a boolean, not {}, when a select finds no rows
+        (let [rows (fn [sql]
+                     (let [res (d:eval sql)]
+                       (if (= :table (type res)) res [])))
+              has-table (?. (rows "select 1 as one from sqlite_master
+                                    where type = 'table'
+                                      and name = 'comment_thread'")
+                            1 :one)
+              has-type (?. (rows "select 1 as one from pragma_table_info('comment_thread')
+                                   where name = 'type'")
+                            1 :one)]
+          (when (and has-table (not has-type))
+            (d:execute "alter table comment_thread add column type text default 'line'")))))))
+
 ;; a failed bind (an unbindable column value) aborts sqlite.lua's
 ;; insert loop between parse and finalize, leaving statements
 ;; unfinalized; sqlite3_close then refuses the close forever, the
@@ -36,6 +61,7 @@
                                                  :foreign_keys :ON
                                                  :auto_vacuum :INCREMENTAL
                                                  :wal_autocheckpoint 100}}))
+                            (migrate)
                             db)
                       _ db))
           ;; with_open (mark-annotations) closes the shared handle

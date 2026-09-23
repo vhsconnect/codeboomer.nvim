@@ -67,13 +67,17 @@
 ;; one pending annotation → one inline PR comment: the range becomes
 ;; start_line/line (equal endpoints collapse to a single line), the
 ;; body is the annotation's text — thread paths are already
-;; repo-relative, as the API wants
+;; repo-relative, as the API wants. File-scoped threads post as
+;; subject_type "file" with no line at all
 (fn pr-comment [t c]
   (let [item {:path (or t.file_path "")
-              :line (or t.line_end (or t.line_start 1))
               :body (or c.body "")}]
-    (when (and t.line_start t.line_end (< t.line_start t.line_end))
-      (set item.start_line t.line_start))
+    (if (= :file (or t.type :line))
+        (set item.subject_type "file")
+        (do
+          (set item.line (or t.line_end (or t.line_start 1)))
+          (when (and t.line_start t.line_end (< t.line_start t.line_end))
+            (set item.start_line t.line_start))))
     item))
 
 ;; pending annotations grouped by anchor-commit SHA — a GitHub review
@@ -155,16 +159,19 @@
 
 ;; does this thread's range intersect the diff at all — GitHub
 ;; rejects inline comments off the diff, so we refuse them first.
-;; Shared by PostReview's pre-post gate and the pane's promote key;
-;; pure, for tests
+;; File-level comments are exempt: GitHub anchors them to the file,
+;; not to diff lines. Shared by PostReview's pre-post gate and the
+;; pane's promote key; pure, for tests
 (set M.thread-off-diff
      (fn [t ranges]
-       (let [rs (and ranges (. ranges (or t.file_path "")))]
-         (not (and rs
-                   (accumulate [hit false _ [s e] (ipairs rs)]
-                     (or hit
-                         (and (<= s (or t.line_end 0))
-                              (>= e (or t.line_start 0))))))))))
+       (if (= :file (or t.type :line))
+           false
+           (let [rs (and ranges (. ranges (or t.file_path "")))]
+             (not (and rs
+                       (accumulate [hit false _ [s e] (ipairs rs)]
+                         (or hit
+                             (and (<= s (or t.line_end 0))
+                                  (>= e (or t.line_start 0)))))))))))
 
 ;; pending annotations that fall outside the diff — the pre-post
 ;; check. Pure, for tests

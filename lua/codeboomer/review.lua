@@ -218,7 +218,7 @@ M["user-comment"] = function(session_id, file_path, line_start, line_end, code, 
     local t_2_auto = sqlite.thread(db_mod_1_auto["get-db"]())
     local ok_3_auto, result_4_auto
     local function _39_()
-      return t_2_auto:insert({session_id = session_id, file_path = file_path, line_start = line_start, line_end = line_end, code_snapshot = sql_literal(code), anchor_commit = commit_id, status = "open", kind = "local", created_by = user_id})
+      return t_2_auto:insert({session_id = session_id, file_path = file_path, line_start = line_start, line_end = line_end, code_snapshot = sql_literal(code), anchor_commit = commit_id, status = "open", type = "line", kind = "local", created_by = user_id})
     end
     ok_3_auto, result_4_auto = pcall(_39_)
     if ok_3_auto then
@@ -235,6 +235,40 @@ M["user-comment"] = function(session_id, file_path, line_start, line_end, code, 
     return t_2_auto:insert({thread_id = thread_id, author_id = user_id, body = sql_literal(body), source = "user", commit_id = commit_id})
   end
   ok_3_auto, result_4_auto = pcall(_41_)
+  if ok_3_auto then
+    return result_4_auto
+  else
+    db_mod_1_auto["reset-db"]()
+    return error(result_4_auto, 0)
+  end
+end
+M["file-comment"] = function(session_id, file_path, body)
+  local user_id = with_user()
+  local repo_id = with_repo()
+  local commit_id = with_commit(repo_id)
+  local thread_id
+  do
+    local db_mod_1_auto = require("codeboomer.singleton")
+    local t_2_auto = sqlite.thread(db_mod_1_auto["get-db"]())
+    local ok_3_auto, result_4_auto
+    local function _43_()
+      return t_2_auto:insert({session_id = session_id, file_path = file_path, anchor_commit = commit_id, status = "open", type = "file", kind = "local", created_by = user_id})
+    end
+    ok_3_auto, result_4_auto = pcall(_43_)
+    if ok_3_auto then
+      thread_id = result_4_auto
+    else
+      db_mod_1_auto["reset-db"]()
+      thread_id = error(result_4_auto, 0)
+    end
+  end
+  local db_mod_1_auto = require("codeboomer.singleton")
+  local t_2_auto = sqlite.comments(db_mod_1_auto["get-db"]())
+  local ok_3_auto, result_4_auto
+  local function _45_()
+    return t_2_auto:insert({thread_id = thread_id, author_id = user_id, body = sql_literal(body), source = "user", commit_id = commit_id})
+  end
+  ok_3_auto, result_4_auto = pcall(_45_)
   if ok_3_auto then
     return result_4_auto
   else
@@ -259,54 +293,54 @@ M["existing-sessions"] = function()
   if root then
     local repo_id
     do
-      local t_44_
+      local t_48_
       do
         local db_mod_1_auto = require("codeboomer.singleton")
         local t_2_auto = sqlite.repo(db_mod_1_auto["get-db"]())
         local ok_3_auto, result_4_auto
-        local function _45_()
+        local function _49_()
           return t_2_auto:get({where = {path = root}})
         end
-        ok_3_auto, result_4_auto = pcall(_45_)
+        ok_3_auto, result_4_auto = pcall(_49_)
         if ok_3_auto then
-          t_44_ = result_4_auto
+          t_48_ = result_4_auto
         else
           db_mod_1_auto["reset-db"]()
-          t_44_ = error(result_4_auto, 0)
+          t_48_ = error(result_4_auto, 0)
         end
       end
-      if (nil ~= t_44_) then
-        t_44_ = t_44_[1]
+      if (nil ~= t_48_) then
+        t_48_ = t_48_[1]
       else
       end
-      if (nil ~= t_44_) then
-        t_44_ = t_44_.id
+      if (nil ~= t_48_) then
+        t_48_ = t_48_.id
       else
       end
-      repo_id = t_44_
+      repo_id = t_48_
     end
     if repo_id then
       local sessions
       do
         local tbl_26_ = {}
         local i_27_ = 0
-        local _49_
+        local _53_
         do
           local db_mod_1_auto = require("codeboomer.singleton")
           local t_2_auto = sqlite.session(db_mod_1_auto["get-db"]())
           local ok_3_auto, result_4_auto
-          local function _50_()
+          local function _54_()
             return t_2_auto:get({where = {repo_id = repo_id}})
           end
-          ok_3_auto, result_4_auto = pcall(_50_)
+          ok_3_auto, result_4_auto = pcall(_54_)
           if ok_3_auto then
-            _49_ = result_4_auto
+            _53_ = result_4_auto
           else
             db_mod_1_auto["reset-db"]()
-            _49_ = error(result_4_auto, 0)
+            _53_ = error(result_4_auto, 0)
           end
         end
-        for _, row in ipairs(sqlite["active-rows"]((_49_ or {}))) do
+        for _, row in ipairs(sqlite["active-rows"]((_53_ or {}))) do
           local val_28_
           if (row.pr_number == nil) then
             val_28_ = row
@@ -321,10 +355,10 @@ M["existing-sessions"] = function()
         end
         sessions = tbl_26_
       end
-      local function _54_(a, b)
+      local function _58_(a, b)
         return ((a.id or 0) < (b.id or 0))
       end
-      table.sort(sessions, _54_)
+      table.sort(sessions, _58_)
       return sessions
     else
       return nil
@@ -339,42 +373,42 @@ M["session-for-pr"] = function(pr_number)
     if root then
       local repo_id
       do
-        local t_57_
+        local t_61_
         do
           local db_mod_1_auto = require("codeboomer.singleton")
           local t_2_auto = sqlite.repo(db_mod_1_auto["get-db"]())
           local ok_3_auto, result_4_auto
-          local function _58_()
+          local function _62_()
             return t_2_auto:get({where = {path = root}})
           end
-          ok_3_auto, result_4_auto = pcall(_58_)
+          ok_3_auto, result_4_auto = pcall(_62_)
           if ok_3_auto then
-            t_57_ = result_4_auto
+            t_61_ = result_4_auto
           else
             db_mod_1_auto["reset-db"]()
-            t_57_ = error(result_4_auto, 0)
+            t_61_ = error(result_4_auto, 0)
           end
         end
-        if (nil ~= t_57_) then
-          t_57_ = t_57_[1]
+        if (nil ~= t_61_) then
+          t_61_ = t_61_[1]
         else
         end
-        if (nil ~= t_57_) then
-          t_57_ = t_57_.id
+        if (nil ~= t_61_) then
+          t_61_ = t_61_.id
         else
         end
-        repo_id = t_57_
+        repo_id = t_61_
       end
       if repo_id then
-        local t_62_
-        local function _64_()
+        local t_66_
+        local function _68_()
           local db_mod_1_auto = require("codeboomer.singleton")
           local t_2_auto = sqlite.session(db_mod_1_auto["get-db"]())
           local ok_3_auto, result_4_auto
-          local function _63_()
+          local function _67_()
             return t_2_auto:get({where = {repo_id = repo_id, pr_number = pr_number}})
           end
-          ok_3_auto, result_4_auto = pcall(_63_)
+          ok_3_auto, result_4_auto = pcall(_67_)
           if ok_3_auto then
             return result_4_auto
           else
@@ -382,12 +416,12 @@ M["session-for-pr"] = function(pr_number)
             return error(result_4_auto, 0)
           end
         end
-        t_62_ = sqlite["active-rows"](_64_())
-        if (nil ~= t_62_) then
-          t_62_ = t_62_[1]
+        t_66_ = sqlite["active-rows"](_68_())
+        if (nil ~= t_66_) then
+          t_66_ = t_66_[1]
         else
         end
-        return t_62_
+        return t_66_
       else
         return nil
       end
@@ -404,51 +438,51 @@ M["session-for-branch"] = function(branch)
     if root then
       local repo_id
       do
-        local t_70_
+        local t_74_
         do
           local db_mod_1_auto = require("codeboomer.singleton")
           local t_2_auto = sqlite.repo(db_mod_1_auto["get-db"]())
           local ok_3_auto, result_4_auto
-          local function _71_()
+          local function _75_()
             return t_2_auto:get({where = {path = root}})
           end
-          ok_3_auto, result_4_auto = pcall(_71_)
+          ok_3_auto, result_4_auto = pcall(_75_)
           if ok_3_auto then
-            t_70_ = result_4_auto
+            t_74_ = result_4_auto
           else
             db_mod_1_auto["reset-db"]()
-            t_70_ = error(result_4_auto, 0)
+            t_74_ = error(result_4_auto, 0)
           end
         end
-        if (nil ~= t_70_) then
-          t_70_ = t_70_[1]
+        if (nil ~= t_74_) then
+          t_74_ = t_74_[1]
         else
         end
-        if (nil ~= t_70_) then
-          t_70_ = t_70_.id
+        if (nil ~= t_74_) then
+          t_74_ = t_74_.id
         else
         end
-        repo_id = t_70_
+        repo_id = t_74_
       end
       if repo_id then
         local found = nil
-        local _75_
+        local _79_
         do
           local db_mod_1_auto = require("codeboomer.singleton")
           local t_2_auto = sqlite.session(db_mod_1_auto["get-db"]())
           local ok_3_auto, result_4_auto
-          local function _76_()
+          local function _80_()
             return t_2_auto:get({where = {repo_id = repo_id, branch = branch}})
           end
-          ok_3_auto, result_4_auto = pcall(_76_)
+          ok_3_auto, result_4_auto = pcall(_80_)
           if ok_3_auto then
-            _75_ = result_4_auto
+            _79_ = result_4_auto
           else
             db_mod_1_auto["reset-db"]()
-            _75_ = error(result_4_auto, 0)
+            _79_ = error(result_4_auto, 0)
           end
         end
-        for _, row in ipairs(sqlite["active-rows"]((_75_ or {}))) do
+        for _, row in ipairs(sqlite["active-rows"]((_79_ or {}))) do
           if (not found and (row.pr_number == nil)) then
             found = row
           else
@@ -467,15 +501,15 @@ M["session-for-branch"] = function(branch)
 end
 M["session-by-id"] = function(id)
   if id then
-    local t_82_
-    local function _84_()
+    local t_86_
+    local function _88_()
       local db_mod_1_auto = require("codeboomer.singleton")
       local t_2_auto = sqlite.session(db_mod_1_auto["get-db"]())
       local ok_3_auto, result_4_auto
-      local function _83_()
+      local function _87_()
         return t_2_auto:get({where = {id = id}})
       end
-      ok_3_auto, result_4_auto = pcall(_83_)
+      ok_3_auto, result_4_auto = pcall(_87_)
       if ok_3_auto then
         return result_4_auto
       else
@@ -483,51 +517,51 @@ M["session-by-id"] = function(id)
         return error(result_4_auto, 0)
       end
     end
-    t_82_ = sqlite["active-rows"](_84_())
-    if (nil ~= t_82_) then
-      t_82_ = t_82_[1]
+    t_86_ = sqlite["active-rows"](_88_())
+    if (nil ~= t_86_) then
+      t_86_ = t_86_[1]
     else
     end
-    return t_82_
+    return t_86_
   else
     return nil
   end
 end
 M["comment-by-gh"] = function(gh_id)
   if gh_id then
-    local t_88_
+    local t_92_
     do
       local db_mod_1_auto = require("codeboomer.singleton")
       local t_2_auto = sqlite.comments(db_mod_1_auto["get-db"]())
       local ok_3_auto, result_4_auto
-      local function _89_()
+      local function _93_()
         return t_2_auto:get({where = {gh_comment_id = tostring(gh_id)}})
       end
-      ok_3_auto, result_4_auto = pcall(_89_)
+      ok_3_auto, result_4_auto = pcall(_93_)
       if ok_3_auto then
-        t_88_ = result_4_auto
+        t_92_ = result_4_auto
       else
         db_mod_1_auto["reset-db"]()
-        t_88_ = error(result_4_auto, 0)
+        t_92_ = error(result_4_auto, 0)
       end
     end
-    if (nil ~= t_88_) then
-      t_88_ = t_88_[1]
+    if (nil ~= t_92_) then
+      t_92_ = t_92_[1]
     else
     end
-    return t_88_
+    return t_92_
   else
     return nil
   end
 end
 M["thread-id-for-gh"] = function(gh_id)
   if gh_id then
-    local t_93_ = M["comment-by-gh"](gh_id)
-    if (nil ~= t_93_) then
-      t_93_ = t_93_.thread_id
+    local t_97_ = M["comment-by-gh"](gh_id)
+    if (nil ~= t_97_) then
+      t_97_ = t_97_.thread_id
     else
     end
-    return t_93_
+    return t_97_
   else
     return nil
   end
@@ -539,10 +573,10 @@ M["with-gh-user"] = function(login)
     local db_mod_1_auto = require("codeboomer.singleton")
     local t_2_auto = sqlite.user(db_mod_1_auto["get-db"]())
     local ok_3_auto, result_4_auto
-    local function _96_()
+    local function _100_()
       return t_2_auto:get({where = {email = email}})
     end
-    ok_3_auto, result_4_auto = pcall(_96_)
+    ok_3_auto, result_4_auto = pcall(_100_)
     if ok_3_auto then
       entry_3f = result_4_auto
     else
@@ -550,20 +584,8 @@ M["with-gh-user"] = function(login)
       entry_3f = error(result_4_auto, 0)
     end
   end
-  local _99_
+  local _103_
   do
-    local t_98_ = entry_3f
-    if (nil ~= t_98_) then
-      t_98_ = t_98_[1]
-    else
-    end
-    if (nil ~= t_98_) then
-      t_98_ = t_98_.id
-    else
-    end
-    _99_ = t_98_
-  end
-  if _99_ then
     local t_102_ = entry_3f
     if (nil ~= t_102_) then
       t_102_ = t_102_[1]
@@ -573,15 +595,27 @@ M["with-gh-user"] = function(login)
       t_102_ = t_102_.id
     else
     end
-    return t_102_
+    _103_ = t_102_
+  end
+  if _103_ then
+    local t_106_ = entry_3f
+    if (nil ~= t_106_) then
+      t_106_ = t_106_[1]
+    else
+    end
+    if (nil ~= t_106_) then
+      t_106_ = t_106_.id
+    else
+    end
+    return t_106_
   else
     local db_mod_1_auto = require("codeboomer.singleton")
     local t_2_auto = sqlite.user(db_mod_1_auto["get-db"]())
     local ok_3_auto, result_4_auto
-    local function _105_()
+    local function _109_()
       return t_2_auto:insert({name = (login or "unknown"), email = email})
     end
-    ok_3_auto, result_4_auto = pcall(_105_)
+    ok_3_auto, result_4_auto = pcall(_109_)
     if ok_3_auto then
       return result_4_auto
     else
@@ -594,34 +628,46 @@ M["import-thread"] = function(session_id, item)
   local repo_id = with_repo()
   local login
   do
-    local t_108_ = item
-    if (nil ~= t_108_) then
-      t_108_ = t_108_.user
+    local t_112_ = item
+    if (nil ~= t_112_) then
+      t_112_ = t_112_.user
     else
     end
-    if (nil ~= t_108_) then
-      t_108_ = t_108_.login
+    if (nil ~= t_112_) then
+      t_112_ = t_112_.login
     else
     end
-    login = t_108_
+    login = t_112_
   end
-  local line = (item.line or item.original_line or 1)
+  local file_3f = ("file" == item.subject_type)
+  local line
+  if not file_3f then
+    line = (item.line or item.original_line or 1)
+  else
+    line = nil
+  end
   local commit_id = with_commit(repo_id, item.commit_id)
   local thread_id
   do
     local db_mod_1_auto = require("codeboomer.singleton")
     local t_2_auto = sqlite.thread(db_mod_1_auto["get-db"]())
     local ok_3_auto, result_4_auto
-    local function _111_()
-      local _112_
-      if not item.position then
-        _112_ = 1
+    local function _116_()
+      local _117_
+      if file_3f then
+        _117_ = "file"
       else
-        _112_ = nil
+        _117_ = "line"
       end
-      return t_2_auto:insert({session_id = session_id, file_path = item.path, line_start = line, line_end = line, anchor_commit = commit_id, status = "open", kind = "review", gh_outdated = _112_, created_by = M["with-gh-user"](login)})
+      local _119_
+      if (not file_3f and not item.position) then
+        _119_ = 1
+      else
+        _119_ = nil
+      end
+      return t_2_auto:insert({session_id = session_id, file_path = item.path, line_start = line, line_end = line, anchor_commit = commit_id, status = "open", type = _117_, kind = "review", gh_outdated = _119_, created_by = M["with-gh-user"](login)})
     end
-    ok_3_auto, result_4_auto = pcall(_111_)
+    ok_3_auto, result_4_auto = pcall(_116_)
     if ok_3_auto then
       thread_id = result_4_auto
     else
@@ -633,10 +679,10 @@ M["import-thread"] = function(session_id, item)
     local db_mod_1_auto = require("codeboomer.singleton")
     local t_2_auto = sqlite.comments(db_mod_1_auto["get-db"]())
     local ok_3_auto, result_4_auto
-    local function _115_()
+    local function _122_()
       return t_2_auto:insert({thread_id = thread_id, author_id = M["with-gh-user"](login), body = sql_literal(item.body), source = "github", commit_id = commit_id, gh_comment_id = tostring(item.id)})
     end
-    ok_3_auto, result_4_auto = pcall(_115_)
+    ok_3_auto, result_4_auto = pcall(_122_)
     if ok_3_auto then
     else
       db_mod_1_auto["reset-db"]()
@@ -649,22 +695,22 @@ M["import-comment"] = function(thread_id, item)
   local db_mod_1_auto = require("codeboomer.singleton")
   local t_2_auto = sqlite.comments(db_mod_1_auto["get-db"]())
   local ok_3_auto, result_4_auto
-  local function _117_()
-    local function _119_()
-      local t_118_ = item
-      if (nil ~= t_118_) then
-        t_118_ = t_118_.user
+  local function _124_()
+    local function _126_()
+      local t_125_ = item
+      if (nil ~= t_125_) then
+        t_125_ = t_125_.user
       else
       end
-      if (nil ~= t_118_) then
-        t_118_ = t_118_.login
+      if (nil ~= t_125_) then
+        t_125_ = t_125_.login
       else
       end
-      return t_118_
+      return t_125_
     end
-    return t_2_auto:insert({thread_id = thread_id, author_id = M["with-gh-user"](_119_()), body = sql_literal(item.body), source = "github", commit_id = with_commit(with_repo(), item.commit_id), gh_comment_id = tostring(item.id)})
+    return t_2_auto:insert({thread_id = thread_id, author_id = M["with-gh-user"](_126_()), body = sql_literal(item.body), source = "github", commit_id = with_commit(with_repo(), item.commit_id), gh_comment_id = tostring(item.id)})
   end
-  ok_3_auto, result_4_auto = pcall(_117_)
+  ok_3_auto, result_4_auto = pcall(_124_)
   if ok_3_auto then
     return result_4_auto
   else
@@ -698,49 +744,49 @@ local function by_created(a, b)
   end
 end
 local function thread_by_id(id)
-  local t_125_
+  local t_132_
   do
     local db_mod_1_auto = require("codeboomer.singleton")
     local t_2_auto = sqlite.thread(db_mod_1_auto["get-db"]())
     local ok_3_auto, result_4_auto
-    local function _126_()
+    local function _133_()
       return t_2_auto:get({where = {id = (id or 0)}})
     end
-    ok_3_auto, result_4_auto = pcall(_126_)
+    ok_3_auto, result_4_auto = pcall(_133_)
     if ok_3_auto then
-      t_125_ = result_4_auto
+      t_132_ = result_4_auto
     else
       db_mod_1_auto["reset-db"]()
-      t_125_ = error(result_4_auto, 0)
+      t_132_ = error(result_4_auto, 0)
     end
   end
-  if (nil ~= t_125_) then
-    t_125_ = t_125_[1]
+  if (nil ~= t_132_) then
+    t_132_ = t_132_[1]
   else
   end
-  return t_125_
+  return t_132_
 end
 local function root_of(t)
-  local _129_
+  local _136_
   if t.parent_id then
-    _129_ = thread_by_id(t.parent_id)
+    _136_ = thread_by_id(t.parent_id)
   else
-    _129_ = nil
+    _136_ = nil
   end
-  return (_129_ or t)
+  return (_136_ or t)
 end
 local function twin_of(t)
   local root = root_of(t)
   if ((root.id or 0) == (t.id or 0)) then
-    local t_131_
-    local function _133_()
+    local t_138_
+    local function _140_()
       local db_mod_1_auto = require("codeboomer.singleton")
       local t_2_auto = sqlite.thread(db_mod_1_auto["get-db"]())
       local ok_3_auto, result_4_auto
-      local function _132_()
+      local function _139_()
         return t_2_auto:get({where = {parent_id = (t.id or 0)}})
       end
-      ok_3_auto, result_4_auto = pcall(_132_)
+      ok_3_auto, result_4_auto = pcall(_139_)
       if ok_3_auto then
         return result_4_auto
       else
@@ -748,12 +794,12 @@ local function twin_of(t)
         return error(result_4_auto, 0)
       end
     end
-    t_131_ = sqlite["active-rows"](_133_())
-    if (nil ~= t_131_) then
-      t_131_ = t_131_[1]
+    t_138_ = sqlite["active-rows"](_140_())
+    if (nil ~= t_138_) then
+      t_138_ = t_138_[1]
     else
     end
-    return t_131_
+    return t_138_
   else
     return root
   end
@@ -774,14 +820,14 @@ M["conversation-comments"] = function(thread_id)
     local root = root_of(t)
     local twin = twin_of(t)
     local rows
-    local function _138_()
+    local function _145_()
       if (twin and ((twin.id or 0) ~= (root.id or 0))) then
         return M["comments-for"](twin.id)
       else
         return {}
       end
     end
-    rows = vim.list_extend(M["comments-for"]((root.id or 0)), _138_())
+    rows = vim.list_extend(M["comments-for"]((root.id or 0)), _145_())
     table.sort(rows, by_created)
     return rows
   end
@@ -800,10 +846,10 @@ M["ensure-local-twin"] = function(thread_id)
         local db_mod_1_auto = require("codeboomer.singleton")
         local t_2_auto = sqlite.thread(db_mod_1_auto["get-db"]())
         local ok_3_auto, result_4_auto
-        local function _140_()
-          return t_2_auto:insert({session_id = t.session_id, file_path = t.file_path, line_start = t.line_start, line_end = t.line_end, code_snapshot = sql_literal(t.code_snapshot), anchor_commit = t.anchor_commit, status = "open", kind = "local", parent_id = t.id, created_by = with_user()})
+        local function _147_()
+          return t_2_auto:insert({session_id = t.session_id, file_path = t.file_path, line_start = t.line_start, line_end = t.line_end, code_snapshot = sql_literal(t.code_snapshot), anchor_commit = t.anchor_commit, status = "open", type = (t.type or "line"), kind = "local", parent_id = t.id, created_by = with_user()})
         end
-        ok_3_auto, result_4_auto = pcall(_140_)
+        ok_3_auto, result_4_auto = pcall(_147_)
         if ok_3_auto then
           id = result_4_auto
         else
@@ -818,11 +864,11 @@ end
 M.promote = function(thread_id, body, _3fsession_id, _3fanchor_sha)
   local t = thread_by_id(thread_id)
   local refuse
-  local function _144_(msg, level)
+  local function _151_(msg, level)
     vim.notify(msg, level)
     return nil
   end
-  refuse = _144_
+  refuse = _151_
   if not t then
     return refuse(("codeboomer: no thread #" .. tostring((thread_id or 0))), vim.log.levels.ERROR)
   elseif ("review" == (t.kind or "local")) then
@@ -838,10 +884,10 @@ M.promote = function(thread_id, body, _3fsession_id, _3fanchor_sha)
       local db_mod_1_auto = require("codeboomer.singleton")
       local t_2_auto = sqlite.thread(db_mod_1_auto["get-db"]())
       local ok_3_auto, result_4_auto
-      local function _145_()
-        return t_2_auto:insert({session_id = (_3fsession_id or t.session_id), file_path = t.file_path, line_start = t.line_start, line_end = t.line_end, code_snapshot = sql_literal(t.code_snapshot), anchor_commit = commit_id, status = "open", kind = "review", parent_id = t.id, created_by = with_user()})
+      local function _152_()
+        return t_2_auto:insert({session_id = (_3fsession_id or t.session_id), file_path = t.file_path, line_start = t.line_start, line_end = t.line_end, code_snapshot = sql_literal(t.code_snapshot), anchor_commit = commit_id, status = "open", type = (t.type or "line"), kind = "review", parent_id = t.id, created_by = with_user()})
       end
-      ok_3_auto, result_4_auto = pcall(_145_)
+      ok_3_auto, result_4_auto = pcall(_152_)
       if ok_3_auto then
         twin_id = result_4_auto
       else
@@ -853,10 +899,10 @@ M.promote = function(thread_id, body, _3fsession_id, _3fanchor_sha)
       local db_mod_1_auto = require("codeboomer.singleton")
       local t_2_auto = sqlite.comments(db_mod_1_auto["get-db"]())
       local ok_3_auto, result_4_auto
-      local function _147_()
+      local function _154_()
         return t_2_auto:insert({thread_id = twin_id, author_id = with_user(), body = sql_literal(body), source = "user", commit_id = commit_id})
       end
-      ok_3_auto, result_4_auto = pcall(_147_)
+      ok_3_auto, result_4_auto = pcall(_154_)
       if ok_3_auto then
       else
         db_mod_1_auto["reset-db"]()
@@ -870,10 +916,10 @@ M["update-comment-body"] = function(comment_id, body)
   local db_mod_1_auto = require("codeboomer.singleton")
   local t_2_auto = sqlite.comments(db_mod_1_auto["get-db"]())
   local ok_3_auto, result_4_auto
-  local function _150_()
+  local function _157_()
     return t_2_auto:update({set = {body = sql_literal(body)}, where = {id = (comment_id or 0)}})
   end
-  ok_3_auto, result_4_auto = pcall(_150_)
+  ok_3_auto, result_4_auto = pcall(_157_)
   if ok_3_auto then
     return result_4_auto
   else
@@ -885,10 +931,10 @@ M["stamp-gh-comment"] = function(comment_id, gh_id)
   local db_mod_1_auto = require("codeboomer.singleton")
   local t_2_auto = sqlite.comments(db_mod_1_auto["get-db"]())
   local ok_3_auto, result_4_auto
-  local function _152_()
+  local function _159_()
     return t_2_auto:update({set = {gh_comment_id = tostring(gh_id)}, where = {id = (comment_id or 0)}})
   end
-  ok_3_auto, result_4_auto = pcall(_152_)
+  ok_3_auto, result_4_auto = pcall(_159_)
   if ok_3_auto then
     return result_4_auto
   else
@@ -898,23 +944,23 @@ M["stamp-gh-comment"] = function(comment_id, gh_id)
 end
 M["agent-reply"] = function(thread_id, body)
   local rows
-  local _154_
+  local _161_
   do
     local db_mod_1_auto = require("codeboomer.singleton")
     local t_2_auto = sqlite.thread(db_mod_1_auto["get-db"]())
     local ok_3_auto, result_4_auto
-    local function _155_()
+    local function _162_()
       return t_2_auto:get({where = {id = thread_id}})
     end
-    ok_3_auto, result_4_auto = pcall(_155_)
+    ok_3_auto, result_4_auto = pcall(_162_)
     if ok_3_auto then
-      _154_ = result_4_auto
+      _161_ = result_4_auto
     else
       db_mod_1_auto["reset-db"]()
-      _154_ = error(result_4_auto, 0)
+      _161_ = error(result_4_auto, 0)
     end
   end
-  rows = (_154_ or {})
+  rows = (_161_ or {})
   local thread = rows[1]
   if (not thread or thread.deleted_at or (thread.status == "resolved")) then
     vim.notify(("codeboomer: no active thread #" .. tostring(thread_id)), vim.log.levels.ERROR)
@@ -933,10 +979,10 @@ M["agent-reply"] = function(thread_id, body)
       local db_mod_1_auto = require("codeboomer.singleton")
       local t_2_auto = sqlite.comments(db_mod_1_auto["get-db"]())
       local ok_3_auto, result_4_auto
-      local function _158_()
+      local function _165_()
         return t_2_auto:insert({thread_id = target.id, author_id = with_agent_user(), body = sql_literal(body), source = "agent", commit_id = target.anchor_commit})
       end
-      ok_3_auto, result_4_auto = pcall(_158_)
+      ok_3_auto, result_4_auto = pcall(_165_)
       if ok_3_auto then
         return result_4_auto
       else
@@ -950,23 +996,23 @@ M["agent-reply"] = function(thread_id, body)
 end
 M["user-reply"] = function(thread_id, body)
   local rows
-  local _162_
+  local _169_
   do
     local db_mod_1_auto = require("codeboomer.singleton")
     local t_2_auto = sqlite.thread(db_mod_1_auto["get-db"]())
     local ok_3_auto, result_4_auto
-    local function _163_()
+    local function _170_()
       return t_2_auto:get({where = {id = thread_id}})
     end
-    ok_3_auto, result_4_auto = pcall(_163_)
+    ok_3_auto, result_4_auto = pcall(_170_)
     if ok_3_auto then
-      _162_ = result_4_auto
+      _169_ = result_4_auto
     else
       db_mod_1_auto["reset-db"]()
-      _162_ = error(result_4_auto, 0)
+      _169_ = error(result_4_auto, 0)
     end
   end
-  rows = (_162_ or {})
+  rows = (_169_ or {})
   local thread = rows[1]
   if (not thread or thread.deleted_at or (thread.status == "resolved")) then
     vim.notify(("codeboomer: no active thread #" .. tostring(thread_id)), vim.log.levels.ERROR)
@@ -978,10 +1024,10 @@ M["user-reply"] = function(thread_id, body)
     local db_mod_1_auto = require("codeboomer.singleton")
     local t_2_auto = sqlite.comments(db_mod_1_auto["get-db"]())
     local ok_3_auto, result_4_auto
-    local function _165_()
+    local function _172_()
       return t_2_auto:insert({thread_id = thread_id, author_id = with_user(), body = sql_literal(body), source = "user", commit_id = thread.anchor_commit})
     end
-    ok_3_auto, result_4_auto = pcall(_165_)
+    ok_3_auto, result_4_auto = pcall(_172_)
     if ok_3_auto then
       return result_4_auto
     else
@@ -996,10 +1042,10 @@ M["resolve-thread"] = function(thread_id)
     local db_mod_1_auto = require("codeboomer.singleton")
     local t_2_auto = sqlite.thread(db_mod_1_auto["get-db"]())
     local ok_3_auto, result_4_auto
-    local function _168_()
+    local function _175_()
       return t_2_auto:update({set = {status = "resolved"}, where = {id = thread_id}})
     end
-    ok_3_auto, result_4_auto = pcall(_168_)
+    ok_3_auto, result_4_auto = pcall(_175_)
     if ok_3_auto then
     else
       db_mod_1_auto["reset-db"]()
@@ -1016,10 +1062,10 @@ M["resolve-thread"] = function(thread_id)
     local db_mod_1_auto = require("codeboomer.singleton")
     local t_2_auto = sqlite.thread(db_mod_1_auto["get-db"]())
     local ok_3_auto, result_4_auto
-    local function _171_()
+    local function _178_()
       return t_2_auto:update({set = {status = "resolved"}, where = {id = twin.id}})
     end
-    ok_3_auto, result_4_auto = pcall(_171_)
+    ok_3_auto, result_4_auto = pcall(_178_)
     if ok_3_auto then
       return result_4_auto
     else
@@ -1031,31 +1077,31 @@ M["resolve-thread"] = function(thread_id)
   end
 end
 M["commit-sha"] = function(commit_id)
-  local t_174_
+  local t_181_
   do
     local db_mod_1_auto = require("codeboomer.singleton")
     local t_2_auto = sqlite.commit(db_mod_1_auto["get-db"]())
     local ok_3_auto, result_4_auto
-    local function _175_()
+    local function _182_()
       return t_2_auto:get({where = {id = commit_id}})
     end
-    ok_3_auto, result_4_auto = pcall(_175_)
+    ok_3_auto, result_4_auto = pcall(_182_)
     if ok_3_auto then
-      t_174_ = result_4_auto
+      t_181_ = result_4_auto
     else
       db_mod_1_auto["reset-db"]()
-      t_174_ = error(result_4_auto, 0)
+      t_181_ = error(result_4_auto, 0)
     end
   end
-  if (nil ~= t_174_) then
-    t_174_ = t_174_[1]
+  if (nil ~= t_181_) then
+    t_181_ = t_181_[1]
   else
   end
-  if (nil ~= t_174_) then
-    t_174_ = t_174_.hash
+  if (nil ~= t_181_) then
+    t_181_ = t_181_.hash
   else
   end
-  return t_174_
+  return t_181_
 end
 local function mine_unflagged_3f(c, me, flag)
   return (((c.author_id or 0) == me) and ((c.source or "user") == "user") and (0 == (c[flag] or 0)) and ("" ~= (c.body or "")))
@@ -1115,13 +1161,13 @@ M["pending-for-post"] = function(session_id)
 end
 M["mark-annotations"] = function(flag, ids)
   if vim.tbl_contains({"sent", "posted"}, flag) then
-    local function _185_(d)
+    local function _192_(d)
       for _, id in ipairs(ids) do
         d:execute(string.format("update comment set %s = 1 where id = %d", tostring(flag), (id or 0)))
       end
       return nil
     end
-    return s["get-db"]():with_open(_185_)
+    return s["get-db"]():with_open(_192_)
   else
     return nil
   end
@@ -1141,23 +1187,23 @@ M["threads-for-session"] = function(session_id)
     return {}
   else
     local rows
-    local _188_
+    local _195_
     do
       local db_mod_1_auto = require("codeboomer.singleton")
       local t_2_auto = sqlite.thread(db_mod_1_auto["get-db"]())
       local ok_3_auto, result_4_auto
-      local function _189_()
+      local function _196_()
         return t_2_auto:get({where = {session_id = session_id}})
       end
-      ok_3_auto, result_4_auto = pcall(_189_)
+      ok_3_auto, result_4_auto = pcall(_196_)
       if ok_3_auto then
-        _188_ = result_4_auto
+        _195_ = result_4_auto
       else
         db_mod_1_auto["reset-db"]()
-        _188_ = error(result_4_auto, 0)
+        _195_ = error(result_4_auto, 0)
       end
     end
-    rows = unresolved_rows(sqlite["active-rows"]((_188_ or {})))
+    rows = unresolved_rows(sqlite["active-rows"]((_195_ or {})))
     local seen = {}
     local roots = {}
     for _, row in ipairs(rows) do
@@ -1177,71 +1223,71 @@ M["review-rows-for-session"] = function(session_id)
     return {}
   else
     local rows
-    local _193_
+    local _200_
     do
       local db_mod_1_auto = require("codeboomer.singleton")
       local t_2_auto = sqlite.thread(db_mod_1_auto["get-db"]())
       local ok_3_auto, result_4_auto
-      local function _194_()
+      local function _201_()
         return t_2_auto:get({where = {session_id = session_id, kind = "review"}})
       end
-      ok_3_auto, result_4_auto = pcall(_194_)
+      ok_3_auto, result_4_auto = pcall(_201_)
       if ok_3_auto then
-        _193_ = result_4_auto
+        _200_ = result_4_auto
       else
         db_mod_1_auto["reset-db"]()
-        _193_ = error(result_4_auto, 0)
+        _200_ = error(result_4_auto, 0)
       end
     end
-    rows = unresolved_rows(sqlite["active-rows"]((_193_ or {})))
+    rows = unresolved_rows(sqlite["active-rows"]((_200_ or {})))
     table.sort(rows, by_file_then_line)
     return rows
   end
 end
 M["comments-for"] = function(thread_id)
   local rows
-  local _197_
+  local _204_
   do
     local db_mod_1_auto = require("codeboomer.singleton")
     local t_2_auto = sqlite.comments(db_mod_1_auto["get-db"]())
     local ok_3_auto, result_4_auto
-    local function _198_()
+    local function _205_()
       return t_2_auto:get({where = {thread_id = thread_id}})
     end
-    ok_3_auto, result_4_auto = pcall(_198_)
+    ok_3_auto, result_4_auto = pcall(_205_)
     if ok_3_auto then
-      _197_ = result_4_auto
+      _204_ = result_4_auto
     else
       db_mod_1_auto["reset-db"]()
-      _197_ = error(result_4_auto, 0)
+      _204_ = error(result_4_auto, 0)
     end
   end
-  rows = sqlite["active-rows"]((_197_ or {}))
+  rows = sqlite["active-rows"]((_204_ or {}))
   table.sort(rows, by_created)
   return rows
 end
 M["comment-author"] = function(c)
-  local t_200_
+  local t_207_
   do
     local db_mod_1_auto = require("codeboomer.singleton")
     local t_2_auto = sqlite.user(db_mod_1_auto["get-db"]())
     local ok_3_auto, result_4_auto
-    local function _201_()
+    local function _208_()
       return t_2_auto:get({where = {id = (c.author_id or 0)}})
     end
-    ok_3_auto, result_4_auto = pcall(_201_)
+    ok_3_auto, result_4_auto = pcall(_208_)
     if ok_3_auto then
-      t_200_ = result_4_auto
+      t_207_ = result_4_auto
     else
       db_mod_1_auto["reset-db"]()
-      t_200_ = error(result_4_auto, 0)
+      t_207_ = error(result_4_auto, 0)
     end
   end
-  if (nil ~= t_200_) then
-    t_200_ = t_200_[1]
+  if (nil ~= t_207_) then
+    t_207_ = t_207_[1]
   else
   end
-  return t_200_
+  return t_207_
 end
 M["match-posted-comment"] = function(session_id, item)
   local line = (item.line or item.original_line)
@@ -1267,10 +1313,10 @@ M["delete-session"] = function(session_id)
   local db_mod_1_auto = require("codeboomer.singleton")
   local t_2_auto = sqlite.session(db_mod_1_auto["get-db"]())
   local ok_3_auto, result_4_auto
-  local function _206_()
+  local function _213_()
     return t_2_auto:update({set = {deleted_at = os.time()}, where = {id = (session_id or 0)}})
   end
-  ok_3_auto, result_4_auto = pcall(_206_)
+  ok_3_auto, result_4_auto = pcall(_213_)
   if ok_3_auto then
     return result_4_auto
   else
@@ -1284,26 +1330,26 @@ M["create-session"] = function(_3fopts)
   local db_mod_1_auto = require("codeboomer.singleton")
   local t_2_auto = sqlite.session(db_mod_1_auto["get-db"]())
   local ok_3_auto, result_4_auto
-  local function _208_()
-    local function _210_()
-      local t_209_ = opts
-      if (nil ~= t_209_) then
-        t_209_ = t_209_["head-sha"]
+  local function _215_()
+    local function _217_()
+      local t_216_ = opts
+      if (nil ~= t_216_) then
+        t_216_ = t_216_["head-sha"]
       else
       end
-      return t_209_
+      return t_216_
     end
-    local function _213_()
-      local t_212_ = opts
-      if (nil ~= t_212_) then
-        t_212_ = t_212_["base-sha"]
+    local function _220_()
+      local t_219_ = opts
+      if (nil ~= t_219_) then
+        t_219_ = t_219_["base-sha"]
       else
       end
-      return t_212_
+      return t_219_
     end
-    return t_2_auto:insert({branch = (opts.branch or git["branch-name"]()), head_commit = with_commit(repo_id, _210_()), base_commit = with_commit(repo_id, _213_()), repo_id = repo_id, pr_number = opts["pr-number"]})
+    return t_2_auto:insert({branch = (opts.branch or git["branch-name"]()), head_commit = with_commit(repo_id, _217_()), base_commit = with_commit(repo_id, _220_()), repo_id = repo_id, pr_number = opts["pr-number"]})
   end
-  ok_3_auto, result_4_auto = pcall(_208_)
+  ok_3_auto, result_4_auto = pcall(_215_)
   if ok_3_auto then
     return result_4_auto
   else

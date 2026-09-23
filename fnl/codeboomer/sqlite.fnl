@@ -53,6 +53,13 @@
                       ;; :local is the agent conversation (never
                       ;; ships); :review is what PostReview walks
                       :kind :text
+                      ;; :line anchors to [line_start, line_end];
+                      ;; :file is a whole-file comment — no lines,
+                      ;; GitHub's subject_type=file. The default is
+                      ;; double-quoted ('line' bare is invalid sql) and
+                      ;; doubles as the backfill for pre-type rows via
+                      ;; the singleton's add-column migration
+                      :type {:type :text :default "'line'"}
                       ;; the other half of the pair — see review.fnl.
                       ;; Never cascade across sessions: a hard parent
                       ;; delete orphans the twin, which then becomes

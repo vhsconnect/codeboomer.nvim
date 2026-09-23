@@ -72,6 +72,29 @@
                        :code_snapshot (sql-literal code)
                        :anchor_commit commit-id
                        :status :open
+                       :type :line
+                       :kind :local
+                       :created_by user-id})]
+    (db sqlite.comments :insert
+        {:thread_id thread-id
+         :author_id user-id
+         :body (sql-literal body)
+         :source :user
+         :commit_id commit-id})))
+
+;; a whole-file comment — no lines, no snapshot: the thread anchors
+;; to the file itself (GitHub's subject_type=file). The pane lists it
+;; ahead of the file's line threads; no gutter mark can point at it
+(fn M.file-comment [session-id file-path body]
+  (let [user-id (with-user)
+        repo-id (with-repo)
+        commit-id (with-commit repo-id)
+        thread-id (db sqlite.thread :insert
+                      {:session_id session-id
+                       :file_path file-path
+                       :anchor_commit commit-id
+                       :status :open
+                       :type :file
                        :kind :local
                        :created_by user-id})]
     (db sqlite.comments :insert
@@ -172,13 +195,15 @@
     (if (?. entry? 1 :id) (?. entry? 1 :id)
         (db sqlite.user :insert {:name (or login :unknown) : email}))))
 
-;; one pulled PR comment that seeds a thread — position null means
-;; outdated (the PR moved past its line); anchor best-effort at
-;; original_line and flag the thread
+;; one pulled PR comment that seeds a thread — subject_type "file" is
+;; a whole-file comment (no lines, never outdated); for line threads
+;; position null means outdated (the PR moved past its line), anchor
+;; best-effort at original_line and flag the thread
 (fn M.import-thread [session-id item]
   (let [repo-id (with-repo)
         login (?. item :user :login)
-        line (or item.line item.original_line 1)
+        file? (= :file item.subject_type)
+        line (when (not file?) (or item.line item.original_line 1))
         commit-id (with-commit repo-id item.commit_id)
         thread-id (db sqlite.thread :insert
                       {:session_id session-id
@@ -187,8 +212,9 @@
                        :line_end line
                        :anchor_commit commit-id
                        :status :open
+                       :type (if file? :file :line)
                        :kind :review
-                       :gh_outdated (when (not item.position) 1)
+                       :gh_outdated (when (and (not file?) (not item.position)) 1)
                        :created_by (M.with-gh-user login)})]
     (db sqlite.comments :insert
         {:thread_id thread-id
@@ -286,6 +312,7 @@
                             :code_snapshot (sql-literal t.code_snapshot)
                             :anchor_commit t.anchor_commit
                             :status :open
+                            :type (or t.type :line)
                             :kind :local
                             :parent_id t.id
                             :created_by (with-user)})]
@@ -322,6 +349,7 @@
                            :code_snapshot (sql-literal t.code_snapshot)
                            :anchor_commit commit-id
                            :status :open
+                           :type (or t.type :line)
                            :kind :review
                            :parent_id t.id
                            :created_by (with-user)})]

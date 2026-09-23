@@ -43,9 +43,9 @@
                 :pull_review [:n
                               "<cmd>Codeboomer PullReview<cr>"
                               "codeboomer: pull the PR's inline comments into the session"]
-                :annotate [:x
+                :annotate [[:n :x]
                            ":Codeboomer Annotate<cr>"
-                           "codeboomer: annotate some text"]})
+                           "codeboomer: annotate selection or whole file"]})
 
 (fn fold-by-label [defaults entries]
   ;; entries override the built-ins by label and append new labels —

@@ -2,8 +2,11 @@
 ;; Snapshot review of a pull request: the PR head is fetched and
 ;; materialized as a detached git worktree, and a review tab opens
 ;; with the code on the left — read-only, changed ranges tinted — and
-;; the sidebar's comments pane on the right (following the cursor
-;; between threads; pane and gutter marks live only inside reviews).
+;; the sidebar's comments pane on the right (a file's threads load
+;; the moment the file is entered — the ReviewFiles quickfix is the
+;; usual door — the cursor-following rest detection narrows from
+;; there, and a completely still cursor re-queries the db every few
+;; seconds; pane and gutter marks live only inside reviews).
 ;; Threads
 ;; anchor to the worktree's HEAD, i.e. the fetched PR head, and
 ;; because the checkout cannot be edited, line numbers cannot drift
@@ -291,6 +294,11 @@
           ;; the stamp lands
           (set (. vim.b bufnr :codeboomer_review_side) current.side)
           (sidebar.mark-buffer bufnr)
+          ;; the file's threads land in the pane the moment the file
+          ;; is entered — the quickfix pick path — instead of waiting
+          ;; for a cursor rest inside a range (the :old side refuses
+          ;; inside enter-file: thread lines are new-side ones)
+          (sidebar.enter-file bufnr)
           ;; hunk hopping lives only inside review buffers and dies
           ;; with them: ]a next, [a previous (of the shown side)
           (vim.keymap.set :n "]a" M.next-hunk

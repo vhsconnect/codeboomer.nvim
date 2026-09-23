@@ -347,12 +347,14 @@
   (let [conversation (icollect [_ c (ipairs (review.conversation-comments (or t.id
                                                                               0)))]
                        (comment-line c))]
-    (string.format "regarding %s lines %s to %s (thread %s)\n%s\n%s"
-                   (or t.file_path "?") (or t.line_start "?")
-                   (or t.line_end "?") (or t.id "?") (or t.code_snapshot "") (table.concat conversation
-                                                                                          "
-
-"))))
+    (if (= :file (or t.type :line))
+        (string.format "regarding %s (thread %s)\n%s"
+                       (or t.file_path "?") (or t.id "?")
+                       (table.concat conversation "\n\n"))
+        (string.format "regarding %s lines %s to %s (thread %s)\n%s\n%s"
+                       (or t.file_path "?") (or t.line_start "?")
+                       (or t.line_end "?") (or t.id "?") (or t.code_snapshot "") (table.concat conversation
+                                                                                          "\n\n")))))
 
 (set M.SetPane
      (fn []
@@ -401,28 +403,44 @@
                              (choose-one-off commands ask))))))
 
 ;; the annotate flow itself — behind the old-side guard of M.Annotate
-;; below
+;; below. With a visual range the thread anchors to those lines; with
+;; none it becomes a whole-file comment on the current buffer
 (fn annotate-flow [opts]
-  (with-pan (let [context (get-visual-lines opts)]
-              (input.open {:title " Annotate> "
-                           :on-submit (fn [lines]
-                                        (let [text (concat-list lines)]
-                                          ;; the DB is the only store now — an
-                                          ;; empty note would only pollute threads
-                                          (if (= text "")
-                                              (schedule-notify "codeboomer: empty annotation ignored"
-                                                               vim.log.levels.WARN)
-                                              (ensure-session (fn []
-                                                                (review.user-comment (review.current-session-id)
-                                                                                     context.file
-                                                                                     context.line1
-                                                                                     context.line2
-                                                                                     context.lines
-                                                                                     text)
-                                                                ;; let an open review pane pick the
-                                                                ;; fresh thread up
-                                                                (vim.api.nvim_exec_autocmds :User
-                                                                                            {:pattern :CodeboomerAnnotated}))))))}))))
+  (with-pan (let [context (get-visual-lines opts)
+                  ;; rel-path falls back to the raw buffer name (empty
+                  ;; for scratch buffers, absolute outside a repo) —
+                  ;; neither shape belongs in a thread, so a file
+                  ;; comment requires a name rel-path actually relativized
+                  file-path (when (not context) (git.rel-path))
+                  repo-file? (and file-path (not= file-path "")
+                                     (not= file-path
+                                          (vim.api.nvim_buf_get_name 0)))]
+              (if (and (not context) (not repo-file?))
+                  (schedule-notify "codeboomer: annotate needs a selection or a repo file"
+                                   vim.log.levels.ERROR)
+                  (input.open {:title " Annotate> "
+                               :on-submit (fn [lines]
+                                            (let [text (concat-list lines)]
+                                              ;; the DB is the only store now — an
+                                              ;; empty note would only pollute threads
+                                              (if (= text "")
+                                                  (schedule-notify "codeboomer: empty annotation ignored"
+                                                                   vim.log.levels.WARN)
+                                                  (ensure-session (fn []
+                                                                    (if context
+                                                                        (review.user-comment (review.current-session-id)
+                                                                                             context.file
+                                                                                             context.line1
+                                                                                             context.line2
+                                                                                             context.lines
+                                                                                             text)
+                                                                        (review.file-comment (review.current-session-id)
+                                                                                             file-path
+                                                                                             text))
+                                                                    ;; let an open review pane pick the
+                                                                    ;; fresh thread up
+                                                                    (vim.api.nvim_exec_autocmds :User
+                                                                                                {:pattern :CodeboomerAnnotated}))))))})))))$
 
 ;; a review's OLD side is for reading: its line numbers belong to the
 ;; other end of the diff and threads would anchor to the base sha —

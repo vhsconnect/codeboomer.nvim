@@ -54,7 +54,7 @@ The plugin sets up no default keybindings; configure them like this:
 | Normal | `<leader>c[` | `WalkBack` — step the open review back one of the PR's own commits |
 | Normal | `<leader>cP` | `PostReview` — push the promoted threads to the PR |
 | Normal | `<leader>cL` | `PullReview` — pull the PR's inline comments into the session |
-| Visual | `<leader>ca` | `Annotate` — add the selection (plus an optional note) to the query context |
+| Normal + Visual | `<leader>ca` | `Annotate` — add the selection (plus an optional note) to the query context; from normal mode, a whole-file comment |
 | Normal | `<leader>cd` | `FlushWithDirective` — flush accumulated annotations with a directive |
 
 Disable or customize any binding under `keybindings` in `setup()` (set to `false` to disable):
@@ -351,6 +351,9 @@ the outbox: local conversation halves are unreachable from this walk.
 - Comments land in a **pending review** — a draft on GitHub you
   submit there (comment / approve / request changes); nothing is
   published until you do
+- File-level threads ship as GitHub file comments
+  (`subject_type = file`) — exempt from the off-diff gate, since
+  GitHub anchors them to the file rather than to diff lines
 - Replies to pulled threads post via the replies endpoint (attached
   under the thread's root GitHub comment) — immediately, as that
   endpoint has no draft state; everything else batches into one
@@ -380,7 +383,9 @@ Imports the PR's current inline comments into the chosen PR session as
 threads — idempotent by GitHub comment id (re-pulls add only what's
 new), replies joined to their threads, and comments GitHub marks
 outdated anchored best-effort at their original line with an
-`outdated` flag in the thread header. A comment that is one of your
+`outdated` flag in the thread header. Whole-file PR comments
+(`subject_type = file`) import as `type = file` threads — no lines,
+never flagged outdated. A comment that is one of your
 own posted ones (`PostReview` + submitted draft) comes home by
 stamping its gh id onto the local review half instead of seeding a
 duplicate thread. `:Codeboomer Review` runs this automatically after
@@ -411,12 +416,14 @@ sent instead).
 Adds the current selection to the review session's annotation outbox. Use this to annotate multiple code sections before sending a directive.
 
 - Requires a pane to be selected first via `:Codeboomer SetPane`
-- With a visual range, the selection is included as context (`regarding <file> lines X to Y`); without one, the current file name is sent instead — file paths are stored repo-relative
+- With a visual range, the selection is included as context (`regarding <file> lines X to Y`); without one the annotation becomes a **whole-file comment** (`type = file`) — a thread anchored to the file itself with no line range — file paths are stored repo-relative
 - The review session is resolved on write: the chosen one when set (see `:Codeboomer Sessions`), the sole existing one when exactly one exists, a fresh one when none does — a picker appears only when several compete
 - Annotations are stored in the review session's database — the single store — each as its own **local conversation thread** (`kind = local`): tracked as not-yet-sent (agent) and invisible to `PostReview` until promoted in the comments pane (`p`). They are included in the next `:Codeboomer FlushWithDirective` call until sent
 - Inside an open review (`Review` / `ReviewWorktree`), commented ranges
   get `▌` gutter marks and the comments pane shows a thread's comments
-  when the cursor rests inside its range
+  when the cursor rests inside its range; file-level threads carry no
+  lines, so they get no marks and the pane lists them with a `file`
+  position instead of a line range
 - Empty notes are ignored
 
 ```
