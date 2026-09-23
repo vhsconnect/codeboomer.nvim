@@ -20,6 +20,17 @@
 
 (import-macros {: db} :codeboomer.macros)
 
+;; sqlite.lua's dsl splices any string matching ^%S+%(...%)$ into the
+;; statement as a raw SQL expression instead of binding it — a note
+;; shaped like a bare call ("fmt(x)", "count(*)") then fails the
+;; write with a cryptic parse error or, when it happens to parse,
+;; silently stores the evaluated SQL. A leading space defeats the
+;; pattern and is invisible wherever the text renders (markdown
+;; trims it); applied to every free-text column at write time
+(fn sql-literal [?text]
+  (let [v (or ?text "")]
+    (if (v:match "^[%S]+%(.*%)$") (.. " " v) v)))
+
 (fn with-user []
   (let [email (git.user-email)
         entry? (db sqlite.user :get {:where {: email}})]
@@ -58,7 +69,7 @@
                        :file_path file-path
                        :line_start line-start
                        :line_end line-end
-                       :code_snapshot code
+                       :code_snapshot (sql-literal code)
                        :anchor_commit commit-id
                        :status :open
                        :kind :local
@@ -66,7 +77,7 @@
     (db sqlite.comments :insert
         {:thread_id thread-id
          :author_id user-id
-         : body
+         :body (sql-literal body)
          :source :user
          :commit_id commit-id})))
 
@@ -182,7 +193,7 @@
     (db sqlite.comments :insert
         {:thread_id thread-id
          :author_id (M.with-gh-user login)
-         :body item.body
+         :body (sql-literal item.body)
          :source :github
          :commit_id commit-id
          :gh_comment_id (tostring item.id)})
@@ -193,7 +204,7 @@
   (db sqlite.comments :insert
       {:thread_id thread-id
        :author_id (M.with-gh-user (?. item :user :login))
-       :body item.body
+       :body (sql-literal item.body)
        :source :github
        :commit_id (with-commit (with-repo) item.commit_id)
        :gh_comment_id (tostring item.id)}))
@@ -272,7 +283,7 @@
                             :file_path t.file_path
                             :line_start t.line_start
                             :line_end t.line_end
-                            :code_snapshot t.code_snapshot
+                            :code_snapshot (sql-literal t.code_snapshot)
                             :anchor_commit t.anchor_commit
                             :status :open
                             :kind :local
@@ -308,7 +319,7 @@
                            :file_path t.file_path
                            :line_start t.line_start
                            :line_end t.line_end
-                           :code_snapshot t.code_snapshot
+                           :code_snapshot (sql-literal t.code_snapshot)
                            :anchor_commit commit-id
                            :status :open
                            :kind :review
@@ -317,7 +328,7 @@
           (db sqlite.comments :insert
               {:thread_id twin-id
                :author_id (with-user)
-               : body
+               :body (sql-literal body)
                :source :user
                :commit_id commit-id})
           twin-id))))
@@ -325,7 +336,8 @@
 ;; rewrite one comment's body in place — the pane's e key refines a
 ;; promoted (still unposted) comment without touching anything else
 (fn M.update-comment-body [comment-id body]
-  (db sqlite.comments :update {:set {: body} :where {:id (or comment-id 0)}}))
+  (db sqlite.comments :update
+      {:set {:body (sql-literal body)} :where {:id (or comment-id 0)}}))
 
 ;; record the gh comment id a local row became — makes re-pulls
 ;; idempotent for our own posted comments and gives a promoted pair
@@ -357,7 +369,7 @@
             (db sqlite.comments :insert
                 {:thread_id target.id
                  :author_id (with-agent-user)
-                 : body
+                 :body (sql-literal body)
                  :source :agent
                  :commit_id target.anchor_commit}))))))
 
@@ -380,7 +392,7 @@
         (db sqlite.comments :insert
             {:thread_id thread-id
              :author_id (with-user)
-             : body
+             :body (sql-literal body)
              :source :user
              :commit_id thread.anchor_commit}))))
 
