@@ -20,6 +20,12 @@
 
 (import-macros {: db} :codeboomer.macros)
 
+;; TEMP: pinning the "bad bind value" bug — remove once found
+(fn debug-log [msg]
+  (pcall vim.fn.writefile
+         [(.. (os.date "%Y-%m-%d %H:%M:%S") " " msg)]
+         (.. (vim.fn.stdpath :data) "/codeboomer-debug.log") "a"))
+
 (fn with-user []
   (let [email (git.user-email)
         entry? (db sqlite.user :get {:where {: email}})]
@@ -50,6 +56,14 @@
 ;; every annotation starts LOCAL: the note is a conversation with the
 ;; agent until promotion deliberately creates the shipping half
 (fn M.user-comment [session-id file-path line-start line-end code body]
+  (debug-log (string.format
+               "user-comment session=%s(%s) file=%s(%s) line1=%s(%s) line2=%s(%s) code=%s:%s body=%s:%s"
+               (tostring session-id) (type session-id)
+               (tostring file-path) (type file-path)
+               (tostring line-start) (type line-start)
+               (tostring line-end) (type line-end)
+               (type code) (if (= (type code) :string) code (vim.inspect code))
+               (type body) (if (= (type body) :string) body (vim.inspect body))))
   (let [user-id (with-user)
         repo-id (with-repo)
         commit-id (with-commit repo-id)

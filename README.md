@@ -172,7 +172,10 @@ preview shows the pane's recent content.
 Opens a snapshot review of a pull request: the PR head is fetched
 (`git fetch origin pull/<n>/head`) along with its base branch, checked
 out as a detached worktree, and opened in a review tab — code on the
-left, the review-comments pane on the right.
+left, the review-comments pane on the right. The tab's cwd (`:tcd`) is
+set to the worktree, scoped to that tab alone, so LSP servers spawned
+inside it resolve project config (tsconfig, etc.) against the worktree
+instead of wherever nvim itself was launched from.
 
 - Without an argument an fzf picker over `gh pr list` opens — choosing
   a PR *is* opening its review; with a number the picker is skipped.

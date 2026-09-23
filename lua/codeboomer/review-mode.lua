@@ -501,6 +501,7 @@ local function load_ranges(k)
 end
 local function open_review_tab()
   vim.cmd("tabnew")
+  vim.cmd.tcd(current.worktree)
   sidebar.open()
   local ok = pcall(M.files)
   if not ok then

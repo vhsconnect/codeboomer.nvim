@@ -23,9 +23,18 @@
                       ;; handle after each call, so only close what is
                       ;; actually open — then drop the reference so a
                       ;; later get-db builds a fresh connection
-                      (when (and db (: db :isopen))
-                        (: db :close))
-                      (set db nil))})
+                      (pcall (fn [] (when (and db (: db :isopen))
+                                      (: db :close))))
+                      (set db nil))
+          ;; a failed bind (e.g. a non-string/number/nil column value)
+          ;; leaves the underlying statement unfinalized; sqlite.lua's
+          ;; own close-after-insert then throws too, and since that
+          ;; close never actually succeeds, the connection's `closed`
+          ;; flag is stuck false — every later call reuses this same
+          ;; wedged handle instead of reopening. The macros' `db` call
+          ;; calls this on any failure so the NEXT write gets a fresh
+          ;; connection rather than inheriting the broken one
+          :reset-db (fn reset-db [] (set db nil))})
 
 ;; checkpoint + close on exit. sqlite.lua connects per operation and
 ;; closes right after (every tbl call is wrapped in with_open when the

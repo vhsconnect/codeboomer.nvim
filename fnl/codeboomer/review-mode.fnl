@@ -484,6 +484,11 @@
 ;; pane; the quickfix of changed files is the entry into the diff
 (fn open-review-tab []
   (vim.cmd :tabnew)
+  ;; scoped to this tab alone: LSP servers (and anything else that
+  ;; resolves config off the process cwd rather than root_dir) spawn
+  ;; from wherever nvim itself was launched otherwise — never the
+  ;; worktree, so config lookups miss
+  (vim.cmd.tcd current.worktree)
   (sidebar.open)
   ;; pick where to start; the pcall is safety — a bare --headless run
   ;; without a usable quickfix still leaves the review open

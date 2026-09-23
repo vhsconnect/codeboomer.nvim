@@ -1,7 +1,14 @@
 ;; [nfnl-macro]
 (fn call [tbl-fn method ...]
   `(let [db-mod# (require :codeboomer.singleton)
-         t# (,tbl-fn (db-mod#.get-db))]
-     (: t# ,method ,...)))
+         t# (,tbl-fn (db-mod#.get-db))
+         (ok# result#) (pcall (fn [] (: t# ,method ,...)))]
+     (if ok#
+         result#
+         ;; a broken bind/close leaves the singleton's connection
+         ;; wedged (see singleton.fnl) — drop it now so the NEXT db
+         ;; call reopens clean instead of inheriting the corruption
+         (do (db-mod#.reset-db)
+             (error result# 0)))))
 
 {:db call}

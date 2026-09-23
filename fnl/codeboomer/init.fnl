@@ -229,12 +229,13 @@
     (if (and info (= (or s.id 0) (or info.session-id 0)))
         (schedule-notify "codeboomer: close the open review before deleting its session"
                          vim.log.levels.WARN)
-        (do (review.delete-session (or s.id 0))
-            (when (= (or s.id 0) (or (review.current-session-id) -1))
-              (review.set-session nil))
-            (schedule-notify (string.format "codeboomer: session #%d deleted"
-                                            (or s.id 0))
-                             vim.log.levels.INFO)))))
+        (do
+          (review.delete-session (or s.id 0))
+          (when (= (or s.id 0) (or (review.current-session-id) -1))
+            (review.set-session nil))
+          (schedule-notify (string.format "codeboomer: session #%d deleted"
+                                          (or s.id 0))
+                           vim.log.levels.INFO)))))
 
 ;; fzf over the repo's sessions plus a create entry: picking sets the
 ;; chosen session (the sidebar reloads via CodeboomerSessionChanged)
@@ -270,7 +271,8 @@
                              ;; the list is short enough that it never
                              ;; matters, and the key is worth the prime spot
                              :d {:fn (fn [selected]
-                                       (let [s (. by-display (. (or selected []) 1))]
+                                       (let [s (. by-display
+                                                  (. (or selected []) 1))]
                                          (when s (delete-session s))))
                                  :reload true}}})))
 
@@ -342,7 +344,8 @@
 ;; back for context. Both halves of a pair interleave: the promoted
 ;; wording and the discussion that produced it
 (fn thread-message [t]
-  (let [conversation (icollect [_ c (ipairs (review.conversation-comments (or t.id 0)))]
+  (let [conversation (icollect [_ c (ipairs (review.conversation-comments (or t.id
+                                                                              0)))]
                        (comment-line c))]
     (string.format "regarding %s lines %s to %s (thread %s)\n%s\n%s"
                    (or t.file_path "?") (or t.line_start "?")
