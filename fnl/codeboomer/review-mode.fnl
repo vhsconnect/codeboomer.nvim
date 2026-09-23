@@ -698,7 +698,8 @@
                                                                :base-sha opts.base-sha
                                                                :branch opts.branch}
                                                         session (if opts.pr-number
-                                                                    (or (review.session-for-pr opts.pr-number)
+                                                                    (or (?. (review.session-for-pr opts.pr-number)
+                                                                            :id)
                                                                         (review.create-session copts))
                                                                     (review.create-session copts))]
                                                     (set current

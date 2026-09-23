@@ -784,13 +784,22 @@ local function _134_(opts, _3fdone)
         local copts = {["pr-number"] = opts["pr-number"], ["head-sha"] = opts["head-sha"], ["base-sha"] = opts["base-sha"], branch = opts.branch}
         local session
         if opts["pr-number"] then
-          session = (review["session-for-pr"](opts["pr-number"]) or review["create-session"](copts))
+          local _138_
+          do
+            local t_137_ = review["session-for-pr"](opts["pr-number"])
+            if (nil ~= t_137_) then
+              t_137_ = t_137_.id
+            else
+            end
+            _138_ = t_137_
+          end
+          session = (_138_ or review["create-session"](copts))
         else
           session = review["create-session"](copts)
         end
         current = {["pr-number"] = opts["pr-number"], ["head-sha"] = opts["head-sha"], ["base-sha"] = opts["base-sha"], branch = opts.branch, worktree = path, ["session-id"] = session, side = "new", ["qf-dir"] = "", ["head-ranges"] = {}, ["base-ranges"] = {}, ranges = {}}
         review["set-session"](session)
-        local function _138_()
+        local function _141_()
           open_review_tab()
           if _3fdone then
             return _3fdone()
@@ -798,7 +807,7 @@ local function _134_(opts, _3fdone)
             return nil
           end
         end
-        return load_ranges(_138_)
+        return load_ranges(_141_)
       end
       return ensure_worktree(path, opts["head-sha"], _136_)
     else
@@ -808,14 +817,14 @@ local function _134_(opts, _3fdone)
   return pick_worktree_path((opts["worktree-id"] or ("pr" .. (opts["pr-number"] or ""))), _135_)
 end
 M["setup-review"] = _134_
-local function _141_(_3fn)
+local function _144_(_3fn)
   if not git["repo-root"]() then
     return notify("codeboomer: not inside a git repository", vim.log.levels.ERROR)
   else
     if _3fn then
       return gh_view(_3fn, open_pr)
     else
-      local function _142_(out)
+      local function _145_(out)
         local ok, prs = pcall(vim.json.decode, out)
         if (ok and ("table" == type(prs)) and (#prs > 0)) then
           return choose_pr(prs, open_pr)
@@ -823,35 +832,35 @@ local function _141_(_3fn)
           return notify("codeboomer: no open PRs (or `gh` unavailable)", vim.log.levels.WARN)
         end
       end
-      return run({"gh", "pr", "list", "--json", "number,title,headRefName,baseRefName"}, _142_)
+      return run({"gh", "pr", "list", "--json", "number,title,headRefName,baseRefName"}, _145_)
     end
   end
 end
-M.open = _141_
-local function _146_(_3fdir)
+M.open = _144_
+local function _149_(_3fdir)
   local root = git["repo-root"]()
   local head = git["head-sha"]()
   if not (root and head) then
     return notify("codeboomer: not inside a git repository with commits", vim.log.levels.ERROR)
   else
-    local function _147_(sha)
+    local function _150_(sha)
       return M["setup-review"]({["worktree-id"] = "worktree", ["head-sha"] = sha, ["base-sha"] = head, branch = git["branch-name"]()})
     end
-    return snapshot_commit(root, head, _3fdir, _147_)
+    return snapshot_commit(root, head, _3fdir, _150_)
   end
 end
-M["review-worktree"] = _146_
-local function _149_()
-  local _150_
-  if current then
-    _150_ = current["head-ranges"]
-  else
-    _150_ = nil
-  end
-  return github["post-threads"]({ranges = _150_})
-end
-M.post = _149_
+M["review-worktree"] = _149_
 local function _152_()
+  local _153_
+  if current then
+    _153_ = current["head-ranges"]
+  else
+    _153_ = nil
+  end
+  return github["post-threads"]({ranges = _153_})
+end
+M.post = _152_
+local function _155_()
   local sid = review["current-session-id"]()
   local session
   if sid then
@@ -865,20 +874,20 @@ local function _152_()
     return notify("codeboomer: the chosen session is not a PR review", vim.log.levels.WARN)
   end
 end
-M.pull = _152_
-local function _155_()
+M.pull = _155_
+local function _158_()
   return current
 end
-M.info = _155_
+M.info = _158_
 M["parse-ranges"] = parse_ranges
 M["fetch-remote"] = pick_fetch_remote
 vim.api.nvim_create_augroup("codeboomer-review-mode", {clear = true})
-local function _156_()
+local function _159_()
   if current then
     return configure_code_buffer(0)
   else
     return nil
   end
 end
-vim.api.nvim_create_autocmd("BufEnter", {group = "codeboomer-review-mode", callback = _156_})
+vim.api.nvim_create_autocmd("BufEnter", {group = "codeboomer-review-mode", callback = _159_})
 return M
