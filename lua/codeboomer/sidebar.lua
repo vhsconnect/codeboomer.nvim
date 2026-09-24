@@ -14,7 +14,7 @@ local pane_width = 40
 local sign_text = "\226\150\140"
 local pane_keys_footer = {("\226\148\128\226\148\128 keys " .. string.rep("\226\148\128", (pane_width - 8))), "r reply \194\183 a agent \194\183 p promote", "e edit \194\183 q resolve \194\183 n/N thread"}
 local rest_ms = 100
-local db_refresh_ms = 3000
+local db_refresh_ms = 5000
 local pane_win = nil
 local threads_by_path = {}
 local all_threads = {}
@@ -804,6 +804,32 @@ local function schedule_db_refresh()
   db_refresh_timer = vim.fn.timer_start(db_refresh_ms, idle_refresh)
   return nil
 end
+local function pane_threads_fresh()
+  local live = (threads_by_path[(pane_path or "")] or {})
+  local by_id
+  do
+    local tbl_21_ = {}
+    for _, t in ipairs(live) do
+      local k_22_, v_23_ = t.id, t
+      if ((k_22_ ~= nil) and (v_23_ ~= nil)) then
+        tbl_21_[k_22_] = v_23_
+      else
+      end
+    end
+    by_id = tbl_21_
+  end
+  local tbl_26_ = {}
+  local i_27_ = 0
+  for _, t in ipairs((pane_threads or {})) do
+    local val_28_ = by_id[(t.id or 0)]
+    if (nil ~= val_28_) then
+      i_27_ = (i_27_ + 1)
+      tbl_26_[i_27_] = val_28_
+    else
+    end
+  end
+  return tbl_26_
+end
 M["reload-threads"] = function()
   local sid = review["current-session-id"]()
   local before = map_sig()
@@ -825,6 +851,10 @@ M["reload-threads"] = function()
   mark_loaded_buffers()
   if (before ~= map_sig()) then
     map_version = (1 + map_version)
+    if (pane_win and vim.api.nvim_win_is_valid(pane_win)) then
+      render_pane(pane_path, pane_threads_fresh())
+    else
+    end
     return schedule_check()
   else
     return nil
@@ -832,17 +862,17 @@ M["reload-threads"] = function()
 end
 local function attach_autocmds()
   vim.api.nvim_create_augroup(augroup_name, {clear = true})
-  local function _132_()
+  local function _135_()
     schedule_check()
     return schedule_db_refresh()
   end
-  vim.api.nvim_create_autocmd("BufEnter", {group = augroup_name, callback = _132_})
-  local function _133_()
+  vim.api.nvim_create_autocmd("BufEnter", {group = augroup_name, callback = _135_})
+  local function _136_()
     schedule_check()
     return schedule_db_refresh()
   end
-  vim.api.nvim_create_autocmd({"WinEnter", "TabEnter", "CursorMoved", "CursorMovedI"}, {group = augroup_name, callback = _133_})
-  local function _134_(ev)
+  vim.api.nvim_create_autocmd({"WinEnter", "TabEnter", "CursorMoved", "CursorMovedI"}, {group = augroup_name, callback = _136_})
+  local function _137_(ev)
     if (pane_win == tonumber(ev.match)) then
       pane_win = nil
       rendered_sig = nil
@@ -851,18 +881,18 @@ local function attach_autocmds()
       return nil
     end
   end
-  vim.api.nvim_create_autocmd("WinClosed", {group = augroup_name, callback = _134_})
+  vim.api.nvim_create_autocmd("WinClosed", {group = augroup_name, callback = _137_})
   return vim.api.nvim_create_autocmd("User", {group = augroup_name, pattern = {"CodeboomerAnnotated", "CodeboomerSessionChanged", "CodeboomerImported"}, callback = M["reload-threads"]})
 end
-local function _136_(bufnr)
+local function _139_(bufnr)
   local path = buf_rel_path(bufnr)
   return place_marks(bufnr, (threads_by_path[path] or {}))
 end
-M["mark-buffer"] = _136_
-local function _137_()
+M["mark-buffer"] = _139_
+local function _140_()
   M["reload-threads"]()
   return check_now()
 end
-M.open = _137_
+M.open = _140_
 attach_autocmds()
 return M

@@ -207,7 +207,12 @@ instead of wherever nvim itself was launched from.
   `─`-separated, headers tinted in the thread's gutter color, every
   comment labeled `[source] name`, and a dimmed keymap footer under
   the blocks. Moving off every range keeps the last block on screen;
-  `:q` closes the pane and the next rest reopens it. Window-navigate
+  `:q` closes the pane and the next rest reopens it. A cursor
+  completely still for ~5 s re-queries the database in one pass — a
+  trailing debounce every cursor move restarts, so at most one query
+  per rest — and the pane re-renders from whatever came back wherever
+  it sits (agent replies arrive from outside the editor): no landing
+  back on the thread's line to see an update. Window-navigate
   into it (`<C-w> w`); buffer-local keys act on the thread whose
   block the cursor is in:
 

@@ -8,7 +8,8 @@
          ;; a broken bind/close leaves the singleton's connection
          ;; wedged (see singleton.fnl) — drop it now so the NEXT db
          ;; call reopens clean instead of inheriting the corruption
-         (do (db-mod#.reset-db)
-             (error result# 0)))))
+         (do
+           (db-mod#.reset-db)
+           (error result# 0)))))
 
 {:db call}

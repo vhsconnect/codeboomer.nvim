@@ -5,8 +5,9 @@
 ;; the sidebar's comments pane on the right (a file's threads load
 ;; the moment the file is entered — the ReviewFiles quickfix is the
 ;; usual door — the cursor-following rest detection narrows from
-;; there, and a completely still cursor re-queries the db every few
-;; seconds; pane and gutter marks live only inside reviews).
+;; there, and a completely still cursor re-queries the db once per
+;; rest (~5 s, re-armed only by a cursor move), refreshing the pane
+;; wherever it sits; pane and gutter marks live only inside reviews).
 ;; Threads
 ;; anchor to the worktree's HEAD, i.e. the fetched PR head, and
 ;; because the checkout cannot be edited, line numbers cannot drift

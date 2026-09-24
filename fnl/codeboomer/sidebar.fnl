@@ -20,10 +20,12 @@
 ;; is loaded when the review opens and reloaded whenever a new
 ;; annotation lands, the chosen session changes or PR comments are
 ;; imported — buffer enters are plain map lookups, never queries.
-;; A cursor completely still for ~3 s re-queries the db the same way:
-;; the agent shim and PullReview write the same db from outside this
+;; A cursor completely still for ~5 s re-queries the whole session
+;; in one pass — the debounce every cursor move restarts — and the
+;; pane re-renders from whatever came back right where it sits: the
+;; agent shim and PullReview write the same db from outside this
 ;; process, so new comments and threads reach the map, the marks and
-;; the pane without a manual reload.
+;; the pane without a manual reload or a landing on the thread's line.
 ;; The pane is not read-only: buffer-local keys act on what it shows
 ;; (r composes a reply on the thread's REVIEW half — gated behind
 ;; promotion, a replies to the agent on the local half, p promotes
@@ -64,8 +66,11 @@
 ;; sweeping across range boundaries doesn't flicker the split
 (local rest-ms 100)
 ;; ... and be completely still this long before the db is queried for
-;; new comments and threads — the idle refresh below
-(local db-refresh-ms 3000)
+;; new comments and threads — the idle refresh below. The timer is
+;; one-shot: it fires at most once per rest, and only a cursor that
+;; moves again re-arms it (the trailing debounce the rest detection
+;; above shares the arming events of)
+(local db-refresh-ms 5000)
 
 ;; the single pane window, nil whenever it is closed
 (var pane-win nil)
@@ -681,6 +686,18 @@
   (when db-refresh-timer (vim.fn.timer_stop db-refresh-timer))
   (set db-refresh-timer (vim.fn.timer_start db-refresh-ms idle-refresh)))
 
+;; the fresh rows of whatever the pane is showing — matched by thread
+;; id against the just-reloaded map, so the pane's scope survives an
+;; idle refresh (a cursor-narrowed pane stays narrowed, a file-wide
+;; one stays wide) while its content comes back fresh; rows that
+;; vanished (resolved away) drop out, and an empty result blanks the
+;; pane
+(fn pane-threads-fresh []
+  (let [live (or (. threads-by-path (or pane-path "")) [])
+        by-id (collect [_ t (ipairs live)] (values t.id t))]
+    (icollect [_ t (ipairs (or pane-threads []))]
+      (. by-id (or t.id 0)))))
+
 ;; load every thread of the chosen session into the map: when a review
 ;; opens, again whenever a new annotation is written, whenever the
 ;; chosen session changes, and whenever the idle refresh finds the
@@ -705,12 +722,18 @@
         (set t.hl-index (length peers))
         (tset threads-by-path path peers)))
     ;; marks always re-place — the sweep is idempotent and needs no
-    ;; version — but the pane only re-checks when the db actually
+    ;; version — but the pane only re-renders when the db actually
     ;; moved: an idle refresh against a quiet db re-renders nothing
     (mark-loaded-buffers)
     (when (not= before (map-sig))
       (set map-version (+ 1 map-version))
-      ;; an open pane may now be showing stale comments
+      ;; an open pane re-renders from the fresh map on the spot — new
+      ;; replies land on screen wherever the cursor sits, no landing
+      ;; on the thread's line first
+      (when (and pane-win (vim.api.nvim_win_is_valid pane-win))
+        (render-pane pane-path (pane-threads-fresh)))
+      ;; and the cursor-rest check still narrows back to whatever
+      ;; covers the cursor
       (schedule-check))))
 
 ;; the pane's hooks, attached once when the module loads (with review

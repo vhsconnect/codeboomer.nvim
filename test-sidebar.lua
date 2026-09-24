@@ -241,6 +241,30 @@ if twin then review["user-reply"](twin.id, "reviewer reply") end
 check("reply on the review half joins the posting outbox",
   #review["pending-for-post"](sid) == 2)
 
+-- ── the idle db refresh: updates land without a cursor rest ────────
+-- a reply written behind the pane (the agent shim writes the same db
+-- from outside this process) reaches the screen through
+-- reload-threads alone — the idle refresh's call — with the cursor
+-- parked OFF every range: no landing on the thread's line to see the
+-- update, and the pane's narrowed scope (the 1-69 block) survives
+api.nvim_set_current_win(code_win)
+rest(code_win, 100)
+if twin then review["user-reply"](twin.id, "idle refresh reply") end
+sidebar["reload-threads"]()
+vim.wait(300) -- let the reload's scheduled check run its course
+local function pane_has(body)
+  for _, l in ipairs(pane_lines()) do
+    if l == body then return true end
+  end
+  return false
+end
+check("idle refresh: an outside reply lands without a cursor rest",
+  pane_has("idle refresh reply"))
+check("idle refresh: the pane keeps its narrowed scope",
+  pane_lines()[1]:match("^#%d+  init%.fnl:1%-69  %(") ~= nil)
+-- back into the pane — the sections below read its buffer-local maps
+api.nvim_set_current_win(pane_win)
+
 -- ── the keymap footer + n/N wrapping ─────────────────────────
 local footer_hit = false
 for _, l in ipairs(pane_lines()) do
