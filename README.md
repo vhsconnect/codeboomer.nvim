@@ -139,10 +139,12 @@ container wrapper, a nix flake invocation, … Output that is JSON with a
 
 ### Debugging
 
-Set `debug = true` in `setup()` to get a notification for every database
-call — one per table operation (`querying sqlite.thread`), one per raw-SQL
-`with_open` batch (`opening connection to sqlite`). Handy when tuning how
-often queries run; off by default:
+Set `debug = true` in `setup()` to get database-call notifications.
+Table operations are debounced per table — queries on the same table
+within a second collapse into one notification carrying the count
+(`querying 5 sqlite.thread`); raw-SQL `with_open` batches log one each
+(`opening connection to sqlite`). Handy when tuning how often queries
+run; off by default:
 
 ```lua
 require("codeboomer").setup({ debug = true })

@@ -1,26 +1,44 @@
-;; [nfnl-macro]
+(fn build-debounced-log-ast [state-module-name table-name]
+  `(let [vim# _G.vim
+         st# (require ,state-module-name)]
+     (let [old-timer# (. st#.timers ,table-name)]
+       (when old-timer#
+         (vim#.fn.timer_stop old-timer#)))
+     (tset st#.queries ,table-name (+ 1 (or (. st#.queries ,table-name) 0)))
+     (tset st#.timers ,table-name
+           (vim#.fn.timer_start 1000
+                                (fn []
+                                  (vim#.notify (.. "querying "
+                                                   (tostring (. st#.queries
+                                                                ,table-name))
+                                                   " " ,table-name)
+                                               vim#.log.levels.INFO)
+                                  (tset st#.queries ,table-name nil))))))
 
+;; [nfnl-macro]
 (fn call [tbl-fn method ...]
-  `(let [db-mod# (require :codeboomer.singleton)
-         t# (,tbl-fn (db-mod#.get-db))
-         (ok# result#) (pcall (fn [] (: t# ,method ,...)))]
-     (when (: (require :codeboomer.config) :debug?)
-       (vim.notify ,(.. "querying " (tostring tbl-fn)) vim.log.levels.INFO))
-     (if ok#
-         result#
-         ;; a broken bind/close leaves the singleton's connection
-         ;; wedged (see singleton.fnl) — drop it now so the NEXT db
-         ;; call reopens clean instead of inheriting the corruption
-         (do
-           (db-mod#.reset-db)
-           (error result# 0)))))
+  (let [table-name (tostring tbl-fn)]
+    `(let [db-mod# (require :codeboomer.singleton)
+           t# (,tbl-fn (db-mod#.get-db))
+           (ok# result#) (pcall (fn [] (: t# ,method ,...)))]
+       (when (: (require :codeboomer.config) :debug?)
+         ,(build-debounced-log-ast :codeboomer.state table-name))
+       (if ok#
+           result#
+           ;; a broken bind/close leaves the singleton's connection
+           ;; wedged (see singleton.fnl) — drop it now so the NEXT db
+           ;; call reopens clean instead of inheriting the corruption
+           (do
+             (db-mod#.reset-db)
+             (error result# 0))))))
 
 (fn with-open-call [f]
   `(let [db-mod# (require :codeboomer.singleton)
          (ok# result#) (pcall (fn []
                                 (: (db-mod#.get-db) :with_open ,f)))]
      (when (: (require :codeboomer.config) :debug?)
-       (vim.notify "opening connection to sqlite" vim.log.levels.INFO))
+       (let [vim# _G.vim]
+         (vim#.notify "opening connection to sqlite" vim#.log.levels.INFO)))
      (if ok#
          result#
          (do
