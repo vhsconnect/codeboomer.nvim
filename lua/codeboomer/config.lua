@@ -19,6 +19,18 @@ local function fold_by_label(defaults, entries)
   end
   return effective
 end
+M["debug?"] = function()
+  local t_2_ = M
+  if (nil ~= t_2_) then
+    t_2_ = t_2_.config
+  else
+  end
+  if (nil ~= t_2_) then
+    t_2_ = t_2_.debug
+  else
+  end
+  return t_2_
+end
 M.setup = function(opts)
   M.config = vim.tbl_deep_extend("force", (M.config or {}), (opts or {}))
   do
@@ -27,22 +39,22 @@ M.setup = function(opts)
     prompting.directives = fold_by_label(directives.defaults(), prompting.directives)
     M.config.prompting = prompting
   end
-  for k, _2_ in pairs(keymaps) do
-    local mode = _2_[1]
-    local rhs = _2_[2]
-    local desc = _2_[3]
+  for k, _5_ in pairs(keymaps) do
+    local mode = _5_[1]
+    local rhs = _5_[2]
+    local desc = _5_[3]
     local lhs
     do
-      local t_3_ = M.config
-      if (nil ~= t_3_) then
-        t_3_ = t_3_.keybindings
+      local t_6_ = M.config
+      if (nil ~= t_6_) then
+        t_6_ = t_6_.keybindings
       else
       end
-      if (nil ~= t_3_) then
-        t_3_ = t_3_[k]
+      if (nil ~= t_6_) then
+        t_6_ = t_6_[k]
       else
       end
-      lhs = t_3_
+      lhs = t_6_
     end
     if lhs then
       vim.keymap.set(mode, lhs, rhs, {desc = desc})

@@ -275,11 +275,13 @@ check("keymap footer rendered under the block", footer_hit)
 -- 3-3, and n from the LAST wraps back to the first
 local nkey = vim.fn.maparg("n", "n", false, true)
 api.nvim_win_set_cursor(pane_win, { 1, 0 })
+-- no vim.wait here: the jump renders synchronously, but show-pane's
+-- wincmd p arms the 100 ms rest check, which re-narrows the pane to
+-- the EARLIEST thread covering the jumped-to line (line 3 sits in
+-- both ranges) — waiting any amount races that flip
 nkey.callback()
-vim.wait(100)
 check("n advances to the next thread", pane_lines()[1]:match("3%-3") ~= nil)
 nkey.callback()
-vim.wait(100)
 check("n wraps from the last thread back to the first",
   pane_lines()[1]:match("1%-69") ~= nil)
 

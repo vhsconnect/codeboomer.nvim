@@ -1,8 +1,11 @@
 ;; [nfnl-macro]
+
 (fn call [tbl-fn method ...]
   `(let [db-mod# (require :codeboomer.singleton)
          t# (,tbl-fn (db-mod#.get-db))
          (ok# result#) (pcall (fn [] (: t# ,method ,...)))]
+     (when (: (require :codeboomer.config) :debug?)
+       (vim.notify ,(.. "querying " (tostring tbl-fn)) vim.log.levels.INFO))
      (if ok#
          result#
          ;; a broken bind/close leaves the singleton's connection
@@ -12,4 +15,16 @@
            (db-mod#.reset-db)
            (error result# 0)))))
 
-{:db call}
+(fn with-open-call [f]
+  `(let [db-mod# (require :codeboomer.singleton)
+         (ok# result#) (pcall (fn []
+                                (: (db-mod#.get-db) :with_open ,f)))]
+     (when (: (require :codeboomer.config) :debug?)
+       (vim.notify "opening connection to sqlite" vim.log.levels.INFO))
+     (if ok#
+         result#
+         (do
+           (db-mod#.reset-db)
+           (error result# 0)))))
+
+{:db call :db-with-open with-open-call}

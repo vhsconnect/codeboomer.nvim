@@ -15,10 +15,9 @@
 
 (local git (require :codeboomer.git))
 (local sqlite (require :codeboomer.sqlite))
-(local s (require :codeboomer.singleton))
 (local M {})
 
-(import-macros {: db} :codeboomer.macros)
+(import-macros {: db : db-with-open} :codeboomer.macros)
 
 ;; sqlite.lua's dsl splices any string matching ^%S+%(...%)$ into the
 ;; statement as a raw SQL expression instead of binding it — a note
@@ -126,10 +125,10 @@
     (when root
       (let [repo-id (?. (db sqlite.repo :get {:where {:path root}}) 1 :id)]
         (when repo-id
-          (let [sessions (icollect [_ row (ipairs (sqlite.active-rows
-                                                     (or (db sqlite.session :get
-                                                             {:where {:repo_id repo-id}})
-                                                         [])))]
+          (let [sessions (icollect [_ row (ipairs (sqlite.active-rows (or (db sqlite.session
+                                                                              :get
+                                                                              {:where {:repo_id repo-id}})
+                                                                          [])))]
                            (when (= row.pr_number nil) row))]
             (table.sort sessions (fn [a b] (< (or a.id 0) (or b.id 0))))
             sessions))))))
@@ -141,8 +140,8 @@
         (let [repo-id (?. (db sqlite.repo :get {:where {:path root}}) 1 :id)]
           (when repo-id
             (?. (sqlite.active-rows (db sqlite.session :get
-                                     {:where {:repo_id repo-id
-                                              :pr_number pr-number}}))
+                                        {:where {:repo_id repo-id
+                                                 :pr_number pr-number}}))
                 1)))))))
 
 ;; the branch-only session (no pr_number) for {branch} — the live/
@@ -159,11 +158,11 @@
         (let [repo-id (?. (db sqlite.repo :get {:where {:path root}}) 1 :id)]
           (when repo-id
             (var found nil)
-            (each [_ row (ipairs (sqlite.active-rows
-                                    (or (db sqlite.session :get
-                                            {:where {:repo_id repo-id
-                                                     : branch}})
-                                        [])))]
+            (each [_ row (ipairs (sqlite.active-rows (or (db sqlite.session
+                                                             :get
+                                                             {:where {:repo_id repo-id
+                                                                      : branch}})
+                                                         [])))]
               (when (and (not found) (= row.pr_number nil))
                 (set found row)))
             found))))))
@@ -214,7 +213,8 @@
                        :status :open
                        :type (if file? :file :line)
                        :kind :review
-                       :gh_outdated (when (and (not file?) (not item.position)) 1)
+                       :gh_outdated (when (and (not file?) (not item.position))
+                                      1)
                        :created_by (M.with-gh-user login)})]
     (db sqlite.comments :insert
         {:thread_id thread-id
@@ -485,11 +485,10 @@
 
 (fn M.mark-annotations [flag ids]
   (when (vim.tbl_contains [:sent :posted] flag)
-    (: (s.get-db) :with_open
-       (fn [d]
-         (each [_ id (ipairs ids)]
-           (d:execute (string.format "update comment set %s = 1 where id = %d"
-                                     (tostring flag) (or id 0))))))))
+    (db-with-open (fn [d]
+                    (each [_ id (ipairs ids)]
+                      (d:execute (string.format "update comment set %s = 1 where id = %d"
+                                                (tostring flag) (or id 0))))))))
 
 (fn unresolved-rows [rows]
   (let [out []]
@@ -571,8 +570,7 @@
 ;; leaving cross-session pairs untouched by construction
 (fn M.delete-session [session-id]
   (db sqlite.session :update
-      {:set {:deleted_at (os.time)}
-       :where {:id (or session-id 0)}}))
+      {:set {:deleted_at (os.time)} :where {:id (or session-id 0)}}))
 
 ;; create a session row. opts: {:branch :head-sha :base-sha :pr-number} —
 ;; live sessions pin nothing beyond HEAD-at-creation; PR sessions

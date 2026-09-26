@@ -137,6 +137,17 @@ Point entries at whatever the machine at hand provides — a plain binary, a
 container wrapper, a nix flake invocation, … Output that is JSON with a
 `result` field is shown as just the result; anything else is displayed raw.
 
+### Debugging
+
+Set `debug = true` in `setup()` to get a notification for every database
+call — one per table operation (`querying sqlite.thread`), one per raw-SQL
+`with_open` batch (`opening connection to sqlite`). Handy when tuning how
+often queries run; off by default:
+
+```lua
+require("codeboomer").setup({ debug = true })
+```
+
 ## Commands
 
 ### `:Codeboomer SendPrompt`

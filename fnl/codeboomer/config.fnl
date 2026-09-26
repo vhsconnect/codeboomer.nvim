@@ -60,6 +60,12 @@
           (table.insert effective entry)))
     effective))
 
+;; the debug flag, read per db call by the macros in macros.fnlm —
+;; nil until setup() opts set `debug = true` (macro expansion happens
+;; at compile time, before setup could ever run, so the read has to
+;; be a runtime call, never a baked-in value)
+(fn M.debug? [] (?. M :config :debug))
+
 (fn M.setup [opts]
   (set M.config (vim.tbl_deep_extend :force (or M.config {}) (or opts {})))
   ;; Fold the built-in prompting defaults into the config: one_off_commands
