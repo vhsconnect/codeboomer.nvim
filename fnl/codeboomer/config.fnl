@@ -19,24 +19,12 @@
                 :pane [:n
                        "<cmd>Codeboomer SetPane<cr>"
                        "codeboomer: pick a tmux pane"]
-                :session [:n
-                          "<cmd>Codeboomer Sessions<cr>"
-                          "codeboomer: manage review sessions (d deletes)"]
+                :reset_session [:n
+                               "<cmd>Codeboomer ResetSession<cr>"
+                               "codeboomer: reset this branch's review session"]
                 :review [:n
                          "<cmd>Codeboomer Review<cr>"
-                         "codeboomer: review a pull request in a read-only worktree"]
-                :review_worktree [:n
-                                  "<cmd>Codeboomer ReviewWorktree<cr>"
-                                  "codeboomer: review the uncommitted working tree as a snapshot"]
-                :review_side [:n
-                              "<cmd>Codeboomer ReviewSide<cr>"
-                              "codeboomer: toggle the review between new and old code"]
-                :walk_forward [:n
-                               "<cmd>Codeboomer WalkForward<cr>"
-                               "codeboomer: walk the review forward one commit"]
-                :walk_back [:n
-                            "<cmd>Codeboomer WalkBack<cr>"
-                            "codeboomer: walk the review back one commit"]
+                         "codeboomer: pick a PR to review on this branch"]
                 :post_review [:n
                               "<cmd>Codeboomer PostReview<cr>"
                               "codeboomer: push unposted annotations to the PR"]

@@ -6,7 +6,7 @@
 (local review (require :codeboomer.review))
 
 ;; autocmds 
-(require :codeboomer.sidebar)
+(local sidebar (require :codeboomer.sidebar))
 
 (local agent (require :codeboomer.agent))
 (local one-offs (require :codeboomer.one-offs))
@@ -205,101 +205,25 @@
                                           ;; execute callback when passed
                                           (when ?then (?then cmd))))}})))
 
-(local new-session-entry "+ new session")
-
-;; one line per session in the picker: its id, what it reviews (a PR
-;; number or "live"), the branch it was created on — the chosen one
-;; is starred
-(fn session-display [s]
-  (let [pr (?. s :pr_number)
-        kind (if pr (.. "PR " pr) :live)
-        current (if (= s.id (review.current-session-id)) "*" " ")]
-    (string.format "%s #%-4d %-9s %s" current (or s.id 0) kind
-                   (or s.branch "?"))))
-
-;; d in the session picker — soft-delete a session: its threads and
-;; comments vanish from every list and outbox (the rows stay), the
-;; way to terminate a set of comments and start fresh. Refuses the
-;; open review's session (its worktree and pane still point at it);
-;; deleting the chosen one clears the choice, so the next write
-;; starts a fresh session (or adopts a sole survivor)
-(fn delete-session [s]
-  (let [review-mode (require :codeboomer.review-mode)
-        info (review-mode.info)]
-    (if (and info (= (or s.id 0) (or info.session-id 0)))
-        (schedule-notify "codeboomer: close the open review before deleting its session"
-                         vim.log.levels.WARN)
-        (do
-          (review.delete-session (or s.id 0))
-          (when (= (or s.id 0) (or (review.current-session-id) -1))
-            (review.set-session nil))
-          (schedule-notify (string.format "codeboomer: session #%d deleted"
-                                          (or s.id 0))
-                           vim.log.levels.INFO)))))
-
-;; fzf over the repo's sessions plus a create entry: picking sets the
-;; chosen session (the sidebar reloads via CodeboomerSessionChanged)
-;; and runs ?then; d deletes the highlighted session in place — the
-;; function source re-runs after every reload, so the list always
-;; reflects what is left
-(fn choose-session [?then]
-  (let [fzf (require :fzf-lua)
-        by-display {}]
-    (fzf.fzf_exec (fn []
-                    (let [sessions (or (review.existing-sessions) [])]
-                      (each [display (ipairs (vim.tbl_keys by-display))]
-                        (tset by-display display nil))
-                      (vim.list_extend (icollect [_ s (ipairs sessions)]
-                                         (let [display (session-display s)]
-                                           (tset by-display display s)
-                                           display))
-                                       [new-session-entry])))
-                  {:prompt "Pick a Session> "
-                   :fzf_opts {:--header "enter choose · d delete"}
-                   :actions {:default (fn [selected]
-                                        (let [choice (. selected 1)
-                                              id (if (= choice
-                                                        new-session-entry)
-                                                     (review.create-session)
-                                                     (?. by-display choice :id))]
-                                          (review.set-session id)
-                                          (schedule-notify (string.format "codeboomer: session #%s chosen"
-                                                                          (tostring id))
-                                                           vim.log.levels.INFO)
-                                          (when ?then (?then))))
-                             ;; plain d — shadows typing d into the filter;
-                             ;; the list is short enough that it never
-                             ;; matters, and the key is worth the prime spot
-                             :d {:fn (fn [selected]
-                                       (let [s (. by-display
-                                                  (. (or selected []) 1))]
-                                         (when s (delete-session s))))
-                                 :reload true}}})))
-
-;; resolve the session an upcoming write targets: the chosen one when
-;; set; otherwise the current branch's own session when one exists
-;; (deterministic — never the picker, however many other sessions the
-;; repo has on other branches); a fresh one when the repo has none at
-;; all; the sole one adopted when exactly one exists on no particular
-;; branch match — several unmatched compete → picker
-(fn ensure-session [k]
-  (let [sid (review.current-session-id)]
-    (if sid
-        (k)
-        (let [branch-match (review.session-for-branch (git.branch-name))]
-          (if branch-match
-              (do
-                (review.set-session branch-match.id)
-                (k))
-              (let [sessions (or (review.existing-sessions) [])]
-                (case (length sessions)
-                  0 (do
-                      (review.set-session (review.create-session))
-                      (k))
-                  1 (do
-                      (review.set-session (?. sessions 1 :id))
-                      (k))
-                  _ (choose-session k))))))))
+;; :Codeboomer ResetSession — terminate this branch's set of comments:
+;; soft-delete the branch's session (the rows stay) so the next
+;; annotation starts a fresh one; the pane reloads empty via
+;; CodeboomerSessionReset. The one replacement for the old session
+;; picker's d — with sessions tied to branches there is nothing left
+;; to pick
+(set M.ResetSession
+     (fn []
+       (let [sid (sidebar.session-id)]
+         (if (not sid)
+             (schedule-notify "codeboomer: no session for this branch"
+                              vim.log.levels.WARN)
+             (do
+               (review.delete-session sid)
+               (vim.api.nvim_exec_autocmds :User
+                                           {:pattern :CodeboomerSessionReset})
+               (schedule-notify (string.format "codeboomer: session #%d reset — the next annotation starts a fresh one"
+                                               sid)
+                                vim.log.levels.INFO))))))
 
 (set M.RunOneOff run-one-off)
 
@@ -359,9 +283,6 @@
 (set M.SetPane
      (fn []
        (choose-pane (parse-panes (shell panes-command)))))
-
-(set M.Sessions (fn []
-                  (choose-session)))
 
 (set M.SendPrompt
      (fn [opts]
@@ -426,32 +347,31 @@
                                               (if (= text "")
                                                   (schedule-notify "codeboomer: empty annotation ignored"
                                                                    vim.log.levels.WARN)
-                                                  (ensure-session (fn []
-                                                                    (if context
-                                                                        (review.user-comment (review.current-session-id)
-                                                                                             context.file
-                                                                                             context.line1
-                                                                                             context.line2
-                                                                                             context.lines
-                                                                                             text)
-                                                                        (review.file-comment (review.current-session-id)
-                                                                                             file-path
-                                                                                             text))
-                                                                    ;; let an open review pane pick the
-                                                                    ;; fresh thread up
-                                                                    (vim.api.nvim_exec_autocmds :User
-                                                                                                {:pattern :CodeboomerAnnotated}))))))})))))$
+                                                  ;; the branch's session, find-or-create —
+                                                  ;; the one and only per (repo, branch)
+                                                  (let [sid (review.ensure-session)]
+                                                    (if (not sid)
+                                                        (schedule-notify "codeboomer: annotate needs a repo file"
+                                                                         vim.log.levels.ERROR)
+                                                        (do
+                                                          (if context
+                                                              (review.user-comment sid
+                                                                                   context.file
+                                                                                   context.line1
+                                                                                   context.line2
+                                                                                   context.lines
+                                                                                   text)
+                                                              (review.file-comment sid
+                                                                                   file-path
+                                                                                   text))
+                                                          ;; let an open pane pick the
+                                                          ;; fresh thread up
+                                                          (vim.api.nvim_exec_autocmds :User
+                                                                                      {:pattern :CodeboomerAnnotated})))))))})))))$
 
-;; a review's OLD side is for reading: its line numbers belong to the
-;; other end of the diff and threads would anchor to the base sha —
-;; ReviewSide back first
-(set M.Annotate (fn [opts]
-                  (if (= :old vim.b.codeboomer_review_side)
-                      (schedule-notify "codeboomer: annotations anchor to the new code — :Codeboomer ReviewSide back first"
-                                       vim.log.levels.WARN)
-                      (annotate-flow opts))))
+(set M.Annotate (fn [opts] (annotate-flow opts)))
 
-;; ship every unsent user message of the chosen session to the pane,
+;; ship every unsent user message of the branch's session to the pane,
 ;; wrapped in the directive, then mark them sent. One message per
 ;; LOGICAL THREAD: the message already carries the whole conversation
 ;; (both halves of the pair), so several unsent comments of one
@@ -491,6 +411,6 @@
                                   :actions {:default (fn [selected]
                                                        (let [directive-text (directives.get (. selected
                                                                                                1))]
-                                                         (ensure-session #(flush-pending directive-text))))}})))))
+                                                         (flush-pending directive-text)))}})))))
 
 M

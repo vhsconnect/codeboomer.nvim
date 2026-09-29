@@ -83,7 +83,7 @@
 
 ;; a whole-file comment — no lines, no snapshot: the thread anchors
 ;; to the file itself (GitHub's subject_type=file). The pane lists it
-;; ahead of the file's line threads; no gutter mark can point at it
+;; ahead of the file's line threads; it carries no line range
 (fn M.file-comment [session-id file-path body]
   (let [user-id (with-user)
         repo-id (with-repo)
@@ -103,72 +103,48 @@
          :source :user
          :commit_id commit-id})))
 
-;; ── the chosen session ───────────────────────────────────────
-;; Explicit module state: writes (annotate, flush) and the review pane
-;; all target it. init's picker and ensure-session set it; the zero-
-;; and one-session cases resolve silently so the common flow never
-;; sees a picker.
-(var current-session-id nil)
+;; ── the branch session ──────────────────────────────────
+;; ONE session per (repo, branch) — never chosen, never competing:
+;; every reader resolves the branch the buffer sits on, every write
+;; (annotate) find-or-creates through ensure-session. A session may
+;; carry a PR binding (pr_number, stamped by Review) — that is what
+;; promotion, PostReview and PullReview gate on
 
-(fn M.current-session-id [] current-session-id)
+;; the repo row id of a root, without creating one
+(fn repo-id-of [root]
+  (?. (db sqlite.repo :get {:where {:path root}}) 1 :id))
 
-(fn M.set-session [id ?silent]
-  (set current-session-id id)
-  (when (not ?silent)
-    (vim.api.nvim_exec_autocmds :User {:pattern :CodeboomerSessionChanged})))
-
-;; branch-only sessions — PR sessions are a hard-separate namespace
-;; (Review picks them by PR number via session-for-pr, never through
-;; this list/the Sessions picker/ensure-session's auto-resolve)
-(fn M.existing-sessions []
-  (let [root (git.repo-root)]
-    (when root
-      (let [repo-id (?. (db sqlite.repo :get {:where {:path root}}) 1 :id)]
+;; the session row of the branch ?path sits on (the current buffer
+;; by default) — nil outside a repo or when the branch has no
+;; session yet. Soft-deleted rows read as gone
+(fn M.session-for [?path]
+  (let [root (git.repo-root ?path)
+        branch (when root (git.branch-name ?path))]
+    (when (and root branch)
+      (let [repo-id (repo-id-of root)]
         (when repo-id
-          (let [sessions (icollect [_ row (ipairs (sqlite.active-rows (or (db sqlite.session
-                                                                              :get
-                                                                              {:where {:repo_id repo-id}})
-                                                                          [])))]
-                           (when (= row.pr_number nil) row))]
-            (table.sort sessions (fn [a b] (< (or a.id 0) (or b.id 0))))
-            sessions))))))
+          (?. (sqlite.active-rows (db sqlite.session :get
+                                      {:where {:repo_id repo-id
+                                               : branch}}))
+              1))))))
 
-(fn M.session-for-pr [pr-number]
-  (when pr-number
-    (let [root (git.repo-root)]
-      (when root
-        (let [repo-id (?. (db sqlite.repo :get {:where {:path root}}) 1 :id)]
-          (when repo-id
-            (?. (sqlite.active-rows (db sqlite.session :get
-                                        {:where {:repo_id repo-id
-                                                 :pr_number pr-number}}))
-                1)))))))
+;; the current branch's session id — resolved, not chosen
+(fn M.current-session-id []
+  (?. (M.session-for) :id))
 
-;; the branch-only session (no pr_number) for {branch} — the live/
-;; local counterpart to session-for-pr, so ensure-session can adopt it
-;; deterministically instead of falling back to "the sole session in
-;; the repo" (which could belong to any branch). The where dsl can't
-;; express "pr_number is null" (see sqlite.fnl's active-rows comment),
-;; so the branch match comes back from the DB and the pr_number filter
-;; runs here
-(fn M.session-for-branch [branch]
-  (when branch
-    (let [root (git.repo-root)]
-      (when root
-        (let [repo-id (?. (db sqlite.repo :get {:where {:path root}}) 1 :id)]
-          (when repo-id
-            (var found nil)
-            (each [_ row (ipairs (sqlite.active-rows (or (db sqlite.session
-                                                             :get
-                                                             {:where {:repo_id repo-id
-                                                                      : branch}})
-                                                         [])))]
-              (when (and (not found) (= row.pr_number nil))
-                (set found row)))
-            found))))))
+;; find-or-create the current branch's session — the write path
+;; (annotate) and Review resolve through here
+(fn M.ensure-session []
+  (or (M.current-session-id) (M.create-session)))
+
+;; bind a session to a PR — the branch's session becomes that PR's
+;; review; re-binding to another PR just re-stamps the column
+(fn M.set-session-pr [session-id pr-number]
+  (db sqlite.session :update
+      {:set {:pr_number pr-number} :where {:id (or session-id 0)}}))
 
 ;; soft-deleted sessions read as gone everywhere: the listings, the
-;; outboxes and PR-session reuse all resolve through here
+;; outboxes and PR-binding reads all resolve through here
 (fn M.session-by-id [id]
   (when id
     (?. (sqlite.active-rows (db sqlite.session :get {:where {: id}})) 1)))
@@ -501,7 +477,7 @@
 ;; half born first): plain rows pass through, and a promoted twin
 ;; pulls its root in even when that root lives in another session (a
 ;; live session's local thread promoted into the PR review still
-;; shows there). The pane, the marks and the flush all walk this;
+;; shows there). The pane and the flush all walk this;
 ;; a soft-deleted session reads as empty
 (fn M.threads-for-session [session-id]
   (if (not (M.session-by-id session-id))
@@ -572,19 +548,14 @@
   (db sqlite.session :update
       {:set {:deleted_at (os.time)} :where {:id (or session-id 0)}}))
 
-;; create a session row. opts: {:branch :head-sha :base-sha :pr-number} —
-;; live sessions pin nothing beyond HEAD-at-creation; PR sessions
-;; (review mode) pin both ends of the diff under review
-(fn M.create-session [?opts]
-  (let [opts (or ?opts {})
-        repo-id (with-repo)]
+;; create the current branch's session — the one and only per (repo,
+;; branch); HEAD is pinned at creation for the record. The PR
+;; binding (if any) is a separate stamp — set-session-pr
+(fn M.create-session []
+  (let [repo-id (with-repo)]
     (db sqlite.session :insert
-        {:branch (or opts.branch (git.branch-name))
-         :head_commit (with-commit repo-id
-                        (?. opts :head-sha))
-         :base_commit (with-commit repo-id
-                        (?. opts :base-sha))
-         :repo_id repo-id
-         :pr_number (. opts :pr-number)})))
+        {:branch (git.branch-name)
+         :head_commit (with-commit repo-id)
+         :repo_id repo-id})))
 
 M

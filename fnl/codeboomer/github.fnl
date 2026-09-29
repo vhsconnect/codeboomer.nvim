@@ -15,10 +15,11 @@
 ;;    threads, outdated comments flagged; a comment that is one of my
 ;;    own posted ones come home stamps its gh id onto the local row
 ;;    instead of duplicating the thread
-;; Line numbers are the snapshot's (threads anchor to the pinned PR
-;; head), and pushes are validated against the review's changed ranges
-;; before the round trip — GitHub rejects inline comments off the
-;; diff, so we refuse them here first.
+;; Line numbers are those of the code you had checked out when
+;; you annotated (threads anchor to their own commit), and pushes
+;; are validated against the PR's diff before the round trip —
+;; GitHub rejects inline comments off the diff, so we refuse them
+;; here first.
 (global vim vim)
 
 (local git (require :codeboomer.git))
@@ -207,7 +208,7 @@
                       vim.log.levels.ERROR)
               (post-pending session slug pending))))))
 
-;; push the chosen session's unposted annotations to its PR.
+;; push the session's unposted annotations to its PR.
 ;; opts: {:session-id :ranges} — ranges (from an open review) enable
 ;; the off-diff check
 (fn M.post-threads [?opts]
@@ -216,12 +217,12 @@
         session (when sid (review.session-by-id sid))
         slug (github-slug)]
     (if (not sid)
-        (notify "codeboomer: no review session — pick one first"
+        (notify "codeboomer: no session for this branch — annotate first"
                 vim.log.levels.WARN)
         (not session)
         (notify "codeboomer: session not found" vim.log.levels.ERROR)
         (not session.pr_number)
-        (notify "codeboomer: the chosen session is not a PR review"
+        (notify "codeboomer: this branch's session is not bound to a PR — :Codeboomer Review first"
                 vim.log.levels.WARN)
         (not slug)
         (notify "codeboomer: no GitHub remote in this repository"
@@ -259,17 +260,20 @@
         (set n (+ n 1)))))
   n)
 
-;; refresh a PR session with the PR's current inline comments — the
-;; sidebar reloads via CodeboomerImported. Requires the session to
-;; exist (open the PR with :Codeboomer Review first)
-(fn M.pull-comments [pr-number]
+;; refresh a PR-bound session with the PR's current inline comments —
+;; the sidebar reloads via CodeboomerImported. ?session-id is the
+;; branch session to import into (Review passes the one it just
+;; bound; PullReview resolves it); the session must be bound to this
+;; PR, which is what makes "Review ran first" true
+(fn M.pull-comments [pr-number ?session-id]
   (let [slug (github-slug)
-        session (review.session-for-pr pr-number)]
+        sid (or ?session-id (review.current-session-id))
+        session (when sid (review.session-by-id sid))]
     (if (not slug)
         (notify "codeboomer: no GitHub remote in this repository"
                 vim.log.levels.ERROR)
-        (not session)
-        (notify "codeboomer: no session for this PR — :Codeboomer Review it first"
+        (or (not session) (not= session.pr_number pr-number))
+        (notify "codeboomer: this branch's session is not bound to the PR — :Codeboomer Review it first"
                 vim.log.levels.WARN)
         (system [:gh
                  :api

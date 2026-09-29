@@ -34,7 +34,7 @@
                        :repo_id {:type :integer
                                  :reference :repo.id
                                  :on_delete :cascade}
-                       ;; set by Sessions' d — a soft-deleted session (and
+                       ;; set by ResetSession — a soft-deleted session (and
                        ;; everything under it) is invisible everywhere
                        :deleted_at :integer})
 

@@ -13,34 +13,14 @@ subcommands.SetPane = function()
   require("codeboomer").SetPane()
 end
 
-subcommands.Sessions = function()
-  require("codeboomer").Sessions()
+subcommands.ResetSession = function()
+  require("codeboomer").ResetSession()
 end
 
 subcommands.Review = function(opts)
   -- fargs[1] is the subcommand name itself; the PR number, if any,
   -- is the second farg
   require("codeboomer.review-mode").open(tonumber(opts.fargs[2]))
-end
-
-subcommands.ReviewFiles = function(opts)
-  require("codeboomer.review-mode").files(opts.fargs[2])
-end
-
-subcommands.ReviewWorktree = function(opts)
-  require("codeboomer.review-mode")["review-worktree"](opts.fargs[2])
-end
-
-subcommands.ReviewSide = function()
-  require("codeboomer.review-mode")["toggle-side"]()
-end
-
-subcommands.WalkForward = function()
-  require("codeboomer.review-mode")["walk-forward"]()
-end
-
-subcommands.WalkBack = function()
-  require("codeboomer.review-mode")["walk-back"]()
 end
 
 subcommands.PostReview = function()

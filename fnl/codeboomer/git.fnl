@@ -56,8 +56,11 @@
           (let [(name url kind) (string.match line "(%S+)%s+(%S+)%s+%((%a+)%)")]
             (when (= kind :fetch) {: name : url})))))))
 
-(fn M.branch-name []
-  (let [root (M.repo-root)]
+(fn M.branch-name [?path]
+  ;; the branch of the work tree ?path sits in (the current buffer by
+  ;; default) — the immediate work tree, not the canonicalized main
+  ;; checkout: a linked worktree can be on its own branch
+  (let [root (buffer-root ?path)]
     (when root (run root :rev-parse :--abbrev-ref :HEAD))))
 
 (fn M.head-sha [?path]

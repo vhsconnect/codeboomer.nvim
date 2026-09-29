@@ -1,31 +1,22 @@
 ;; [nfnl] codeboomer/sidebar.fnl
-;; The review-comments pane and its gutter markers. Review mode stamps
-;; every worktree buffer with codeboomer_review_side (:new or :old);
-;; markers render only in :new buffers, on that stamp alone. The pane
-;; is broader: any real file buffer drives it except an :old-stamped
-;; one (thread lines belong to the new side) — so a plain working
-;; buffer under Annotate/FlushWithDirective opens it too, just without
-;; markers.
-;; The pane: a right-hand split in the current tabpage. Two loads
-;; drive it: entering a review file — the ReviewFiles quickfix is the
-;; usual door — renders EVERY thread of that file straight away, and
-;; the cursor-following rest detection (~100 ms) narrows to the
-;; covering thread once the cursor settles inside a thread's
-;; [line_start, line_end] range; moving off every range keeps the
-;; last block on screen (the pane never collapses on its own; :q
-;; closes it and resting in a range reopens). At most one pane
-;; exists at any moment, in the review's tabpage.
-;; Gutter markers (▌ extmark signs) render in every :new review
-;; buffer carrying threads of the review session. The whole thread map
-;; is loaded when the review opens and reloaded whenever a new
-;; annotation lands, the chosen session changes or PR comments are
-;; imported — buffer enters are plain map lookups, never queries.
+;; The review-comments pane. Any real file buffer of the session's
+;; branch drives it: entering a file renders EVERY thread of that
+;; file straight away, and the cursor-following rest detection
+;; (~100 ms) narrows to the covering thread once the cursor settles
+;; inside a thread's [line_start, line_end] range; moving off every
+;; range keeps the last block on screen (the pane never collapses on
+;; its own; :q closes it and resting in a range reopens). At most
+;; one pane exists at any moment, in the current tabpage.
+;; The whole thread map is loaded when a review opens and reloaded
+;; whenever a new annotation lands, the resolved branch session
+;; changes or PR comments are imported — buffer enters are plain map
+;; lookups, never queries.
 ;; A cursor completely still for ~5 s re-queries the whole session
 ;; in one pass — the debounce every cursor move restarts — and the
 ;; pane re-renders from whatever came back right where it sits: the
 ;; agent shim and PullReview write the same db from outside this
-;; process, so new comments and threads reach the map, the marks and
-;; the pane without a manual reload or a landing on the thread's line.
+;; process, so new comments and threads reach the map and the pane
+;; without a manual reload or a landing on the thread's line.
 ;; The pane is not read-only: buffer-local keys act on what it shows
 ;; (r composes a reply on the thread's REVIEW half — gated behind
 ;; promotion, a replies to the agent on the local half, p promotes
@@ -50,11 +41,6 @@
 ;; how long n/N's flash on the (possibly unfocused) code line lasts
 (local flash-ms 2000)
 (local pane-width 40)
-;; one gitsigns-style vertical bar per commented line — the half-block
-;; fills the sign-column cell so consecutive lines read as one solid
-;; rule; a plain signcolumn=auto always has room for a single mark, so
-;; no window options are ever touched
-(local sign-text "▌")
 ;; the dimmed cheat-sheet under the rendered blocks — the keys act on
 ;; the block the cursor rests in, so a reminder of them belongs in the
 ;; pane itself
@@ -75,7 +61,8 @@
 ;; the single pane window, nil whenever it is closed
 (var pane-win nil)
 ;; session threads grouped by file path — loaded when a review opens,
-;; reloaded on CodeboomerAnnotated / SessionChanged / Imported
+;; reloaded on CodeboomerAnnotated / SessionReset / Imported and
+;; whenever the resolved branch session changes
 (var threads-by-path {})
 ;; the same threads flattened, file path then top-to-bottom (matching
 ;; review.threads-for-session's own order) — pane-jump walks this so
@@ -86,29 +73,12 @@
 ;; drive the rest detection, so only a completely still cursor lets
 ;; it fire
 (var db-refresh-timer nil)
-;; set by review-mode when a review is the active session, so
-;; pane-jump opens a cross-file target in the worktree instead of the
-;; plain repo; nil (the default) resolves against the repo root
-(var open-path-resolver nil)
-(fn M.set-open-path [f] (set open-path-resolver f))
-
-;; set by review-mode while a review is open: the pane's p key reads
-;; the PR session to create review halves in, the pinned head sha to
-;; anchor them at, and the head-side ranges for the off-diff gate;
-;; nil (the default) means no review is open and promotion refuses
+;; set by review-mode while a PR review is open: the pane's p key
+;; reads the PR session to create review halves in and the PR's diff
+;; ranges for the off-diff gate; nil (the default) means the branch
+;; session isn't PR-bound and promotion refuses
 (var promote-context nil)
 (fn M.set-promote-context [f] (set promote-context f))
-
-;; set by review-mode while a review is open: the commit
-;; WalkForward/WalkBack is currently sitting on (the head, absent a
-;; walk) — thread-header shows it next to each thread's own anchor
-;; commit so drift is visible; nil means no review is open
-(var walk-context nil)
-(fn M.set-walk-context [f] (set walk-context f))
-
-(fn resolve-open-path [path]
-  (or (and open-path-resolver (open-path-resolver path))
-      (.. (or (git.repo-root) "") "/" path)))
 ;; in-pane context, recorded on every render: the code window the pane
 ;; mirrors and what the pane currently shows — the buffer-local pane
 ;; keys (r/q/n) act on these without the cursor ever leaving the pane
@@ -119,47 +89,13 @@
 
 ;; per-thread colors cycle through groups every colorscheme defines, so
 ;; the tint follows the theme for free; index is the thread's position
-;; in the top-to-bottom sorted thread list of its file
+;; in the top-to-bottom sorted thread list of its file — pane headers
+;; tint from this
 (fn thread-hl [index]
   (let [groups [:Title :Special :String :Function]]
     (. groups (+ 1 (% (- index 1) (length groups))))))
 
-;; ── gutter markers ─────────────────────────────────────────────────
-
-;; extmarks live in buffers, so marks can only be placed once a buffer
-;; exists; clearing the namespace first makes this idempotent. Only
-;; review worktree buffers on the NEW side carry marks — thread line
-;; numbers belong to that side, so local working buffers (no stamp)
-;; and old-side ones (different lines) render none; a side flip drops
-;; the marks by the same gate
-(fn place-marks [bufnr threads]
-  (when (vim.api.nvim_buf_is_valid bufnr)
-    (vim.api.nvim_buf_clear_namespace bufnr extmark-ns 0 -1)
-    (when (= :new (?. vim.b bufnr :codeboomer_review_side))
-      (let [line-count (vim.api.nvim_buf_line_count bufnr)
-            taken {}]
-        (each [i t (ipairs threads)]
-          ;; file-scoped threads carry no lines — nothing to mark
-          (when (= :line (or t.type :line))
-            (let [start (or t.line_start 0)
-                  finish (math.min (or t.line_end start) line-count)
-                  hl (thread-hl (or (. t :hl-index) i))]
-              (for [ln start finish]
-                ;; one symbol per line even where threads overlap — the
-                ;; topmost (earliest) thread's color wins
-                (when (not (. taken ln))
-                  (tset taken ln true)
-                  (vim.api.nvim_buf_set_extmark bufnr extmark-ns (- ln 1) 0
-                                                {:sign_text sign-text
-                                                 :sign_hl_group hl}))))))))))
-
-;; refresh every buffer that is around right now; review buffers
-;; entered later get their marks from review-mode's own BufEnter hook
-;; (configure-code-buffer), which calls M.mark-buffer. Buffers with no
-;; remaining threads go through place-marks with an empty list, so
-;; threads that resolved (soft-deleted) lose their marks too; the
-;; stamp gate leaves local and nofile buffers alone — the pane itself
-;; shares this namespace for its header tints
+;; a real file buffer — not the pane itself, not a scratch/float
 (fn normal-buf [bufnr]
   (= "" (or (?. vim.bo bufnr :buftype) "")))
 
@@ -173,16 +109,39 @@
         (tset rel-path-cache bufnr p)
         p)))
 
-(fn mark-loaded-buffers []
-  (each [_ bufnr (ipairs (vim.api.nvim_list_bufs))]
-    (when (and (vim.api.nvim_buf_is_loaded bufnr) (normal-buf bufnr))
-      (let [path (buf-rel-path bufnr)]
-        (place-marks bufnr (or (. threads-by-path path) []))))))
+;; ── the session the pane renders ────────────────────────────
+;; Sessions are tied to branches, never chosen: the pane resolves the
+;; branch of the code it mirrors — the window the pane follows when
+;; the cursor sits in the pane itself, the current window otherwise
+;; (nofile buffers — the pane — never resolve). Everything that must
+;; work from anywhere (PostReview, PullReview, ResetSession) reads
+;; M.session-id for the same resolution
+
+;; the file path the session resolves against, or nil
+(fn source-buf-name []
+  (let [in-pane (and pane-win (vim.api.nvim_win_is_valid pane-win)
+                     (= (vim.api.nvim_get_current_win) pane-win))
+        win (if (and in-pane
+                     pane-source-win
+                     (vim.api.nvim_win_is_valid pane-source-win))
+                pane-source-win
+                (vim.api.nvim_get_current_win))
+        buf (vim.api.nvim_win_get_buf win)]
+    (when (normal-buf buf) (vim.api.nvim_buf_get_name buf))))
+
+;; the branch session row of the code the pane mirrors — nil outside
+;; a repo or when the branch has no session yet
+(fn source-session []
+  (let [name (source-buf-name)]
+    (when name (review.session-for name))))
+
+;; the same resolution as an id — exported for review-mode and init
+(set M.session-id (fn [] (?. (source-session) :id)))
 
 ;; the thread covering a line of a file, straight from the in-memory
 ;; map — at most one: overlapping ranges pick the earliest (smallest
-;; line_start), the same one place-marks colors the gutter with, so
-;; the pane never shows two threads' comments stacked at once
+;; line_start), the same one the pane header tints, so the pane never
+;; shows two threads' comments stacked at once
 (fn threads-at [path line]
   (var found nil)
   (each [_ t (ipairs (or (. threads-by-path path) [])) &until found]
@@ -237,14 +196,12 @@
                          ", outdated") "")
                    (or (when (= :review (or t.twin-kind :local))
                          " · promoted") ""))
-        ctx (when walk-context (walk-context))
         pos (if (= :file (or t.type :line))
                 "file"
                 (.. (or t.line_start "?") "-" (or t.line_end "?")))]
-    (string.format "#%d  %s:%s  (%s)  anchor %s → now %s" (or t.id 0) base
+    (string.format "#%d  %s:%s  (%s)  anchor %s" (or t.id 0) base
                    pos status
-                   (short-sha t.anchor-sha)
-                   (short-sha (and ctx ctx.current-sha)))))$
+                   (short-sha t.anchor-sha))))$
 
 ;; one comment's label — "[source] name", so a conversation reads as
 ;; who-said-what: [github] logins, [agent] answers, [user] local notes
@@ -252,10 +209,10 @@
   (string.format "[%s] %s" (or c.source :user) (or c.author-name :unknown)))
 
 ;; one block per covering thread: a header line tinted with the
-;; thread's gutter color, then every comment as a Comment-tinted
-;; label line plus its body verbatim — blank lines separate the
-;; header and the comments, so a back-and-forth thread reads as
-;; distinct messages instead of one wall. Header and label rows come
+;; thread's color, then every comment as a Comment-tinted label line
+;; plus its body verbatim — blank lines separate the header and the
+;; comments, so a back-and-forth thread reads as distinct messages
+;; instead of one wall. Header and label rows come
 ;; back 1-based with their hl group (for render-pane's tint) —
 ;; headers also carry their thread (for the in-pane actions)
 (fn render [path threads]
@@ -405,10 +362,12 @@
     (or body (when (= :user (or c.source :user)) (or c.body "")))))
 
 ;; p — promote: the one door into the posting outbox. The review half
-;; is born in the open PR review's session, anchored at its pinned
-;; head, after the off-diff check; the compose input opens prefilled
-;; with the annotation's wording unless the pair is virgin (then the
-;; annotation ships as-is, no input)
+;; is born in the branch's session (when it is bound to a PR) —
+;; anchored at the thread's own
+;; commit — after the off-diff check (skipped when no PR diff is
+;; loaded); the compose input opens prefilled with the annotation's
+;; wording unless the pair is virgin (then the annotation ships
+;; as-is, no input)
 (fn pane-promote []
   (let [t (pane-thread-at (?. (vim.api.nvim_win_get_cursor pane-win) 1))]
     (if (not t)
@@ -421,17 +380,18 @@
         (vim.notify (string.format "codeboomer: thread #%d already promoted"
                                    (or t.id 0))
                     vim.log.levels.WARN)
-        (let [ctx (when promote-context (promote-context))]
+        (let [session (source-session)
+              ctx (when (and session promote-context)
+                    (promote-context session))]
           (if (not ctx)
-              (vim.notify "codeboomer: no open PR review — :Codeboomer Review first"
+              (vim.notify "codeboomer: this branch's session is not bound to a PR — :Codeboomer Review first"
                           vim.log.levels.WARN)
-              (github.thread-off-diff t ctx.head-ranges)
+              (and ctx.head-ranges (github.thread-off-diff t ctx.head-ranges))
               (vim.notify "codeboomer: the range falls outside the PR diff — move or resolve the thread first"
                           vim.log.levels.ERROR)
               (let [as-is (virgin-body t)]
                 (if as-is
-                    (do (review.promote (or t.id 0) as-is ctx.session-id
-                                        ctx.head-sha)
+                    (do (review.promote (or t.id 0) as-is ctx.session-id)
                         (refresh-pane)
                         (vim.notify (string.format "codeboomer: thread #%d promoted"
                                                    (or t.id 0))
@@ -444,8 +404,7 @@
                                                 (when (not= ""
                                                             (vim.trim body))
                                                   (review.promote (or t.id 0) body
-                                                                  ctx.session-id
-                                                                  ctx.head-sha)
+                                                                  ctx.session-id)
                                                   (refresh-pane)
                                                   (vim.notify (string.format
                                                                "codeboomer: thread #%d promoted"
@@ -478,8 +437,8 @@
                                               (refresh-pane))}))))))))
 
 ;; q — resolve the block under the pane cursor: resolved threads are
-;; soft-deleted, so a reload rebuilds the map (and the marks) without
-;; it. The reload's scheduled check re-evaluates the pane against the
+;; soft-deleted, so a reload rebuilds the map without it. The reload's
+;; scheduled check re-evaluates the pane against the
 ;; code window, but it only re-renders when something covers the row —
 ;; resolving the LAST thread at the cursor would leave its block
 ;; stale on screen. Render immediately from whatever still covers the
@@ -489,11 +448,8 @@
   (if (not (and pane-source-win (vim.api.nvim_win_is_valid pane-source-win)
                 pane-win (vim.api.nvim_win_is_valid pane-win)))
       nil
-      (let [buf (vim.api.nvim_win_get_buf pane-source-win)]
-        (if (= :old (?. vim.b buf :codeboomer_review_side))
-            []
-            (let [row (?. (vim.api.nvim_win_get_cursor pane-source-win) 1)]
-              (threads-at (or pane-path "") (or row 0)))))))
+      (let [row (?. (vim.api.nvim_win_get_cursor pane-source-win) 1)]
+        (threads-at (or pane-path "") (or row 0)))))
 
 (fn pane-resolve []
   (let [t (pane-thread-at (?. (vim.api.nvim_win_get_cursor pane-win) 1))]
@@ -576,19 +532,16 @@
     (vim.cmd "wincmd p"))
   (render-pane path threads))
 
-;; entering a review file loads its comments straight into the pane —
-;; the quickfix pick path: every thread of the file stacked
-;; top-to-bottom (file-level first), no cursor rest required. Review
-;; mode calls this from its own BufEnter hook once the side stamp has
-;; landed, so only review buffers reach it; the :old side refuses —
-;; thread lines belong to the new one. A pane already mirroring the
-;; file keeps its (possibly cursor-narrowed) view, so window
-;; round-trips don't widen it back
+;; entering a file loads its comments straight into the pane: every
+;; thread of the file stacked top-to-bottom (file-level first), no
+;; cursor rest required — the sidebar's own BufEnter hook calls this,
+;; so any buffer of the session's branch drives it. A pane already
+;; mirroring the file keeps its (possibly cursor-narrowed) view, so
+;; window round-trips don't widen it back
 (set M.enter-file
      (fn [bufnr]
        (when (and (vim.api.nvim_buf_is_valid bufnr)
-                  (normal-buf bufnr)
-                  (= :new (?. vim.b bufnr :codeboomer_review_side)))
+                  (normal-buf bufnr))
          (let [path (buf-rel-path bufnr)
                threads (or (. threads-by-path path) [])]
            (when (and (> (length threads) 0)
@@ -609,7 +562,7 @@
                   flash-ms)))
 
 ;; stays in the pane: pane-source-win's cursor and buffer move to the
-;; target (crossing files via resolve-open-path when needed) without
+;; target (crossing files via the repo root when needed) without
 ;; taking focus, the target line flashes there, and the pane re-renders
 ;; in place — n/N no longer bounce you out to the code window
 (set pane-jump
@@ -628,12 +581,14 @@
                        target0 (% (+ (or idx (if (> dir 0) -1 0)) dir) n)
                        target (. all-threads (+ target0 1))
                        cur-path (buf-rel-path (vim.api.nvim_win_get_buf
-                                              pane-source-win))]
+                                              pane-source-win))
+                       target-path (.. (or (git.repo-root) "") "/"
+                                       target.file_path)]
                    (vim.api.nvim_win_call pane-source-win
                                           (fn []
                                             (when (not= cur-path target.file_path)
                                               (vim.cmd {:cmd :edit
-                                                        :args [(resolve-open-path target.file_path)]}))
+                                                        :args [target-path]}))
                                             (vim.api.nvim_win_set_cursor pane-source-win
                                                                         [(or target.line_start
                                                                              1)
@@ -646,9 +601,8 @@
 ;; called with pane-source-win when re-evaluating from the pane itself
 ;; (after r/q/n), since the cursor no longer sits in the code window
 (fn evaluate-at [win]
-  (let [buf (vim.api.nvim_win_get_buf win)
-        side (?. vim.b buf :codeboomer_review_side)]
-    (when (and (not= side :old) (normal-buf buf))
+  (let [buf (vim.api.nvim_win_get_buf win)]
+    (when (normal-buf buf)
       (let [row (?. (vim.api.nvim_win_get_cursor win) 1)
             path (buf-rel-path buf)
             threads (threads-at path (or row 0))]
@@ -676,10 +630,10 @@
 
 ;; the idle refresh: the same events restart a longer timer too — a
 ;; cursor completely still for db-refresh-ms queries the db for new
-;; comments and threads and reloads the map, marks and pane from
-;; whatever came back. Nothing to query without a chosen session
+;; comments and threads and reloads the map and pane from
+;; whatever came back. Nothing to query without a branch session
 (fn idle-refresh []
-  (when (review.current-session-id)
+  (when (M.session-id)
     (M.reload-threads)))
 
 (fn schedule-db-refresh []
@@ -698,17 +652,29 @@
     (icollect [_ t (ipairs (or pane-threads []))]
       (. by-id (or t.id 0)))))
 
-;; load every thread of the chosen session into the map: when a review
-;; opens, again whenever a new annotation is written, whenever the
-;; chosen session changes, and whenever the idle refresh finds the
-;; cursor still and the db moved. NOT on code-buffer writes — extmarks
-;; drift along with edits and stay accurate, while the DB's stored line
-;; numbers go stale the moment lines shift; re-placing from it would
-;; snap marks back to outdated positions. (review mode always sets the
-;; session before the pane opens, so sid is nil only for stray events)
+;; the session the map was last loaded from — the resolved branch
+;; session is re-read on every reload and compared on every buffer
+;; enter, so a branch switch (or a reset, or the first file opened
+;; after startup) swaps the map before anything reads it
+(var loaded-session-id nil)
+
+;; reload the map when the resolved branch session isn't the one the
+;; map was built from — one git call per buffer enter, which is what
+;; makes sessions follow branch switches without anyone choosing
+;; anything
+(fn maybe-reload-session []
+  (let [sid (M.session-id)]
+    (when (not= sid loaded-session-id)
+      (M.reload-threads))))
+
+;; load every thread of the resolved branch session into the map:
+;; when a review opens, whenever a new annotation is written, whenever
+;; the resolved session changes, and whenever the idle refresh finds
+;; the cursor still and the db moved
 (fn M.reload-threads []
-  (let [sid (review.current-session-id)
+  (let [sid (M.session-id)
         before (map-sig)]
+    (set loaded-session-id sid)
     (set threads-by-path {})
     (set all-threads (if sid (review.threads-for-session sid) []))
     (each [_ t (ipairs all-threads)] (stamp-thread t))
@@ -716,15 +682,13 @@
       (let [path (or t.file_path "")
             peers (vim.list_extend (or (. threads-by-path path) []) [t])]
         ;; stamp each thread's 1-based position in its file's
-        ;; top-to-bottom list: gutter marks and pane headers both
-        ;; tint from this, so a thread keeps one color even when
-        ;; the pane shows only a covering subset of the file
+        ;; top-to-bottom list: pane headers tint from this, so a
+        ;; thread keeps one color even when the pane shows only a
+        ;; covering subset of the file
         (set t.hl-index (length peers))
         (tset threads-by-path path peers)))
-    ;; marks always re-place — the sweep is idempotent and needs no
-    ;; version — but the pane only re-renders when the db actually
-    ;; moved: an idle refresh against a quiet db re-renders nothing
-    (mark-loaded-buffers)
+    ;; the pane only re-renders when the db actually moved: an idle
+    ;; refresh against a quiet db re-renders nothing
     (when (not= before (map-sig))
       (set map-version (+ 1 map-version))
       ;; an open pane re-renders from the fresh map on the spot — new
@@ -736,18 +700,30 @@
       ;; covers the cursor
       (schedule-check))))
 
-;; the pane's hooks, attached once when the module loads (with review
-;; mode, on the first :Codeboomer Review) and never torn down. Marks
-;; need none of them: review-mode's own BufEnter drives mark placement
-;; via M.mark-buffer, and reload-threads sweeps open buffers itself
+;; the pane's hooks, attached once when the module loads and never
+;; torn down
 (fn attach-autocmds []
   (vim.api.nvim_create_augroup augroup-name {:clear true})
   (vim.api.nvim_create_autocmd :BufEnter
                                {:group augroup-name
-                                :callback (fn []
+                                :callback (fn [ev]
+                                            ;; the resolved session first:
+                                            ;; the map must match the branch
+                                            ;; before anyone reads it
+                                            (maybe-reload-session)
+                                            ;; the file's threads land in
+                                            ;; the pane the moment the
+                                            ;; file is entered, instead
+                                            ;; of waiting for a cursor
+                                            ;; rest inside a range
+                                            (M.enter-file ev.buf)
                                             (schedule-check)
                                             (schedule-db-refresh))})
-  (vim.api.nvim_create_autocmd [:WinEnter :TabEnter :CursorMoved :CursorMovedI]
+  ;; FocusGained too: a branch checked out behind nvim's back (a
+  ;; terminal) is picked up on the next focus, once the db refresh
+  ;; timer runs
+  (vim.api.nvim_create_autocmd [:WinEnter :TabEnter :CursorMoved
+                                :CursorMovedI :FocusGained]
                                {:group augroup-name
                                 :callback (fn []
                                             (schedule-check)
@@ -764,21 +740,12 @@
   (vim.api.nvim_create_autocmd :User
                                {:group augroup-name
                                 :pattern [:CodeboomerAnnotated
-                                          :CodeboomerSessionChanged
+                                          :CodeboomerSessionReset
                                           :CodeboomerImported]
                                 :callback M.reload-threads}))
 
-;; place (or clear) ONE buffer's marks from the loaded map — a plain
-;; lookup, no queries. Review mode calls this from its own BufEnter
-;; (configure-code-buffer) after stamping a review buffer's side: the
-;; stamp decides whether marks belong at all
-(set M.mark-buffer
-     (fn [bufnr]
-       (let [path (buf-rel-path bufnr)]
-         (place-marks bufnr (or (. threads-by-path path) [])))))
-
-;; review mode's entry, called when the review tab opens: load the
-;; thread map and evaluate the code window straight away — the rest
+;; review mode's entry, called when a review opens: load the thread
+;; map and evaluate the code window straight away — the rest
 ;; detection takes over from the first cursor move
 (set M.open (fn []
               (M.reload-threads)

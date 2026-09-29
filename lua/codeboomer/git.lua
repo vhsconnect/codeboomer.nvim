@@ -95,8 +95,8 @@ M.remotes = function()
     return nil
   end
 end
-M["branch-name"] = function()
-  local root = M["repo-root"]()
+M["branch-name"] = function(_3fpath)
+  local root = buffer_root(_3fpath)
   if root then
     return run(root, "rev-parse", "--abbrev-ref", "HEAD")
   else

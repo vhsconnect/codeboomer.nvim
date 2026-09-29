@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Set CODEBOOMER_PATH to the plugin directory, or default to this script's directory
-# Extra args pass through to nvim — e.g. launch straight into review mode:
+# Extra args pass through to nvim — e.g. launch straight into a PR review:
 #   CODEBOOMER_PATH=$PWD ./test-codeboomer -c 'Codeboomer Review [pr]'
 CODEBOOMER_PATH="${CODEBOOMER_PATH:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 
@@ -8,5 +8,5 @@ nvim \
 	--cmd "lua vim.opt.runtimepath:prepend('$CODEBOOMER_PATH')" \
 	--cmd "lua vim.g.mapleader = ' '" \
 	--cmd "lua vim.keymap.set({'n', 'x'}, '<Space>', '<Nop>')" \
-	--cmd "lua require('codeboomer').setup({debug=true,keybindings={send_prompt='<leader>cs', send_selection='<leader>cr', ask_one_off='<leader>cc', flush_with_directive='<leader>cd', pane='<leader>cp', session='<leader>cS', review='<leader>cR', review_worktree='<leader>cW', review_side='<leader>ct', walk_forward='<leader>c]', walk_back='<leader>c[', post_review='<leader>cP', pull_review='<leader>cL', annotate='<leader>ca'}, prompting={one_off_commands={{label='claude-code (llm-agents)', argv={'nix','run','github:numtide/llm-agents.nix#claude-code','--','--model','haiku','--output-format','json','--permission-mode','acceptEdits','-p'}}}}})" \
+	--cmd "lua require('codeboomer').setup({debug=false,keybindings={send_prompt='<leader>cs', send_selection='<leader>cr', ask_one_off='<leader>cc', flush_with_directive='<leader>cd', pane='<leader>cp', session='<leader>cS', review='<leader>cR', post_review='<leader>cP', pull_review='<leader>cL', annotate='<leader>ca'}, prompting={one_off_commands={{label='claude-code (llm-agents)', argv={'nix','run','github:numtide/llm-agents.nix#claude-code','--','--model','haiku','--output-format','json','--permission-mode','acceptEdits','-p'}}}}})" \
 	"$@"

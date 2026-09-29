@@ -248,11 +248,11 @@ M["post-threads"] = function(_3fopts)
   end
   local slug = github_slug()
   if not sid then
-    return notify("codeboomer: no review session \226\128\148 pick one first", vim.log.levels.WARN)
+    return notify("codeboomer: no session for this branch \226\128\148 annotate first", vim.log.levels.WARN)
   elseif not session then
     return notify("codeboomer: session not found", vim.log.levels.ERROR)
   elseif not session.pr_number then
-    return notify("codeboomer: the chosen session is not a PR review", vim.log.levels.WARN)
+    return notify("codeboomer: this branch's session is not bound to a PR \226\128\148 :Codeboomer Review first", vim.log.levels.WARN)
   elseif not slug then
     return notify("codeboomer: no GitHub remote in this repository", vim.log.levels.ERROR)
   else
@@ -311,15 +311,21 @@ M["import-items"] = function(session_id, items)
   end
   return n
 end
-M["pull-comments"] = function(pr_number)
+M["pull-comments"] = function(pr_number, _3fsession_id)
   local slug = github_slug()
-  local session = review["session-for-pr"](pr_number)
+  local sid = (_3fsession_id or review["current-session-id"]())
+  local session
+  if sid then
+    session = review["session-by-id"](sid)
+  else
+    session = nil
+  end
   if not slug then
     return notify("codeboomer: no GitHub remote in this repository", vim.log.levels.ERROR)
-  elseif not session then
-    return notify("codeboomer: no session for this PR \226\128\148 :Codeboomer Review it first", vim.log.levels.WARN)
+  elseif (not session or (session.pr_number ~= pr_number)) then
+    return notify("codeboomer: this branch's session is not bound to the PR \226\128\148 :Codeboomer Review it first", vim.log.levels.WARN)
   else
-    local function _45_(obj)
+    local function _46_(obj)
       if (obj.code == 0) then
         local n = M["import-items"](session.id, parse_jsonl(obj.stdout))
         vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerImported"})
@@ -328,7 +334,7 @@ M["pull-comments"] = function(pr_number)
         return notify(string.format("codeboomer: gh api failed (exit %d)\n%s", obj.code, (obj.stderr or "")), vim.log.levels.ERROR)
       end
     end
-    return system({"gh", "api", string.format("repos/%s/pulls/%s/comments", slug, pr_number), "--paginate", "--jq", ".[]"}, {text = true}, _45_)
+    return system({"gh", "api", string.format("repos/%s/pulls/%s/comments", slug, pr_number), "--paginate", "--jq", ".[]"}, {text = true}, _46_)
   end
 end
 return M
