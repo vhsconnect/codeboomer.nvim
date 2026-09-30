@@ -1,0 +1,47 @@
+{:tasks
+ {:requires ([babashka.fs :as fs]
+             [babashka.cli :as cli])
+
+  :init
+  (do
+    (defn env-or [k default]
+      (or (System/getenv k) default))
+
+    (def pj-root (str (fs/cwd)))
+    (def nvim-test-home (str pj-root "/test/vendor/nvim-test"))
+    (def nvim-test-runner (env-or "NVIM_TEST_RUNNER" "nvim"))
+
+    (def base-env
+      {"PJ_ROOT" pj-root
+       "NVIM_TEST_HOME" nvim-test-home
+       "NVIM_LOG_FILE" (env-or "NVIM_LOG_FILE" (str pj-root "/.nvimlog"))}))
+
+  compile-tests
+  {:doc "Compile the test files"
+   :task (shell {:extra-env base-env}
+                nvim-test-runner "-l" "scripts/compile-tests.lua")}
+
+  test
+  {:doc "Run the busted test suite (usage: bb test [--filter PATTERN])"
+   :depends [compile-tests]
+   :task
+   (let [{:keys [filter]} (cli/parse-opts *command-line-args*
+                                          {:coerce {:filter :string}})
+         filter-pattern (or filter ".*")]
+     (try
+       (shell {:extra-env
+               (merge base-env
+                      {"LUA_PATH"  (str (env-or "NVIM_TEST_LUA_PATH" "") ";;")
+                       "LUA_CPATH" (str (env-or "NVIM_TEST_LUA_CPATH" "") ";;")})}
+              nvim-test-runner "-ll"
+              (str nvim-test-home "/lua/nvim-test/busted/runner.lua")
+              (str "--helper=" pj-root "/test/lua/preload.lua")
+              (str "--lpath=" nvim-test-home "/lua/?.lua;"
+                   pj-root "/test/lua/?.lua;"
+                   pj-root "/lua/?.lua")
+              "--output=nvim-test.busted.output_handler"
+              "--verbose"
+              (str "--filter=" filter-pattern)
+              "test/lua")
+       (finally
+         (shell {:continue true} "bash -c" "[ -t 0 ] && stty sane || true"))))}}}

@@ -218,7 +218,6 @@ local function _21_()
   end
 end
 M.ResetSession = _21_
-M.RunOneOff = run_one_off
 local function concat_list(lines)
   return table.concat(lines, "\n")
 end

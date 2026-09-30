@@ -225,8 +225,6 @@
                                                sid)
                                 vim.log.levels.INFO))))))
 
-(set M.RunOneOff run-one-off)
-
 (fn concat-list [lines]
   (table.concat lines "\n"))
 

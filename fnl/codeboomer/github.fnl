@@ -61,8 +61,6 @@
       (set slug (parse-github-slug r.url))))
   slug)
 
-(set M.repo-slug (fn [] (github-slug)))
-
 ;; ── push ──────────────────────────────────────────────────────────
 
 ;; one pending annotation → one inline PR comment: the range becomes

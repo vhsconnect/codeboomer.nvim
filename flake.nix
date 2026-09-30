@@ -25,7 +25,9 @@
         in
         {
           default = pkgs.mkShell {
-            packages = [ pkgs.gnumake ];
+            packages = [
+              pkgs.babashka
+            ];
             shellHook = ''
               export CODEBOOMER_PATH="$PWD"
               export LD_LIBRARY_PATH="${pkgs.sqlite.out}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"

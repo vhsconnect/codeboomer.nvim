@@ -8,8 +8,8 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - Fuzzy-finder interface (via fzf-lua) to select target panes, showing each pane's last output line and working directory, with a live content preview
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Annotation workflow — accumulate multiple code selections for review before sending
-- **Review sessions (`Sessions`)** — annotations are grouped into sessions (one per branch or PR); annotate and flush all target the chosen one, the picker appears only when several compete, and `d` in the picker soft-deletes a session — its threads and comments vanish everywhere while the rows stay, the way to terminate a set of comments and start fresh
-- **PR review (`Review`)** — review whatever you have checked out: a PR branch, a particular commit, or uncommitted work — the flow is always the same, simple annotation. `Review` picks a PR, binds the chosen session to it and pulls its inline comments down as threads; `PostReview` pushes the threads you **promoted** (the pane's `p`) up as a pending review (a draft submitted on GitHub). No worktree is created and nothing is checked out — be on the branch you mean to review when you launch Neovim
+- **Branch sessions (`ResetSession`)** — annotations are grouped into one session per branch, created on the first annotation and resolved from the branch the buffer sits on — never picked. `ResetSession` soft-deletes the branch's session — its threads and comments vanish everywhere while the rows stay, the way to terminate a set of comments and start fresh
+- **PR review (`Review`)** — review whatever you have checked out: a PR branch, a particular commit, or uncommitted work — the flow is always the same, simple annotation. `Review` picks a PR, binds the branch's session to it and pulls its inline comments down as threads; `PostReview` pushes the threads you **promoted** (the pane's `p`) up as a pending review (a draft submitted on GitHub). No worktree is created and nothing is checked out — be on the branch you mean to review when you launch Neovim
 - **Local/review thread halves** — every annotation starts as a local conversation with the agent (annotate, `a`-replies, agent answers via the shim); `p` in the comments pane promotes a thread: the shipping half is born with the final wording, anchored at the thread's own commit, after an off-the-diff refusal. Nothing reaches `PostReview` without that deliberate step — agent chatter and your negotiation with it are structurally unshippable
 - **Review comments pane** — a side split follows the cursor: rest it inside a commented range and the thread's comments appear — both halves interleaved as one conversation — and entering a file lists all of its threads straight away; window-navigate into it, where `r` replies on the review half (promoted threads and pulled ones), `a` replies to the agent, `p` promotes, `e` edits the promoted comment, `q` resolves and `n` hops to the next thread
 - Bracketed-paste support for proper multi-line handling
@@ -46,7 +46,7 @@ The plugin sets up no default keybindings; configure them like this:
 | Visual | `<leader>cr` | `SendSelection` — send the selection to the pane as-is, then press Enter |
 | Normal + Visual | `<leader>cc` | `AskOneOff` — run a one-off query; the answer is shown in a notification |
 | Normal | `<leader>cp` | `SetPane` — pick a tmux pane to send messages to |
-| Normal | `<leader>cS` | `Sessions` — manage review sessions (pick, create, `d` deletes) |
+| Normal | `<leader>cS` | `ResetSession` — reset this branch's review session |
 | Normal | `<leader>cR` | `Review` — pick a PR to review on the current checkout |
 | Normal | `<leader>cP` | `PostReview` — push the promoted threads to the PR |
 | Normal | `<leader>cL` | `PullReview` — pull the PR's inline comments into the session |
@@ -63,7 +63,7 @@ require("codeboomer").setup({
     ask_one_off = "<leader>cc",
     flush_with_directive = "<leader>cd",
     pane = "<leader>cp",
-    session = "<leader>cS",
+    reset_session = "<leader>cS",
     review = "<leader>cR",
     post_review = "<leader>cP",
     pull_review = "<leader>cL",
@@ -183,9 +183,10 @@ uncommitted work (the flow is the same for all of them).
 - Without an argument an fzf picker over `gh pr list` opens — choosing
   a PR *is* opening its review; with a number the picker is skipped.
   Requires `gh` and a GitHub-hosted remote
-- A PR-bound session is created (or found, keyed by `pr_number`) and
-  chosen: `Annotate`, the comments pane and `FlushWithDirective` all
-  target it; re-opening the same PR reuses its threads
+- The branch's session is found (or created) and bound to the PR
+  (`pr_number`): `Annotate`, the comments pane and
+  `FlushWithDirective` all follow the branch; re-opening the same PR
+  reuses its threads
 - The PR's inline comments come down as threads (`:Codeboomer
   PullReview` refreshes — idempotent by GitHub comment id)
 - The PR's diff (`gh pr diff`) is parsed once so promotion (`p`) and
@@ -214,7 +215,7 @@ uncommitted work (the flow is the same for all of them).
 |-----|--------|
 | `r` | Reply on the **review half** — the half that ships. Only exists once the thread is promoted (`p`) or pulled from GitHub; unpromoted threads refuse with a pointer to `p`, so nothing reaches the posting outbox by accident |
 | `a` | Reply to the **agent** — the local conversation half (created on demand for pulled threads). Your side of any discussion with the agent; never ships |
-| `p` | **Promote** — open the compose input prefilled with the annotation's wording and create the review half with the final text. A *virgin* thread (one user comment, nothing from the agent) promotes as-is with no input. Refuses without a chosen PR session, and when the range falls outside the PR diff |
+| `p` | **Promote** — open the compose input prefilled with the annotation's wording and create the review half with the final text. A *virgin* thread (one user comment, nothing from the agent) promotes as-is with no input. Refuses when the branch's session is not bound to a PR (run `Review` first), and when the range falls outside the PR diff |
 | `e` | Edit the promoted comment in place (the oldest still-unposted one) through the same prefilled input |
 | `q` | Resolve the thread — resolved threads are treated as soft-deleted: both halves of the pair leave the pane and both outboxes; the pane drops the block right away |
 | `n` | Next thread — jumps the cursor back into the code window on the next thread of the session (wrapping at both ends); the pane follows via the usual rest detection |
@@ -229,30 +230,23 @@ uncommitted work (the flow is the same for all of them).
 :Codeboomer Review 42
 ```
 
-### `:Codeboomer Sessions`
+### `:Codeboomer ResetSession`
 
-Opens fzf-lua over the repository's review sessions plus a `+ new session`
-entry. Each line shows the session id, what it reviews (`live`, or `PR <n>`
-for PR-bound sessions), and the branch it was created on; the chosen session
-is starred. Picking sets the session that `Annotate` and
-`FlushWithDirective` operate on.
+Terminates the current branch's set of comments. Sessions are tied to
+branches — one per repository and branch, resolved from the buffer
+you are in — so there is nothing to pick; this is the one way to start
+over.
 
-Press `d` to **delete** the highlighted session — softly: `deleted_at`
-is set and the session's threads and comments vanish from every
-listing and outbox (pane, flush, post) while the rows stay in
-the database. The picker list refreshes in place, and deleting the
-chosen one clears the choice — the next write then starts a fresh
-session (or adopts a sole survivor). A soft-deleted PR session is not
-reused when you re-`Review` the same PR.
-
-Session resolution is silent in the common cases: with nothing chosen, the
-first write creates the first session, and exactly one existing session is
-adopted automatically (on the first write). The picker appears only
-when several sessions compete.
+The branch's session is **deleted softly**: `deleted_at` is set and
+its threads and comments vanish from every listing and outbox (pane,
+flush, post) while the rows stay in the database. The comments pane
+reloads empty, and the next annotation starts a fresh session — its
+PR binding, if any, is gone with the old one, so run `Review` again to
+re-bind. Warns when the branch has no session.
 
 ### `:Codeboomer PostReview`
 
-Pushes the chosen PR session's **promoted** threads — the review halves
+Pushes the branch session's **promoted** threads — the review halves
 created by `p` in the comments pane — to GitHub. Nothing else can enter
 the outbox: local conversation halves are unreachable from this walk.
 
@@ -288,8 +282,9 @@ the outbox: local conversation halves are unreachable from this walk.
 
 ### `:Codeboomer PullReview`
 
-Imports the PR's current inline comments into the chosen PR session as
-threads — idempotent by GitHub comment id (re-pulls add only what's
+Imports the PR's current inline comments into the branch's PR-bound
+session as threads (warns when the session is not bound — run
+`Review` first) — idempotent by GitHub comment id (re-pulls add only what's
 new), replies joined to their threads, and comments GitHub marks
 outdated anchored best-effort at their original line with an
 `outdated` flag in the thread header. Whole-file PR comments
@@ -326,7 +321,7 @@ Adds the current selection to the review session's annotation outbox. Use this t
 
 - Requires a pane to be selected first via `:Codeboomer SetPane`
 - With a visual range, the selection is included as context (`regarding <file> lines X to Y`); without one the annotation becomes a **whole-file comment** (`type = file`) — a thread anchored to the file itself with no line range — file paths are stored repo-relative
-- The review session is resolved on write: the chosen one when set (see `:Codeboomer Sessions`), the sole existing one when exactly one exists, a fresh one when none does — a picker appears only when several compete
+- The review session is the current branch's: found on write, created on the branch's first annotation (see `:Codeboomer ResetSession` to start over)
 - Annotations are stored in the review session's database — the single store — each as its own **local conversation thread** (`kind = local`): tracked as not-yet-sent (agent) and invisible to `PostReview` until promoted in the comments pane (`p`). They are included in the next `:Codeboomer FlushWithDirective` call until sent
 - The comments pane follows along in any session: resting the cursor
   inside a commented range shows that thread's comments, and entering
@@ -372,15 +367,16 @@ For more complex queries, you can build up context across multiple selections:
 3. When ready, run `<leader>cd` (or `:Codeboomer FlushWithDirective`) to send your directive along with all unsent annotations — the database is the outbox, so annotations survive restarts
 4. The agent answers each thread back with `codeboomer-agent reply <thread-id> <text>` (the instruction is included in the payload); replies land in the same threads — for a pulled thread they join a local twin created on demand — and show up in the comments pane, where you can also answer threads yourself — window-navigate into the pane, then `a` to talk to the agent, `r` to reply on the review half, `q` to resolve
 
-A review session is created (or the sole existing one adopted) on the first
-annotation; `:Codeboomer Sessions` (`<leader>cS`) switches when several
-exist — annotations, flushes and the comments pane all follow the chosen session.
+A review session is created for the branch on its first annotation;
+annotations, flushes and the comments pane all follow the branch you
+are on. `:Codeboomer ResetSession` (`<leader>cS`) terminates it — the
+next annotation starts fresh.
 
 ### PR review workflow (local)
 
 1. Check out the branch you mean to review and launch Neovim on it
-2. `<leader>cR` (`:Codeboomer Review`) — pick a PR; its session is
-   chosen, its inline comments come down as threads, and the comments
+2. `<leader>cR` (`:Codeboomer Review`) — pick a PR; the branch's
+   session is bound to it, its inline comments come down as threads, and the comments
    pane opens for the current buffer
 3. Annotate selections with `<leader>ca` as usual — threads show in
    the comments pane: `a` discusses with the agent, `q` resolves,
@@ -437,8 +433,8 @@ scratch git repo and `XDG_DATA_HOME` under `scratch/`, so your real
 codeboomer database is never touched:
 
 ```bash
-nix develop -c make test                # every spec under test/
-nix develop -c make test FILTER=promote # only tests whose name matches
+nix develop -c bb test                # every spec under test/
+nix develop -c bb test --filter <pattern> # only tests whose name matches
 ```
 
 The test tree mirrors the plugin's `fnl/` → `lua/` split:
@@ -452,18 +448,6 @@ The test tree mirrors the plugin's `fnl/` → `lua/` split:
   embedded under `lua/nfnl`, line-correlated so failures point at the
   Fennel line
 - `test/vendor/nvim-test/` is the vendored test framework
-
-The remaining headless smoke test is `test-sidebar.lua` (the comments
-pane: rest detection, enter-file loading, and the pane's `p`
-promotion). It is self-seeding and **wipes the codeboomer database at
-the end**, so run it with `XDG_DATA_HOME` redirected at an empty
-temporary directory:
-
-```bash
-mkdir -p /tmp/xdg-isolate/nvim
-XDG_DATA_HOME=/tmp/xdg-isolate nvim --headless -u NONE \
-  --cmd "set rtp^=$PWD" -c 'luafile test-sidebar.lua'
-```
 
 ### Trusting the repo
 
