@@ -429,20 +429,40 @@ CODEBOOMER_PATH=$PWD ./test-codeboomer -c 'Codeboomer Review 42' # straight to P
 
 (The review commands need `gh` authentication and network — the PR list, its inline comments and its diff are fetched once the picker resolves.)
 
-The headless smoke tests are `test-sidebar.lua` (the comments pane:
-rest detection, enter-file loading, and the pane's `p` promotion)
-and `test-threads.lua` (the thread-pair model: promotion, the two
-outboxes, the resolve cascade, agent diversion, gh pull matching).
-Both are self-seeding (real sessions, threads through the real write
-path) and **wipe the codeboomer database at the end**, so run them
-with `XDG_DATA_HOME` redirected at an empty temporary directory:
+The test suite runs on a vendored copy of
+[nvim-test](https://github.com/lewis6991/nvim-test) (`test/vendor/nvim-test`,
+busted driving a fresh embedded Neovim per test). The flake's dev shell
+provides busted, a pinned Neovim and sqlite.lua. Each test gets its own
+scratch git repo and `XDG_DATA_HOME` under `scratch/`, so your real
+codeboomer database is never touched:
+
+```bash
+nix develop -c make test                # every spec under test/
+nix develop -c make test FILTER=promote # only tests whose name matches
+```
+
+The test tree mirrors the plugin's `fnl/` → `lua/` split:
+
+- `test/fnl/` holds the Fennel sources (`*_spec.fnl`, plus
+  `cb_helpers.fnl` with the shared helpers — `clear`, `setup-test-repo`,
+  `setup-codeboomer`, `module` for calling plugin functions inside the
+  child Neovim — and the `fixtures` table)
+- `test/lua/` is compiler output (gitignored), rebuilt from scratch by
+  `scripts/compile-tests.lua` on every `make test` with the Fennel
+  embedded under `lua/nfnl`, line-correlated so failures point at the
+  Fennel line
+- `test/vendor/nvim-test/` is the vendored test framework
+
+The remaining headless smoke test is `test-sidebar.lua` (the comments
+pane: rest detection, enter-file loading, and the pane's `p`
+promotion). It is self-seeding and **wipes the codeboomer database at
+the end**, so run it with `XDG_DATA_HOME` redirected at an empty
+temporary directory:
 
 ```bash
 mkdir -p /tmp/xdg-isolate/nvim
 XDG_DATA_HOME=/tmp/xdg-isolate nvim --headless -u NONE \
   --cmd "set rtp^=$PWD" -c 'luafile test-sidebar.lua'
-XDG_DATA_HOME=/tmp/xdg-isolate nvim --headless -u NONE \
-  --cmd "set rtp^=$PWD" -c 'luafile test-threads.lua'
 ```
 
 ### Trusting the repo

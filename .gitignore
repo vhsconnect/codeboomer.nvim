@@ -6,3 +6,6 @@
 .lsp/
 .envrc
 todo
+/scratch/
+.nvimlog
+/test/lua/
