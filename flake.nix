@@ -27,6 +27,7 @@
           default = pkgs.mkShell {
             packages = [
               pkgs.babashka
+              pkgs.fnlfmt
             ];
             shellHook = ''
               export CODEBOOMER_PATH="$PWD"
