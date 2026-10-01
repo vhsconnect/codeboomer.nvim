@@ -59,20 +59,22 @@
 (fn M.branch-name [?path]
   ;; the branch of the work tree ?path sits in (the current buffer by
   ;; default) — the immediate work tree, not the canonicalized main
-  ;; checkout: a linked worktree can be on its own branch
-  (let [root (buffer-root ?path)]
-    (when root (run root :rev-parse :--abbrev-ref :HEAD))))
+  ;; checkout: a linked worktree can be on its own branch. nil on a
+  ;; detached HEAD, which rev-parse reports as the literal HEAD
+  (let [root (buffer-root ?path)
+        branch (when root (run root :rev-parse :--abbrev-ref :HEAD))]
+    (when (not= branch :HEAD) branch)))
 
 (fn M.head-sha [?path]
   (let [root (buffer-root ?path)]
     (when root (run root :rev-parse :HEAD))))
 
-(fn M.user-email []
-  (let [root (M.repo-root)]
+(fn M.user-email [?path]
+  (let [root (M.repo-root ?path)]
     (when root (run root :config :user.email))))
 
-(fn M.user-name []
-  (let [root (M.repo-root)]
+(fn M.user-name [?path]
+  (let [root (M.repo-root ?path)]
     (when root (run root :config :user.name))))
 
 M

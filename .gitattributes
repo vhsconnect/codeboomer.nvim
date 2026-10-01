@@ -6,3 +6,7 @@ lua/test.lua linguist-generated
 # Embedded nfnl/Fennel runtime — vendored third-party code.
 # Excluded from language statistics.
 lua/nfnl/** linguist-vendored
+
+# Vendored nvim-test framework — third-party code.
+# Excluded from language statistics.
+test/vendor/** linguist-vendored

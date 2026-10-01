@@ -392,7 +392,13 @@ local function annotate_flow(opts)
         else
           local sid = review["ensure-session"]()
           if not sid then
-            return schedule_notify("codeboomer: annotate needs a repo file", vim.log.levels.ERROR)
+            local _55_
+            if git["repo-root"]() then
+              _55_ = "codeboomer: annotate needs a checked-out branch \226\128\148 sessions are tied to branches, a detached HEAD has none"
+            else
+              _55_ = "codeboomer: annotate needs a repo file"
+            end
+            return schedule_notify(_55_, vim.log.levels.ERROR)
           else
             if context then
               review["user-comment"](sid, context.file, context.line1, context.line2, context.lines, text)
@@ -406,7 +412,7 @@ local function annotate_flow(opts)
       return input.open({title = " Annotate> ", ["on-submit"] = _54_})
     end
   else
-    local function _59_()
+    local function _61_()
       local context = get_visual_lines(opts)
       local file_path
       if not context then
@@ -418,14 +424,20 @@ local function annotate_flow(opts)
       if (not context and not repo_file_3f) then
         return schedule_notify("codeboomer: annotate needs a selection or a repo file", vim.log.levels.ERROR)
       else
-        local function _61_(lines)
+        local function _63_(lines)
           local text = concat_list(lines)
           if (text == "") then
             return schedule_notify("codeboomer: empty annotation ignored", vim.log.levels.WARN)
           else
             local sid = review["ensure-session"]()
             if not sid then
-              return schedule_notify("codeboomer: annotate needs a repo file", vim.log.levels.ERROR)
+              local _64_
+              if git["repo-root"]() then
+                _64_ = "codeboomer: annotate needs a checked-out branch \226\128\148 sessions are tied to branches, a detached HEAD has none"
+              else
+                _64_ = "codeboomer: annotate needs a repo file"
+              end
+              return schedule_notify(_64_, vim.log.levels.ERROR)
             else
               if context then
                 review["user-comment"](sid, context.file, context.line1, context.line2, context.lines, text)
@@ -436,18 +448,18 @@ local function annotate_flow(opts)
             end
           end
         end
-        return input.open({title = " Annotate> ", ["on-submit"] = _61_})
+        return input.open({title = " Annotate> ", ["on-submit"] = _63_})
       end
     end
-    return choose_pane(parse_panes(shell(panes_command)), _59_)
+    return choose_pane(parse_panes(shell(panes_command)), _61_)
   end
 end
-local function _67_(opts)
+local function _71_(opts)
   return annotate_flow(opts)
 end
-M.Annotate = _67_
+M.Annotate = _71_
 local function flush_pending(directive_text)
-  local pending = review["pending-for-flush"](review["current-session-id"]())
+  local pending = review["pending-for-flush"](sidebar["session-id"]())
   if (0 == #pending) then
     return schedule_notify("codeboomer: nothing to flush \226\128\148 no unsent messages", vim.log.levels.WARN)
   else
@@ -476,7 +488,7 @@ local function flush_pending(directive_text)
     end
     local annotations = concat_list_with_format(messages, "==Section Start==", "====", "==Section End==")
     send_keys_to_selected_pane((annotations .. agent["reply-instructions"]() .. directive_text .. "\n"))
-    local function _70_()
+    local function _74_()
       local tbl_26_ = {}
       local i_27_ = 0
       for _, a in ipairs(pending) do
@@ -489,10 +501,10 @@ local function flush_pending(directive_text)
       end
       return tbl_26_
     end
-    return review["mark-annotations"]("sent", _70_())
+    return review["mark-annotations"]("sent", _74_())
   end
 end
-local function _73_()
+local function _77_()
   if state.pane then
     local fzf = require("fzf-lua")
     local all_directives = directives.list()
@@ -510,13 +522,13 @@ local function _73_()
       end
       lines = tbl_26_
     end
-    local function _75_(selected)
+    local function _79_(selected)
       local directive_text = directives.get(selected[1])
       return flush_pending(directive_text)
     end
-    return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _75_}})
+    return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _79_}})
   else
-    local function _76_()
+    local function _80_()
       local fzf = require("fzf-lua")
       local all_directives = directives.list()
       local lines
@@ -533,14 +545,14 @@ local function _73_()
         end
         lines = tbl_26_
       end
-      local function _78_(selected)
+      local function _82_(selected)
         local directive_text = directives.get(selected[1])
         return flush_pending(directive_text)
       end
-      return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _78_}})
+      return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _82_}})
     end
-    return choose_pane(parse_panes(shell(panes_command)), _76_)
+    return choose_pane(parse_panes(shell(panes_command)), _80_)
   end
 end
-M.FlushWithDirective = _73_
+M.FlushWithDirective = _77_
 return M

@@ -73,12 +73,6 @@
 ;; drive the rest detection, so only a completely still cursor lets
 ;; it fire
 (var db-refresh-timer nil)
-;; set by review-mode while a PR review is open: the pane's p key
-;; reads the PR session to create review halves in and the PR's diff
-;; ranges for the off-diff gate; nil (the default) means the branch
-;; session isn't PR-bound and promotion refuses
-(var promote-context nil)
-(fn M.set-promote-context [f] (set promote-context f))
 ;; in-pane context, recorded on every render: the code window the pane
 ;; mirrors and what the pane currently shows — the buffer-local pane
 ;; keys (r/q/n) act on these without the cursor ever leaving the pane
@@ -381,8 +375,11 @@
                                    (or t.id 0))
                     vim.log.levels.WARN)
         (let [session (source-session)
-              ctx (when (and session promote-context)
-                    (promote-context session))]
+              ;; required here, not at load: review-mode requires
+              ;; this module, and p must work before any review
+              ;; command has loaded review-mode (right after a restart)
+              ctx ((. (require :codeboomer.review-mode) :promote-context)
+                   session)]
           (if (not ctx)
               (vim.notify "codeboomer: this branch's session is not bound to a PR — :Codeboomer Review first"
                           vim.log.levels.WARN)

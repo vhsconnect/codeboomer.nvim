@@ -67,7 +67,7 @@
                            (helpers.edit files.main)
                            (set code-win (api.nvim_get_current_win))
                            (set tab1 (api.nvim_get_current_tabpage))
-                           (set sid (review.create-session))
+                           (set sid (review.ensure-session))
                            (review.user-comment sid files.main 3 3 "code A"
                                                 :testing)
                            (review.user-comment sid files.main 1 69 "code B"
@@ -151,13 +151,12 @@
                         (var wide nil)
                         (before_each (fn []
                                        (set wide (thread-at 1 69))
-                                       (exec-lua (fn [sid path]
-                                                   ((. (require :codeboomer.sidebar)
-                                                       :set-promote-context) (fn []
-                                                                               {:session-id sid
-                                                                                :head-ranges {path [[40
-                                                                                                     40]]}})))
-                                                 sid files.main)
+                                       (review.set-session-pr sid
+                                                              fixtures.pr.number)
+                                       (helpers.fake-gh-text (.. :pr-diff-
+                                                                 fixtures.pr.number
+                                                                 :.txt)
+                                                             fixtures.pr-diff)
                                        (rest code-win 40)
                                        (press-in-pane :p)
                                        (exec-lua #(vim.wait 100))))

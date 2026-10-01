@@ -19,17 +19,10 @@
                              :reference :repo.id
                              :on_delete :cascade}})
 
-;; a session is the unit of review: "live" ones carry the branch and
-;; the HEAD they were created at; PR ones (review mode) additionally
-;; pin the PR number and the base commit the head is diffed against
+;; a session is the unit of review: one per (repo, branch); Review
+;; binds it to the branch's PR once, through pr_number
 (local session-schema {:id true
                        :branch :text
-                       :head_commit {:type :integer
-                                     :reference :git_commit.id
-                                     :on_delete :cascade}
-                       :base_commit {:type :integer
-                                     :reference :git_commit.id
-                                     :on_delete :cascade}
                        :pr_number :integer
                        :repo_id {:type :integer
                                  :reference :repo.id
@@ -56,9 +49,7 @@
                       ;; :line anchors to [line_start, line_end];
                       ;; :file is a whole-file comment — no lines,
                       ;; GitHub's subject_type=file. The default is
-                      ;; double-quoted ('line' bare is invalid sql) and
-                      ;; doubles as the backfill for pre-type rows via
-                      ;; the singleton's add-column migration
+                      ;; double-quoted ('line' bare is invalid sql)
                       :type {:type :text :default "'line'"}
                       ;; the other half of the pair — see review.fnl.
                       ;; Never cascade across sessions: a hard parent

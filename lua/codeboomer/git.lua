@@ -97,8 +97,14 @@ M.remotes = function()
 end
 M["branch-name"] = function(_3fpath)
   local root = buffer_root(_3fpath)
+  local branch
   if root then
-    return run(root, "rev-parse", "--abbrev-ref", "HEAD")
+    branch = run(root, "rev-parse", "--abbrev-ref", "HEAD")
+  else
+    branch = nil
+  end
+  if (branch ~= "HEAD") then
+    return branch
   else
     return nil
   end
@@ -111,16 +117,16 @@ M["head-sha"] = function(_3fpath)
     return nil
   end
 end
-M["user-email"] = function()
-  local root = M["repo-root"]()
+M["user-email"] = function(_3fpath)
+  local root = M["repo-root"](_3fpath)
   if root then
     return run(root, "config", "user.email")
   else
     return nil
   end
 end
-M["user-name"] = function()
-  local root = M["repo-root"]()
+M["user-name"] = function(_3fpath)
+  local root = M["repo-root"](_3fpath)
   if root then
     return run(root, "config", "user.name")
   else

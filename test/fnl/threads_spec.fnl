@@ -20,7 +20,7 @@
                    (helpers.setup-test-repo)
                    (helpers.setup-codeboomer)
                    (helpers.edit files.main)
-                   (set sid (review.create-session))))
+                   (set sid (review.ensure-session))))
 
     (describe "an annotation"
       (fn []
@@ -188,13 +188,16 @@
           (fn []
             (review.set-session-pr sid 4242)
             (review.delete-session sid)
-            (assert.is_nil (review.current-session-id))
+            (assert.is_nil (review.session-for))
             (helpers.neq sid (review.ensure-session))))
 
         (it "leaves other sessions alone"
           (fn []
             (review.user-comment sid files.main 1 1 :code "keep me")
-            (let [other (review.create-session)]
+            (helpers.git :checkout :-q :-b :other)
+            (helpers.api.nvim_command :edit!)
+            (let [other (review.ensure-session)]
+              (helpers.neq sid other)
               (review.delete-session other)
               (assert.is_not_nil (review.session-by-id sid))
               (eq 1 (length (review.threads-for-session sid))))))))))

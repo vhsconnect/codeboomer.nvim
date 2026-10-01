@@ -5,40 +5,28 @@ local review = require("codeboomer.review")
 local sidebar = require("codeboomer.sidebar")
 local github = require("codeboomer.github")
 local M = {}
-local current = nil
-local function _1_(session)
-  if (session and session.pr_number) then
-    if (current and (session.id == current["session-id"])) then
-      return {["session-id"] = session.id, ["head-ranges"] = current.ranges}
-    else
-      return {["session-id"] = session.id}
-    end
-  else
-    return nil
-  end
-end
-sidebar["set-promote-context"](_1_)
+local diff_ranges = {}
 local function notify(msg, level)
-  local function _4_()
+  local function _1_()
     return vim.notify(msg, level)
   end
-  return vim.schedule(_4_)
+  return vim.schedule(_1_)
 end
 local function run(argv, k)
-  local function _5_(obj)
-    local function _6_()
+  local function _2_(obj)
+    local function _3_()
       if (obj.code == 0) then
         return k((obj.stdout or ""))
       else
         return notify(("codeboomer: `" .. table.concat(argv, " ") .. "` failed (exit " .. tostring(obj.code) .. ")\n" .. (obj.stderr or "")), vim.log.levels.ERROR)
       end
     end
-    return vim.schedule(_6_)
+    return vim.schedule(_3_)
   end
-  return vim.system(argv, {text = true}, _5_)
+  return vim.system(argv, {text = true}, _2_)
 end
 local function gh_view(n, k)
-  local function _8_(out)
+  local function _5_(out)
     local ok, pr = pcall(vim.json.decode, out)
     if (ok and ("table" == type(pr)) and pr.number) then
       return k(pr)
@@ -46,7 +34,7 @@ local function gh_view(n, k)
       return notify(("codeboomer: `gh pr view " .. tostring(n) .. "` gave nothing usable"), vim.log.levels.ERROR)
     end
   end
-  return run({"gh", "pr", "view", tostring(n), "--json", "number"}, _8_)
+  return run({"gh", "pr", "view", tostring(n), "--json", "number,headRefName"}, _5_)
 end
 local function choose_pr(prs, k)
   local fzf = require("fzf-lua")
@@ -70,7 +58,7 @@ local function choose_pr(prs, k)
     end
     lines = tbl_26_
   end
-  local function _11_(selected)
+  local function _8_(selected)
     local pr = by_display[selected[1]]
     if pr then
       return k(pr)
@@ -78,7 +66,7 @@ local function choose_pr(prs, k)
       return nil
     end
   end
-  return fzf.fzf_exec(lines, {prompt = "Pick a PR> ", actions = {default = _11_}})
+  return fzf.fzf_exec(lines, {prompt = "Pick a PR> ", actions = {default = _8_}})
 end
 local function parse_ranges(diff)
   local header_re = "^%+%+%+ b/(.*)"
@@ -95,14 +83,14 @@ local function parse_ranges(diff)
     if (file and c) then
       local start = tonumber(c)
       local count
-      local function _14_()
+      local function _11_()
         if (not d or (d == "")) then
           return "1"
         else
           return d
         end
       end
-      count = tonumber(_14_())
+      count = tonumber(_11_())
       if (count > 0) then
         local bucket = (out[file] or {})
         table.insert(bucket, {start, (start + count + -1)})
@@ -114,33 +102,79 @@ local function parse_ranges(diff)
   end
   return out
 end
+local function diff_argv(pr_number)
+  return {"gh", "pr", "diff", tostring(pr_number), "--color=never"}
+end
 local function load_ranges(pr_number)
-  local function _17_(out)
-    current.ranges = parse_ranges(out)
+  local function _14_(obj)
+    local function _15_()
+      local _16_
+      if (obj.code == 0) then
+        _16_ = parse_ranges(obj.stdout)
+      else
+        _16_ = false
+      end
+      diff_ranges[pr_number] = _16_
+      return nil
+    end
+    return vim.schedule(_15_)
+  end
+  return vim.system(diff_argv(pr_number), {text = true}, _14_)
+end
+local function ranges_for(pr_number)
+  if (nil == diff_ranges[pr_number]) then
+    local obj = vim.system(diff_argv(pr_number), {text = true}):wait(10000)
+    local _18_
+    if (obj.code == 0) then
+      _18_ = parse_ranges(obj.stdout)
+    else
+      _18_ = false
+    end
+    diff_ranges[pr_number] = _18_
+  else
+  end
+  return (diff_ranges[pr_number] or nil)
+end
+M["promote-context"] = function(session)
+  if (session and session.pr_number) then
+    return {["session-id"] = session.id, ["head-ranges"] = ranges_for(session.pr_number)}
+  else
     return nil
   end
-  return run({"gh", "pr", "diff", tostring(pr_number), "--color=never"}, _17_)
 end
 local function open_pr(pr)
-  local session_id = review["ensure-session"]()
-  if not session_id then
-    return notify("codeboomer: not inside a git repository", vim.log.levels.ERROR)
+  local branch = git["branch-name"]()
+  local bound
+  do
+    local t_22_ = review["session-for"]()
+    if (nil ~= t_22_) then
+      t_22_ = t_22_.pr_number
+    else
+    end
+    bound = t_22_
+  end
+  if not branch then
+    return notify(string.format("codeboomer: check out PR #%d's branch `%s` first \226\128\148 sessions are tied to branches, a detached HEAD has none", pr.number, (pr.headRefName or "?")), vim.log.levels.ERROR)
+  elseif (branch ~= pr.headRefName) then
+    return notify(string.format("codeboomer: PR #%d is for branch `%s`, but `%s` is checked out \226\128\148 check out `%s` first", pr.number, (pr.headRefName or "?"), branch, (pr.headRefName or "?")), vim.log.levels.ERROR)
+  elseif (bound and (bound ~= pr.number)) then
+    return notify(string.format("codeboomer: this branch's session is bound to PR #%d \226\128\148 :Codeboomer ResetSession first to review PR #%d", bound, pr.number), vim.log.levels.ERROR)
   else
+    local session_id = review["ensure-session"]()
     review["set-session-pr"](session_id, pr.number)
-    current = {["pr-number"] = pr.number, ["session-id"] = session_id}
     sidebar.open()
     github["pull-comments"](pr.number, session_id)
     return load_ranges(pr.number)
   end
 end
-local function _19_(_3fn)
+local function _25_(_3fn)
   if not git["repo-root"]() then
     return notify("codeboomer: not inside a git repository", vim.log.levels.ERROR)
   else
     if _3fn then
       return gh_view(_3fn, open_pr)
     else
-      local function _20_(out)
+      local function _26_(out)
         local ok, prs = pcall(vim.json.decode, out)
         if (ok and ("table" == type(prs)) and (#prs > 0)) then
           return choose_pr(prs, open_pr)
@@ -148,12 +182,12 @@ local function _19_(_3fn)
           return notify("codeboomer: no open PRs (or `gh` unavailable)", vim.log.levels.WARN)
         end
       end
-      return run({"gh", "pr", "list", "--json", "number,title,headRefName"}, _20_)
+      return run({"gh", "pr", "list", "--json", "number,title,headRefName"}, _26_)
     end
   end
 end
-M.open = _19_
-local function _24_()
+M.open = _25_
+local function _30_()
   local sid = sidebar["session-id"]()
   local session
   if sid then
@@ -161,16 +195,25 @@ local function _24_()
   else
     session = nil
   end
-  local _26_
-  if (session and current and (session.id == current["session-id"])) then
-    _26_ = current.ranges
-  else
-    _26_ = nil
+  local _32_
+  local _34_
+  do
+    local t_33_ = session
+    if (nil ~= t_33_) then
+      t_33_ = t_33_.pr_number
+    else
+    end
+    _34_ = t_33_
   end
-  return github["post-threads"]({["session-id"] = sid, ranges = _26_})
+  if _34_ then
+    _32_ = ranges_for(session.pr_number)
+  else
+    _32_ = nil
+  end
+  return github["post-threads"]({["session-id"] = sid, ranges = _32_})
 end
-M.post = _24_
-local function _28_()
+M.post = _30_
+local function _37_()
   local sid = sidebar["session-id"]()
   local session
   if sid then
@@ -184,6 +227,6 @@ local function _28_()
     return notify("codeboomer: this branch's session is not bound to a PR \226\128\148 :Codeboomer Review first", vim.log.levels.WARN)
   end
 end
-M.pull = _28_
+M.pull = _37_
 M["parse-ranges"] = parse_ranges
 return M

@@ -211,7 +211,7 @@
 ;; the off-diff check
 (fn M.post-threads [?opts]
   (let [opts (or ?opts {})
-        sid (or opts.session-id (review.current-session-id))
+        sid opts.session-id
         session (when sid (review.session-by-id sid))
         slug (github-slug)]
     (if (not sid)
@@ -259,13 +259,12 @@
   n)
 
 ;; refresh a PR-bound session with the PR's current inline comments —
-;; the sidebar reloads via CodeboomerImported. ?session-id is the
-;; branch session to import into (Review passes the one it just
+;; the sidebar reloads via CodeboomerImported. sid is the branch
+;; session to import into (Review passes the one it just
 ;; bound; PullReview resolves it); the session must be bound to this
 ;; PR, which is what makes "Review ran first" true
-(fn M.pull-comments [pr-number ?session-id]
+(fn M.pull-comments [pr-number sid]
   (let [slug (github-slug)
-        sid (or ?session-id (review.current-session-id))
         session (when sid (review.session-by-id sid))]
     (if (not slug)
         (notify "codeboomer: no GitHub remote in this repository"

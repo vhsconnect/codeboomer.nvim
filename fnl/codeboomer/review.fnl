@@ -30,11 +30,15 @@
   (let [v (or ?text "")]
     (if (v:match "^[%S]+%(.*%)$") (.. " " v) v)))
 
-(fn with-user []
-  (let [email (git.user-email)
+;; ?path picks the repo whose git config names the user — the
+;; current buffer's by default; pass the repo of the data at hand
+;; when the caller may sit in the comments pane (a nofile buffer
+;; resolves through the cwd, which need not be inside the repo)
+(fn with-user [?path]
+  (let [email (git.user-email ?path)
         entry? (db sqlite.user :get {:where {: email}})]
     (if (. entry? 1) (?. entry? 1 :id)
-        (db sqlite.user :insert {:name (git.user-name) : email}))))
+        (db sqlite.user :insert {:name (git.user-name ?path) : email}))))
 
 ;; the one synthetic identity all agent-written comments share —
 ;; get-or-create like with-user, fixed coordinates
@@ -56,6 +60,13 @@
       (let [entry? (db sqlite.commit :get {:where {:hash commit-hash}})]
         (if (?. entry? 1 :id) (?. entry? 1 :id)
             (db sqlite.commit :insert {:hash commit-hash :repo repo-id}))))))
+
+;; the repo row a session belongs to — the pane-safe source for
+;; with-user's ?path and for commit rows
+(fn session-repo [session-id]
+  (let [session (?. (db sqlite.session :get {:where {:id (or session-id 0)}}) 1)]
+    (when session
+      (?. (db sqlite.repo :get {:where {:id session.repo_id}}) 1))))
 
 ;; every annotation starts LOCAL: the note is a conversation with the
 ;; agent until promotion deliberately creates the shipping half
@@ -128,17 +139,26 @@
                                                : branch}}))
               1))))))
 
-;; the current branch's session id — resolved, not chosen
-(fn M.current-session-id []
-  (?. (M.session-for) :id))
+;; the one and only session per (repo, branch) — private to
+;; ensure-session, and backed by the session_live_branch index (see
+;; singleton.fnl). The PR binding (if any) is a separate stamp —
+;; set-session-pr
+(fn create-session []
+  (db sqlite.session :insert
+      {:branch (git.branch-name) :repo_id (with-repo)}))
 
 ;; find-or-create the current branch's session — the write path
 ;; (annotate) and Review resolve through here
 (fn M.ensure-session []
-  (or (M.current-session-id) (M.create-session)))
+  (or (?. (M.session-for) :id)
+      ;; a detached HEAD has no branch to tie a session to
+      (when (and (git.repo-root) (git.branch-name))
+        (create-session))))
 
 ;; bind a session to a PR — the branch's session becomes that PR's
-;; review; re-binding to another PR just re-stamps the column
+;; review. Review binds once: re-binding to another PR is refused
+;; there (review-mode's open-pr), since the session's threads belong
+;; to the PR they were pulled from and promoted for
 (fn M.set-session-pr [session-id pr-number]
   (db sqlite.session :update
       {:set {:pr_number pr-number} :where {:id (or session-id 0)}}))
@@ -291,7 +311,8 @@
                             :type (or t.type :line)
                             :kind :local
                             :parent_id t.id
-                            :created_by (with-user)})]
+                            :created_by (with-user (?. (session-repo t.session_id)
+                                                       :path))})]
                 (thread-by-id id)))))))
 
 ;; promote a local thread: create its :review half carrying the final
@@ -315,7 +336,9 @@
                                (or t.id 0)) vim.log.levels.WARN)
         (= "" (vim.trim (or body "")))
         (refuse "codeboomer: empty promotion ignored" vim.log.levels.WARN)
-        (let [commit-id (with-commit (with-repo)
+        (let [repo (session-repo t.session_id)
+              me (with-user (?. repo :path))
+              commit-id (with-commit (?. repo :id)
                           (or ?anchor-sha (M.commit-sha t.anchor_commit)))
               twin-id (db sqlite.thread :insert
                           {:session_id (or ?session-id t.session_id)
@@ -328,10 +351,10 @@
                            :type (or t.type :line)
                            :kind :review
                            :parent_id t.id
-                           :created_by (with-user)})]
+                           :created_by me})]
           (db sqlite.comments :insert
               {:thread_id twin-id
-               :author_id (with-user)
+               :author_id me
                :body (sql-literal body)
                :source :user
                :commit_id commit-id})
@@ -395,7 +418,7 @@
           nil)
         (db sqlite.comments :insert
             {:thread_id thread-id
-             :author_id (with-user)
+             :author_id (with-user (?. (session-repo thread.session_id) :path))
              :body (sql-literal body)
              :source :user
              :commit_id thread.anchor_commit}))))
@@ -428,7 +451,9 @@
 ;; the pane's e key edits the first (the promoted text itself, by
 ;; construction)
 (fn M.unposted-user-comments [thread-id]
-  (let [me (with-user)]
+  (let [me (with-user (?. (session-repo (?. (thread-by-id thread-id)
+                                            :session_id))
+                          :path))]
     (icollect [_ c (ipairs (M.comments-for (or thread-id 0)))]
       (when (mine-unflagged? c me :posted) c))))
 
@@ -438,7 +463,7 @@
 (fn M.pending-for-flush [session-id]
   (if (not session-id)
       []
-      (let [me (with-user)
+      (let [me (with-user (?. (session-repo session-id) :path))
             out []]
         (each [_ t (ipairs (M.threads-for-session session-id))]
           (each [_ c (ipairs (M.conversation-comments (or t.id 0)))]
@@ -451,7 +476,7 @@
 (fn M.pending-for-post [session-id]
   (if (not session-id)
       []
-      (let [me (with-user)
+      (let [me (with-user (?. (session-repo session-id) :path))
             out []]
         (each [_ t (ipairs (M.review-rows-for-session session-id))]
           (each [_ c (ipairs (M.comments-for (or t.id 0)))]
@@ -546,16 +571,14 @@
 ;; leaving cross-session pairs untouched by construction
 (fn M.delete-session [session-id]
   (db sqlite.session :update
-      {:set {:deleted_at (os.time)} :where {:id (or session-id 0)}}))
-
-;; create the current branch's session — the one and only per (repo,
-;; branch); HEAD is pinned at creation for the record. The PR
-;; binding (if any) is a separate stamp — set-session-pr
-(fn M.create-session []
-  (let [repo-id (with-repo)]
-    (db sqlite.session :insert
-        {:branch (git.branch-name)
-         :head_commit (with-commit repo-id)
-         :repo_id repo-id})))
+      {:set {:deleted_at (os.time)} :where {:id (or session-id 0)}})
+  ;; gh_comment_id is unique table-wide, so the dead session would
+  ;; otherwise keep holding the PR's comment ids: a re-Review could
+  ;; never pull them into the branch's next session
+  (db-with-open (fn [d]
+                  (d:execute (string.format "update comment set gh_comment_id = null
+                                             where thread_id in (select id from comment_thread
+                                                                 where session_id = %d)"
+                                            (or session-id 0))))))
 
 M

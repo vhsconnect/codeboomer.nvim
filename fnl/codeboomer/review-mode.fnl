@@ -1,14 +1,14 @@
 ;; [nfnl] codeboomer/review-mode.fnl
 ;; The PR half of codeboomer's review flow. There is no worktree and
-;; no snapshot to set up: you review whatever you have checked out —
-;; the PR branch, a particular commit, a dirty working tree — by
-;; annotating it where it stands.
-;; :Codeboomer Review picks a PR and binds this branch's session to
-;; it:
-;; the PR's inline comments come down as threads and the PR's diff is
-;; parsed once for the off-diff gate; the comments pane follows the
-;; cursor from there. Promote (the pane's p key) creates the shipping
-;; half in the PR session; PostReview pushes it up — see github.fnl
+;; no snapshot to set up: you review the PR's branch as you have it
+;; checked out — committed or dirty — by annotating it where it
+;; stands.
+;; :Codeboomer Review picks a PR whose head is the checked-out branch
+;; and binds this branch's session to it, once: the PR's inline
+;; comments come down as threads and the PR's diff is loaded for the
+;; off-diff gate; the comments pane follows the cursor from there.
+;; Promote (the pane's p key) creates the shipping half in the PR
+;; session; PostReview pushes it up — see github.fnl
 (global vim vim)
 
 (local git (require :codeboomer.git))
@@ -18,25 +18,12 @@
 
 (local M {})
 
-;; the open PR review: {:pr-number :session-id :ranges} — nil when
-;; none is open. ranges is the PR's own diff (gh pr diff) as
-;; {rel-path [[start last] ...]}, what the off-diff gate reads; nil
-;; until it loads (or for good when gh cannot produce it), in which
-;; case the gate steps aside and GitHub's own rejection surfaces at
-;; post time
-(var current nil)
-
-;; promotion (the pane's p key) reads this hook with the branch
-;; session row the sidebar resolved: PR-bound sessions promote, and
-;; the open PR review's diff ranges ride along when it is the same
-;; session. A soft-deleted session reads as gone here, refusing p
-;; cleanly
-(sidebar.set-promote-context
-  (fn [session]
-    (when (and session session.pr_number)
-      (if (and current (= session.id current.session-id))
-          {:session-id session.id :head-ranges current.ranges}
-          {:session-id session.id}))))
+;; pr-number → the PR's own diff (gh pr diff) as {rel-path [[start
+;; last] ...]}, what the off-diff gate reads; false when gh could not
+;; produce it, in which case the gate steps aside and GitHub's own
+;; rejection surfaces at post time. Keyed by the PR, not the open
+;; review, so a restart only costs one reload
+(local diff-ranges {})
 
 (fn notify [msg level]
   (vim.schedule #(vim.notify msg level)))
@@ -57,7 +44,7 @@
 
 ;; `gh pr view` → table with number, or notify
 (fn gh-view [n k]
-  (run [:gh :pr :view (tostring n) :--json "number"]
+  (run [:gh :pr :view (tostring n) :--json "number,headRefName"]
        (fn [out]
          (let [(ok pr) (pcall vim.json.decode out)]
            (if (and ok (= :table (type pr)) pr.number)
@@ -107,25 +94,59 @@
 ;; the PR's own diff, for the off-diff gate — exactly the diff GitHub
 ;; validates inline comments against. gh has no --unified, so hunks
 ;; carry their context lines along: harmless for the gate (a comment
-;; on a context line is on-diff too). Best-effort — a failure leaves
-;; ranges nil and the gate steps aside
-(fn load-ranges [pr-number]
-  (run [:gh :pr :diff (tostring pr-number) :--color=never]
-       (fn [out] (set current.ranges (parse-ranges out)))))
+;; on a context line is on-diff too)
+(fn diff-argv [pr-number]
+  [:gh :pr :diff (tostring pr-number) :--color=never])
 
-;; open the PR review: find-or-create the current branch's session,
-;; bind it to the PR, open the comments pane, then pull the PR's
-;; inline comments down as threads and load the diff ranges. No
-;; checkout happens — the code you annotate is the branch you are on
+;; Review refreshes the cache in the background
+(fn load-ranges [pr-number]
+  (vim.system (diff-argv pr-number) {:text true}
+              (fn [obj]
+                (vim.schedule #(tset diff-ranges pr-number
+                                     (if (= obj.code 0)
+                                         (parse-ranges obj.stdout)
+                                         false))))))
+
+;; a gate that needs the diff before Review loaded it this run (after
+;; a restart) fetches it on the spot — p and PostReview must answer now
+(fn ranges-for [pr-number]
+  (when (= nil (. diff-ranges pr-number))
+    (let [obj (: (vim.system (diff-argv pr-number) {:text true}) :wait 10000)]
+      (tset diff-ranges pr-number
+            (if (= obj.code 0) (parse-ranges obj.stdout) false))))
+  (or (. diff-ranges pr-number) nil))
+
+;; what the pane's p key promotes against, for the branch session row
+;; the sidebar resolved: PR-bound sessions promote, carrying their
+;; PR's diff for the off-diff gate; nil (unbound, or soft-deleted and
+;; so resolved as gone) refuses p
+(fn M.promote-context [session]
+  (when (and session session.pr_number)
+    {:session-id session.id :head-ranges (ranges-for session.pr_number)}))
+
+;; open the PR review: the PR must be the checked-out branch's and the
+;; branch's session may be bound to it only — then find-or-create the
+;; session, bind it, open the comments pane, pull the PR's inline
+;; comments down as threads and load the diff ranges. No checkout
+;; happens — the code you annotate is the branch you are on
 (fn open-pr [pr]
-  (let [session-id (review.ensure-session)]
-    (if (not session-id)
-        (notify "codeboomer: not inside a git repository"
+  (let [branch (git.branch-name)
+        bound (?. (review.session-for) :pr_number)]
+    (if (not branch)
+        (notify (string.format "codeboomer: check out PR #%d's branch `%s` first — sessions are tied to branches, a detached HEAD has none"
+                               pr.number (or pr.headRefName "?"))
                 vim.log.levels.ERROR)
-        (do
+        (not= branch pr.headRefName)
+        (notify (string.format "codeboomer: PR #%d is for branch `%s`, but `%s` is checked out — check out `%s` first"
+                               pr.number (or pr.headRefName "?") branch
+                               (or pr.headRefName "?"))
+                vim.log.levels.ERROR)
+        (and bound (not= bound pr.number))
+        (notify (string.format "codeboomer: this branch's session is bound to PR #%d — :Codeboomer ResetSession first to review PR #%d"
+                               bound pr.number)
+                vim.log.levels.ERROR)
+        (let [session-id (review.ensure-session)]
           (review.set-session-pr session-id pr.number)
-          (set current {:pr-number pr.number
-                        :session-id session-id})
           (sidebar.open)
           (github.pull-comments pr.number session-id)
           (load-ranges pr.number)))))
@@ -154,17 +175,15 @@
 ;; :Codeboomer PostReview — push the unposted annotations of this
 ;; branch's session to GitHub: replies to pulled threads via the
 ;; replies endpoint, fresh threads batched into one review per anchor
-;; commit. The open PR review's diff gates the off-diff check when it
-;; is the same session
+;; commit. The bound PR's diff gates the off-diff check
 (set M.post
      (fn []
        (let [sid (sidebar.session-id)
              session (when sid (review.session-by-id sid))]
          (github.post-threads
            {:session-id sid
-            :ranges (when (and session current
-                               (= session.id current.session-id))
-                      current.ranges)}))))
+            :ranges (when (?. session :pr_number)
+                      (ranges-for session.pr_number))}))))
 
 ;; :Codeboomer PullReview — refresh this branch's session with the
 ;; bound PR's current inline comments (idempotent by gh comment id)

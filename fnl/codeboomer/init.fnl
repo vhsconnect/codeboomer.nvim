@@ -349,7 +349,9 @@
                                                   ;; the one and only per (repo, branch)
                                                   (let [sid (review.ensure-session)]
                                                     (if (not sid)
-                                                        (schedule-notify "codeboomer: annotate needs a repo file"
+                                                        (schedule-notify (if (git.repo-root)
+                                                                             "codeboomer: annotate needs a checked-out branch — sessions are tied to branches, a detached HEAD has none"
+                                                                             "codeboomer: annotate needs a repo file")
                                                                          vim.log.levels.ERROR)
                                                         (do
                                                           (if context
@@ -376,7 +378,7 @@
 ;; thread (a back-and-forth) would otherwise ship N near-identical
 ;; copies
 (fn flush-pending [directive-text]
-  (let [pending (review.pending-for-flush (review.current-session-id))]
+  (let [pending (review.pending-for-flush (sidebar.session-id))]
     (if (= 0 (length pending))
         (schedule-notify "codeboomer: nothing to flush — no unsent messages"
                          vim.log.levels.WARN)

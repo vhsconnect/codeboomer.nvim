@@ -8,8 +8,8 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - Fuzzy-finder interface (via fzf-lua) to select target panes, showing each pane's last output line and working directory, with a live content preview
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Annotation workflow — accumulate multiple code selections for review before sending
-- **Branch sessions (`ResetSession`)** — annotations are grouped into one session per branch, created on the first annotation and resolved from the branch the buffer sits on — never picked. `ResetSession` soft-deletes the branch's session — its threads and comments vanish everywhere while the rows stay, the way to terminate a set of comments and start fresh
-- **PR review (`Review`)** — review whatever you have checked out: a PR branch, a particular commit, or uncommitted work — the flow is always the same, simple annotation. `Review` picks a PR, binds the branch's session to it and pulls its inline comments down as threads; `PostReview` pushes the threads you **promoted** (the pane's `p`) up as a pending review (a draft submitted on GitHub). No worktree is created and nothing is checked out — be on the branch you mean to review when you launch Neovim
+- **Branch sessions (`ResetSession`)** — annotations are grouped into one session per branch, created on the first annotation and resolved from the branch the buffer sits on — never picked (a detached HEAD has no branch, so no session). `ResetSession` soft-deletes the branch's session — its threads and comments vanish everywhere while the rows stay, the way to terminate a set of comments and start fresh
+- **PR review (`Review`)** — review the PR's branch as you have it checked out, committed or not — the flow is always the same, simple annotation. `Review` picks a PR whose head is the checked-out branch, binds the branch's session to it (once — re-binding to another PR takes a `ResetSession`) and pulls its inline comments down as threads; `PostReview` pushes the threads you **promoted** (the pane's `p`) up as a pending review (a draft submitted on GitHub). No worktree is created and nothing is checked out — be on the branch you mean to review when you launch Neovim
 - **Local/review thread halves** — every annotation starts as a local conversation with the agent (annotate, `a`-replies, agent answers via the shim); `p` in the comments pane promotes a thread: the shipping half is born with the final wording, anchored at the thread's own commit, after an off-the-diff refusal. Nothing reaches `PostReview` without that deliberate step — agent chatter and your negotiation with it are structurally unshippable
 - **Review comments pane** — a side split follows the cursor: rest it inside a commented range and the thread's comments appear — both halves interleaved as one conversation — and entering a file lists all of its threads straight away; window-navigate into it, where `r` replies on the review half (promoted threads and pulled ones), `a` replies to the agent, `p` promotes, `e` edits the promoted comment, `q` resolves and `n` hops to the next thread
 - Bracketed-paste support for proper multi-line handling
@@ -177,22 +177,31 @@ preview shows the pane's recent content.
 Opens a PR review on the branch you already have checked out:
 nothing is fetched, no worktree is created, nothing is checked out or
 made read-only — you annotate the code exactly as it sits in your
-working tree, whether that is the PR branch, a particular commit or
-uncommitted work (the flow is the same for all of them).
+working tree, committed or not. To review a particular commit, create
+a branch for it first: sessions are tied to branches, and a detached
+HEAD has none.
 
 - Without an argument an fzf picker over `gh pr list` opens — choosing
   a PR *is* opening its review; with a number the picker is skipped.
   Requires `gh` and a GitHub-hosted remote
+- The PR's head branch must be the checked-out branch — otherwise
+  `Review` refuses and names the branch to check out
 - The branch's session is found (or created) and bound to the PR
   (`pr_number`): `Annotate`, the comments pane and
   `FlushWithDirective` all follow the branch; re-opening the same PR
-  reuses its threads
+  reuses its threads. A session binds once: reviewing another PR from
+  the same branch (a re-opened PR, a second base) is refused until
+  `:Codeboomer ResetSession`, since the session's threads belong to
+  the first PR
 - The PR's inline comments come down as threads (`:Codeboomer
   PullReview` refreshes — idempotent by GitHub comment id)
-- The PR's diff (`gh pr diff`) is parsed once so promotion (`p`) and
+- The PR's diff (`gh pr diff`) is loaded so promotion (`p`) and
   `PostReview` can refuse threads that fall outside the diff before
-  GitHub does; when the diff can't be loaded the check steps aside
-  and GitHub's own rejection surfaces at post time
+  GitHub does — in the background when `Review` opens, and on demand
+  the first time `p` or `PostReview` needs it in a Neovim that has
+  not run `Review` yet (after a restart); when the diff can't be
+  loaded the check steps aside and GitHub's own rejection surfaces at
+  post time
 - Threads anchor to the commit you had checked out when you annotated
   — be on the branch you mean to review before you start
 - The review-comments pane opens for the current buffer and follows
@@ -237,12 +246,19 @@ branches — one per repository and branch, resolved from the buffer
 you are in — so there is nothing to pick; this is the one way to start
 over.
 
+A session is keyed by the branch's *name*: renaming a branch leaves
+its session behind (the new name starts a fresh one), and a deleted
+branch whose name is later reused picks its old session — and PR
+binding — back up. `ResetSession` is the way out of either.
+
 The branch's session is **deleted softly**: `deleted_at` is set and
 its threads and comments vanish from every listing and outbox (pane,
 flush, post) while the rows stay in the database. The comments pane
 reloads empty, and the next annotation starts a fresh session — its
 PR binding, if any, is gone with the old one, so run `Review` again to
-re-bind. Warns when the branch has no session.
+re-bind — the old session lets go of the PR's comments, so that
+`Review` pulls them into the fresh session. Warns when the branch has
+no session.
 
 ### `:Codeboomer PostReview`
 
@@ -265,9 +281,9 @@ the outbox: local conversation halves are unreachable from this walk.
 - GitHub allows one pending review per user and PR: posting again
   while a draft is unsubmitted fails with a 422 — submit or discard
   the draft on GitHub first
-- When the PR's diff is loaded (it is, right after `Review`), threads
-  whose range falls outside it are refused locally first (the same
-  check runs at promotion time) — GitHub would reject them anyway
+- Threads whose range falls outside the PR's diff are refused
+  locally first (the same check runs at promotion time) — GitHub
+  would reject them anyway
 - On success the comments are marked `posted` and never re-ship;
   failures surface the exit code and stderr. After you submit the
   draft on GitHub, `PullReview` matches your posted comments back
@@ -328,6 +344,7 @@ Adds the current selection to the review session's annotation outbox. Use this t
   a file lists all its threads at once; file-level threads carry no
   lines, so the pane lists them with a `file` position instead of a
   line range
+- Refuses on a detached HEAD — check out a branch first
 - Empty notes are ignored
 
 ```

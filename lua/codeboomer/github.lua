@@ -235,7 +235,7 @@ local function post_checked(session, sid, slug, ranges)
 end
 M["post-threads"] = function(_3fopts)
   local opts = (_3fopts or {})
-  local sid = (opts["session-id"] or review["current-session-id"]())
+  local sid = opts["session-id"]
   local session
   if sid then
     session = review["session-by-id"](sid)
@@ -307,9 +307,8 @@ M["import-items"] = function(session_id, items)
   end
   return n
 end
-M["pull-comments"] = function(pr_number, _3fsession_id)
+M["pull-comments"] = function(pr_number, sid)
   local slug = github_slug()
-  local sid = (_3fsession_id or review["current-session-id"]())
   local session
   if sid then
     session = review["session-by-id"](sid)
