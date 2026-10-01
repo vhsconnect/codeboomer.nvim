@@ -9,3 +9,4 @@ todo
 /scratch/
 .nvimlog
 /test/lua/
+.direnv/
