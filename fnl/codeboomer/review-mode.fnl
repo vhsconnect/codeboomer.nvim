@@ -44,7 +44,7 @@
 
 ;; `gh pr view` → table with number, or notify
 (fn gh-view [n k]
-  (run [:gh :pr :view (tostring n) :--json "number,headRefName"]
+  (run [:gh :pr :view (tostring n) :--json "number,headRefName,headRefOid"]
        (fn [out]
          (let [(ok pr) (pcall vim.json.decode out)]
            (if (and ok (= :table (type pr)) pr.number)
@@ -124,6 +124,17 @@
   (when (and session session.pr_number)
     {:session-id session.id :head-ranges (ranges-for session.pr_number)}))
 
+;; the checked-out branch counts as the PR's when it is named after
+;; the PR's head, tracks it (gh pr checkout -b, fork PRs), tracks the
+;; PR's pull ref, or sits on the PR's head commit (a plain
+;; `git fetch origin pull/N/head:name`)
+(fn pr-branch? [branch pr]
+  (let [merge (git.merge-ref branch)]
+    (or (= branch pr.headRefName)
+        (= merge (.. :refs/heads/ (or pr.headRefName "")))
+        (= merge (string.format "refs/pull/%d/head" pr.number))
+        (and (not= nil pr.headRefOid) (= (git.head-sha) pr.headRefOid)))))
+
 ;; open the PR review: the PR must be the checked-out branch's and the
 ;; branch's session may be bound to it only — then find-or-create the
 ;; session, bind it, open the comments pane, pull the PR's inline
@@ -136,8 +147,8 @@
         (notify (string.format "codeboomer: check out PR #%d's branch `%s` first — sessions are tied to branches, a detached HEAD has none"
                                pr.number (or pr.headRefName "?"))
                 vim.log.levels.ERROR)
-        (not= branch pr.headRefName)
-        (notify (string.format "codeboomer: PR #%d is for branch `%s`, but `%s` is checked out — check out `%s` first"
+        (not (pr-branch? branch pr))
+        (notify (string.format "codeboomer: PR #%d is for branch `%s`, but `%s` is checked out and neither tracks it nor sits on its head commit — check out `%s` first"
                                pr.number (or pr.headRefName "?") branch
                                (or pr.headRefName "?"))
                 vim.log.levels.ERROR)
@@ -164,7 +175,7 @@
                      :pr
                      :list
                      :--json
-                     "number,title,headRefName"]
+                     "number,title,headRefName,headRefOid"]
                     (fn [out]
                       (let [(ok prs) (pcall vim.json.decode out)]
                         (if (and ok (= :table (type prs)) (> (length prs) 0))

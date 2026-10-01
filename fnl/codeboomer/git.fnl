@@ -65,6 +65,12 @@
         branch (when root (run root :rev-parse :--abbrev-ref :HEAD))]
     (when (not= branch :HEAD) branch)))
 
+;; e.g. "refs/heads/main" — the ref {branch} pulls from (its
+;; branch.<name>.merge), nil when it tracks nothing
+(fn M.merge-ref [branch ?path]
+  (let [root (buffer-root ?path)]
+    (when root (run root :config :--get (.. :branch. branch :.merge)))))
+
 (fn M.head-sha [?path]
   (let [root (buffer-root ?path)]
     (when root (run root :rev-parse :HEAD))))

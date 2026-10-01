@@ -148,6 +148,40 @@
             (wait-notified error-level "feature")
             (eq [] (live-sessions))))
 
+        (describe "on a local branch named apart from the PR's head"
+          (fn []
+            (before_each (fn []
+                           (fake-pr fixtures.other-branch-pr [])
+                           (helpers.git :checkout :-q :-b :pr-44)
+                           (api.nvim_command :edit!)))
+
+            (it "binds when the branch tracks the PR's head"
+              (fn []
+                (helpers.git :config :branch.pr-44.merge :refs/heads/feature)
+                (review-pr fixtures.other-branch-pr.number)
+                (expectf #(eq fixtures.other-branch-pr.number (bound-pr)))))
+
+            (it "binds when the branch tracks the PR's pull ref"
+              (fn []
+                (helpers.git :config :branch.pr-44.merge :refs/pull/44/head)
+                (review-pr fixtures.other-branch-pr.number)
+                (expectf #(eq fixtures.other-branch-pr.number (bound-pr)))))
+
+            (it "binds when the branch sits on the PR's head commit"
+              (fn []
+                (fake-pr (vim.tbl_extend :force fixtures.other-branch-pr
+                                         {:headRefOid (vim.trim (helpers.git :rev-parse
+                                                                             :HEAD))})
+                         [])
+                (review-pr fixtures.other-branch-pr.number)
+                (expectf #(eq fixtures.other-branch-pr.number (bound-pr)))))
+
+            (it "refuses when the branch neither tracks nor sits on the PR's head"
+              (fn []
+                (review-pr fixtures.other-branch-pr.number)
+                (wait-notified error-level "neither tracks it")
+                (eq [] (live-sessions))))))
+
         (it "refuses to re-bind the session to another PR of the same branch"
           (fn []
             (review-pr fixtures.pr.number)

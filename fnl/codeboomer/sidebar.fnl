@@ -581,17 +581,19 @@
                                               pane-source-win))
                        target-path (.. (or (git.repo-root) "") "/"
                                        target.file_path)]
-                   (vim.api.nvim_win_call pane-source-win
-                                          (fn []
-                                            (when (not= cur-path target.file_path)
-                                              (vim.cmd {:cmd :edit
-                                                        :args [target-path]}))
-                                            (vim.api.nvim_win_set_cursor pane-source-win
-                                                                        [(or target.line_start
-                                                                             1)
-                                                                         0])
-                                            (vim.cmd "normal! zz")))
-                   (flash-line pane-source-win (or target.line_start 1))
+                   (let [jump-to (fn []
+                                   (when (not= cur-path target.file_path)
+                                     (vim.cmd {:cmd :edit :args [target-path]}))
+                                   ;; line_start can outlive the lines it
+                                   ;; pointed at when the file shrinks
+                                   (let [row (math.min (or target.line_start 1)
+                                                       (vim.api.nvim_buf_line_count 0))]
+                                     (vim.api.nvim_win_set_cursor pane-source-win
+                                                                  [row 0])
+                                     (vim.cmd "normal! zz")
+                                     row))
+                         row (vim.api.nvim_win_call pane-source-win jump-to)]
+                     (flash-line pane-source-win row))
                    (show-pane target.file_path [target])
                    (vim.api.nvim_win_set_cursor pane-win [1 0])))))))
 

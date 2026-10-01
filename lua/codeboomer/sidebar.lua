@@ -620,16 +620,22 @@ local function _88_(dir)
       local target = all_threads[(target0 + 1)]
       local cur_path = buf_rel_path(vim.api.nvim_win_get_buf(pane_source_win))
       local target_path = ((git["repo-root"]() or "") .. "/" .. target.file_path)
-      local function _95_()
-        if (cur_path ~= target.file_path) then
-          vim.cmd({cmd = "edit", args = {target_path}})
-        else
+      do
+        local jump_to
+        local function _95_()
+          if (cur_path ~= target.file_path) then
+            vim.cmd({cmd = "edit", args = {target_path}})
+          else
+          end
+          local row = math.min((target.line_start or 1), vim.api.nvim_buf_line_count(0))
+          vim.api.nvim_win_set_cursor(pane_source_win, {row, 0})
+          vim.cmd("normal! zz")
+          return row
         end
-        vim.api.nvim_win_set_cursor(pane_source_win, {(target.line_start or 1), 0})
-        return vim.cmd("normal! zz")
+        jump_to = _95_
+        local row = vim.api.nvim_win_call(pane_source_win, jump_to)
+        flash_line(pane_source_win, row)
       end
-      vim.api.nvim_win_call(pane_source_win, _95_)
-      flash_line(pane_source_win, (target.line_start or 1))
       show_pane(target.file_path, {target})
       return vim.api.nvim_win_set_cursor(pane_win, {1, 0})
     end

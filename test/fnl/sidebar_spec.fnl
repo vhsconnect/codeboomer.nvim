@@ -200,7 +200,13 @@
                         (it "steps through threads with n and wraps at the end"
                             (fn []
                               (matches "3%-3" (. (press-in-pane :n) 1))
-                              (matches "1%-69" (. (press-in-pane :n) 1))))))
+                              (matches "1%-69" (. (press-in-pane :n) 1))))
+                        (it "lands on the last line when a thread outlives its lines"
+                            (fn []
+                              (api.nvim_buf_set_lines (api.nvim_win_get_buf code-win)
+                                                      2 -1 false [])
+                              (matches "3%-3" (. (press-in-pane :n) 1))
+                              (eq [2 0] (api.nvim_win_get_cursor code-win))))))
             (describe :resolve
                       (fn []
                         (before_each (fn []

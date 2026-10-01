@@ -184,8 +184,10 @@ HEAD has none.
 - Without an argument an fzf picker over `gh pr list` opens — choosing
   a PR *is* opening its review; with a number the picker is skipped.
   Requires `gh` and a GitHub-hosted remote
-- The PR's head branch must be the checked-out branch — otherwise
-  `Review` refuses and names the branch to check out
+- The checked-out branch must be the PR's: named after its head
+  branch, tracking it or the PR's `refs/pull/N/head` (as
+  `gh pr checkout -b` and fork PRs set up), or sitting on its head
+  commit — otherwise `Review` refuses and names the branch to check out
 - The branch's session is found (or created) and bound to the PR
   (`pr_number`): `Annotate`, the comments pane and
   `FlushWithDirective` all follow the branch; re-opening the same PR

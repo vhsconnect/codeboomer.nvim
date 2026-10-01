@@ -109,6 +109,14 @@ M["branch-name"] = function(_3fpath)
     return nil
   end
 end
+M["merge-ref"] = function(branch, _3fpath)
+  local root = buffer_root(_3fpath)
+  if root then
+    return run(root, "config", "--get", ("branch." .. branch .. ".merge"))
+  else
+    return nil
+  end
+end
 M["head-sha"] = function(_3fpath)
   local root = buffer_root(_3fpath)
   if root then

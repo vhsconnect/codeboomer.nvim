@@ -34,7 +34,7 @@ local function gh_view(n, k)
       return notify(("codeboomer: `gh pr view " .. tostring(n) .. "` gave nothing usable"), vim.log.levels.ERROR)
     end
   end
-  return run({"gh", "pr", "view", tostring(n), "--json", "number,headRefName"}, _5_)
+  return run({"gh", "pr", "view", tostring(n), "--json", "number,headRefName,headRefOid"}, _5_)
 end
 local function choose_pr(prs, k)
   local fzf = require("fzf-lua")
@@ -142,6 +142,10 @@ M["promote-context"] = function(session)
     return nil
   end
 end
+local function pr_branch_3f(branch, pr)
+  local merge = git["merge-ref"](branch)
+  return ((branch == pr.headRefName) or (merge == ("refs/heads/" .. (pr.headRefName or ""))) or (merge == string.format("refs/pull/%d/head", pr.number)) or ((nil ~= pr.headRefOid) and (git["head-sha"]() == pr.headRefOid)))
+end
 local function open_pr(pr)
   local branch = git["branch-name"]()
   local bound
@@ -155,8 +159,8 @@ local function open_pr(pr)
   end
   if not branch then
     return notify(string.format("codeboomer: check out PR #%d's branch `%s` first \226\128\148 sessions are tied to branches, a detached HEAD has none", pr.number, (pr.headRefName or "?")), vim.log.levels.ERROR)
-  elseif (branch ~= pr.headRefName) then
-    return notify(string.format("codeboomer: PR #%d is for branch `%s`, but `%s` is checked out \226\128\148 check out `%s` first", pr.number, (pr.headRefName or "?"), branch, (pr.headRefName or "?")), vim.log.levels.ERROR)
+  elseif not pr_branch_3f(branch, pr) then
+    return notify(string.format("codeboomer: PR #%d is for branch `%s`, but `%s` is checked out and neither tracks it nor sits on its head commit \226\128\148 check out `%s` first", pr.number, (pr.headRefName or "?"), branch, (pr.headRefName or "?")), vim.log.levels.ERROR)
   elseif (bound and (bound ~= pr.number)) then
     return notify(string.format("codeboomer: this branch's session is bound to PR #%d \226\128\148 :Codeboomer ResetSession first to review PR #%d", bound, pr.number), vim.log.levels.ERROR)
   else
@@ -182,7 +186,7 @@ local function _25_(_3fn)
           return notify("codeboomer: no open PRs (or `gh` unavailable)", vim.log.levels.WARN)
         end
       end
-      return run({"gh", "pr", "list", "--json", "number,title,headRefName"}, _26_)
+      return run({"gh", "pr", "list", "--json", "number,title,headRefName,headRefOid"}, _26_)
     end
   end
 end
