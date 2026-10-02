@@ -136,7 +136,39 @@
                               (open-file files.readme)
                               (assert.is_nil (find-pane tab1))
                               (open-file files.main)
-                              (matches wide-header (. (pane-lines) 1))))))
+                              (matches wide-header (. (pane-lines) 1))))
+                        (it "shows a single thread on file enter — the file's first"
+                            (fn []
+                              (open-file files.main)
+                              (let [headers (icollect [_ l (ipairs (pane-lines))]
+                                              (when (l:match "^#%d+  ") l))]
+                                (eq 1 (length headers))
+                                (matches wide-header (. headers 1)))))
+                        (it "keeps the current thread on screen in a threadless file"
+                            (fn []
+                              (rest code-win 3)
+                              (let [before (pane-lines)]
+                                (open-file files.readme)
+                                (eq before (pane-lines)))))))
+            (describe "opening a repo"
+                      (fn []
+                        (it "opens the pane with the session's first thread whatever buffer starts"
+                            (fn []
+                              (open-file files.readme)
+                              (api.nvim_exec_autocmds :VimEnter
+                                                      {:group :codeboomer-review-pane})
+                              (settle)
+                              (assert.is_not_nil (find-pane tab1))
+                              (matches wide-header (. (pane-lines) 1))))
+                        (it "opens no pane when the branch has no session"
+                            (fn []
+                              (review.delete-session sid)
+                              (sidebar.reload-threads)
+                              (open-file files.readme)
+                              (api.nvim_exec_autocmds :VimEnter
+                                                      {:group :codeboomer-review-pane})
+                              (settle)
+                              (assert.is_nil (find-pane tab1))))))
             (describe "closing by hand"
                       (fn []
                         (it "stays closed until the cursor rests again"
@@ -197,10 +229,30 @@
                                                            &until hit]
                                                 (not= nil
                                                       (l:match "^── keys "))))))
-                        (it "steps through threads with n and wraps at the end"
+                        (it "steps through threads with n and wraps forever"
                             (fn []
                               (matches "3%-3" (. (press-in-pane :n) 1))
+                              (matches "1%-69" (. (press-in-pane :n) 1))
+                              (matches "3%-3" (. (press-in-pane :n) 1))
                               (matches "1%-69" (. (press-in-pane :n) 1))))
+                        (it "lands the code window on the cycled thread's file"
+                            (fn []
+                              (review.user-comment sid files.readme 5 5
+                                                   "readme code" :elsewhere)
+                              (sidebar.reload-threads)
+                              (rest code-win 3)
+                              (press-in-pane :n)
+                              (matches "README%.md:5%-5"
+                                       (. (press-in-pane :n) 1))
+                              (matches (.. files.readme "$")
+                                       (api.nvim_buf_get_name (api.nvim_win_get_buf code-win)))))
+                        (it "cycles from a threadless file too"
+                            (fn []
+                              (rest code-win 3)
+                              (open-file files.readme)
+                              (matches "3%-3" (. (press-in-pane :n) 1))
+                              (matches (.. files.main "$")
+                                       (api.nvim_buf_get_name (api.nvim_win_get_buf code-win)))))
                         (it "lands on the last line when a thread outlives its lines"
                             (fn []
                               (api.nvim_buf_set_lines (api.nvim_win_get_buf code-win)

@@ -367,7 +367,7 @@
                                                           ;; let an open pane pick the
                                                           ;; fresh thread up
                                                           (vim.api.nvim_exec_autocmds :User
-                                                                                      {:pattern :CodeboomerAnnotated})))))))})))))$
+                                                                                      {:pattern :CodeboomerAnnotated})))))))})))))
 
 (set M.Annotate (fn [opts] (annotate-flow opts)))
 

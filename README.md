@@ -11,7 +11,7 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - **Branch sessions (`ResetSession`)** — annotations are grouped into one session per branch, created on the first annotation and resolved from the branch the buffer sits on — never picked (a detached HEAD has no branch, so no session). `ResetSession` soft-deletes the branch's session — its threads and comments vanish everywhere while the rows stay, the way to terminate a set of comments and start fresh
 - **PR review (`Review`)** — review the PR's branch as you have it checked out, committed or not — the flow is always the same, simple annotation. `Review` picks a PR whose head is the checked-out branch, binds the branch's session to it (once — re-binding to another PR takes a `ResetSession`) and pulls its inline comments down as threads; `PostReview` pushes the threads you **promoted** (the pane's `p`) up as a pending review (a draft submitted on GitHub). No worktree is created and nothing is checked out — be on the branch you mean to review when you launch Neovim
 - **Local/review thread halves** — every annotation starts as a local conversation with the agent (annotate, `a`-replies, agent answers via the shim); `p` in the comments pane promotes a thread: the shipping half is born with the final wording, anchored at the thread's own commit, after an off-the-diff refusal. Nothing reaches `PostReview` without that deliberate step — agent chatter and your negotiation with it are structurally unshippable
-- **Review comments pane** — a side split follows the cursor: rest it inside a commented range and the thread's comments appear — both halves interleaved as one conversation — and entering a file lists all of its threads straight away; window-navigate into it, where `r` replies on the review half (promoted threads and pulled ones), `a` replies to the agent, `p` promotes, `e` edits the promoted comment, `q` resolves and `n` hops to the next thread
+- **Review comments pane** — a first-class side split that always shows exactly one thread, the current one: opening a repo whose branch session already has comments opens the pane straight away; resting the cursor inside a commented range shows that thread (both halves interleaved as one conversation), entering a file with threads shows its first, and `n`/`N` cycle through the session's threads in a loop — each hop landing the code window on the thread without leaving the pane; the pane keeps its thread when the cursor moves off every range or the buffer changes — window-navigate into it, where `r` replies on the review half (promoted threads and pulled ones), `a` replies to the agent, `p` promotes, `e` edits the promoted comment, `q` resolves and `n`/`N` step to the next/previous thread
 - Bracketed-paste support for proper multi-line handling
 - **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane; define any number of user-named one-off commands and pick one with fzf when there is more than one
 
@@ -206,21 +206,26 @@ HEAD has none.
   post time
 - Threads anchor to the commit you had checked out when you annotated
   — be on the branch you mean to review before you start
-- The review-comments pane opens for the current buffer and follows
-  the cursor from there: resting the cursor (~100 ms) inside a
-  commented range shows that thread's comments — one block per
-  covering thread (overlaps pick the earliest range), `─`-separated,
-  headers tinted in the thread's color, every comment labeled
-  `[source] name`, and a dimmed keymap footer under the blocks.
-  Moving off every range keeps the last block on screen; `:q` closes
-  the pane and the next rest reopens it. A cursor completely still
-  for ~5 s re-queries the database in one pass — a trailing debounce
-  every cursor move restarts, so at most one query per rest — and the
+- The review-comments pane opens straight away when the branch's
+  session already has comments (opening the repo is enough, whatever
+  buffer nvim starts in) and always shows exactly ONE thread — the
+  current one — whatever the main buffer is: resting the cursor
+  (~100 ms) inside a commented range shows that thread's comments
+  (overlapping ranges pick the earliest), entering a file with
+  threads shows its first, and `n`/`N` cycle through the session's
+  threads without leaving the pane. The thread renders as one block,
+  its header tinted in the thread's color, every comment labeled
+  `[source] name`, with a dimmed keymap footer under the block.
+  Moving off every range — or into a threadless file — keeps the
+  current thread on screen: pane and cursor are not strictly tied.
+  `:q` closes the pane and the next rest, threaded file enter or
+  repo open reopens it. A cursor completely still for ~5 s
+  re-queries the database in one pass — a trailing debounce every
+  cursor move restarts, so at most one query per rest — and the
   pane re-renders from whatever came back wherever it sits (agent
   replies arrive from outside the editor): no landing back on the
   thread's line to see an update. Window-navigate into it
-  (`<C-w> w`); buffer-local keys act on the thread whose block the
-  cursor is in:
+  (`<C-w> w`); buffer-local keys act on the thread on screen:
 
 | Key | Action |
 |-----|--------|
@@ -228,8 +233,8 @@ HEAD has none.
 | `a` | Reply to the **agent** — the local conversation half (created on demand for pulled threads). Your side of any discussion with the agent; never ships |
 | `p` | **Promote** — open the compose input prefilled with the annotation's wording and create the review half with the final text. A *virgin* thread (one user comment, nothing from the agent) promotes as-is with no input. Refuses when the branch's session is not bound to a PR (run `Review` first), and when the range falls outside the PR diff |
 | `e` | Edit the promoted comment in place (the oldest still-unposted one) through the same prefilled input |
-| `q` | Resolve the thread — resolved threads are treated as soft-deleted: both halves of the pair leave the pane and both outboxes; the pane drops the block right away |
-| `n` | Next thread — jumps the cursor back into the code window on the next thread of the session (wrapping at both ends); the pane follows via the usual rest detection |
+| `q` | Resolve the thread — resolved threads are treated as soft-deleted: both halves of the pair leave the pane and both outboxes; the pane hands the screen to whatever covers the cursor, else the next thread, right away |
+| `n` | Next thread — cycle through the session's threads in a loop (wrapping at both ends, `N` goes back); each hop lands the code window's buffer and cursor on the thread (the line flashes) without taking focus off the pane |
 
 - `:Codeboomer PostReview` pushes your **promoted** threads up as a
   pending review — a draft you submit on GitHub (comment / approve /
@@ -341,11 +346,12 @@ Adds the current selection to the review session's annotation outbox. Use this t
 - With a visual range, the selection is included as context (`regarding <file> lines X to Y`); without one the annotation becomes a **whole-file comment** (`type = file`) — a thread anchored to the file itself with no line range — file paths are stored repo-relative
 - The review session is the current branch's: found on write, created on the branch's first annotation (see `:Codeboomer ResetSession` to start over)
 - Annotations are stored in the review session's database — the single store — each as its own **local conversation thread** (`kind = local`): tracked as not-yet-sent (agent) and invisible to `PostReview` until promoted in the comments pane (`p`). They are included in the next `:Codeboomer FlushWithDirective` call until sent
-- The comments pane follows along in any session: resting the cursor
-  inside a commented range shows that thread's comments, and entering
-  a file lists all its threads at once; file-level threads carry no
-  lines, so the pane lists them with a `file` position instead of a
-  line range
+- The comments pane follows along in any session — it opens on repo
+  open when the branch's session has comments, and always shows one
+  thread: resting the cursor inside a commented range shows that
+  thread's comments, entering a file with threads shows its first,
+  and `n` cycles from there; file-level threads carry no lines, so
+  the pane shows them with a `file` position instead of a line range
 - Refuses on a detached HEAD — check out a branch first
 - Empty notes are ignored
 
@@ -395,8 +401,8 @@ next annotation starts fresh.
 
 1. Check out the branch you mean to review and launch Neovim on it
 2. `<leader>cR` (`:Codeboomer Review`) — pick a PR; the branch's
-   session is bound to it, its inline comments come down as threads, and the comments
-   pane opens for the current buffer
+   session is bound to it, its inline comments come down as threads,
+   and the comments pane opens with the session's first thread
 3. Annotate selections with `<leader>ca` as usual — threads show in
    the comments pane: `a` discusses with the agent, `q` resolves,
    `n` hops to the next thread
