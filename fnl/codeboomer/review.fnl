@@ -135,8 +135,7 @@
       (let [repo-id (repo-id-of root)]
         (when repo-id
           (?. (sqlite.active-rows (db sqlite.session :get
-                                      {:where {:repo_id repo-id
-                                               : branch}}))
+                                      {:where {:repo_id repo-id : branch}}))
               1))))))
 
 ;; the one and only session per (repo, branch) — private to
@@ -144,8 +143,7 @@
 ;; singleton.fnl). The PR binding (if any) is a separate stamp —
 ;; set-session-pr
 (fn create-session []
-  (db sqlite.session :insert
-      {:branch (git.branch-name) :repo_id (with-repo)}))
+  (db sqlite.session :insert {:branch (git.branch-name) :repo_id (with-repo)}))
 
 ;; find-or-create the current branch's session — the write path
 ;; (annotate) and Review resolve through here
@@ -490,6 +488,18 @@
                     (each [_ id (ipairs ids)]
                       (d:execute (string.format "update comment set %s = 1 where id = %d"
                                                 (tostring flag) (or id 0))))))))
+
+;; hard-delete one of the session's own comments — only ever a local
+;; draft: user-sourced, never sent, never posted, no github id — so
+;; nothing the agent or github has seen can disappear through here
+(fn M.delete-comment [comment-id]
+  (let [c (?. (db sqlite.comments :get {:where {:id (or comment-id 0)}}) 1)]
+    (when (and c (= :user (or c.source :user)) (= 0 (or c.sent 0))
+               (= 0 (or c.posted 0)) (not c.gh_comment_id))
+      (db-with-open (fn [d]
+                      (d:execute (string.format "delete from comment where id = %d"
+                                                (or c.id 0)))))
+      true)))
 
 (fn unresolved-rows [rows]
   (let [out []]

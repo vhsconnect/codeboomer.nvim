@@ -13,10 +13,10 @@
 (local flash-ns (vim.api.nvim_create_namespace :codeboomer-review-flash))
 (local flash-ms 2000)
 (local pane-width 40)
-(local pane-keys-footer
-       [(.. "── keys " (string.rep "─" (- pane-width 8)))
-        "r reply · a agent · p promote"
-        "e edit · q resolve · n/N thread"])
+(local pane-keys-footer [(.. "── keys " (string.rep "─" (- pane-width 8)))
+                         "r reply · a agent · d delete"
+                         "p promote · e edit · f refresh"
+                         "q resolve · n/N thread"])
 
 (local rest-ms 100)
 (local db-refresh-ms 5000)
@@ -120,6 +120,22 @@
 (fn comment-label [c]
   (string.format "[%s] %s" (or c.source :user) (or c.author-name :unknown)))
 
+(local comment-hls {:posted :MoreMsg
+                    :sent :Directory
+                    :draft :WarningMsg
+                    :agent :Special
+                    :github :Identifier})
+
+(fn comment-status [c]
+  (let [source (or c.source :user)]
+    (if (= :github source) :github
+        (= :agent source) :agent
+        (or (> (or c.posted 0) 0) c.gh_comment_id) :posted
+        (> (or c.sent 0) 0) :sent
+        :draft)))
+
+(fn comment-hl [c] (. comment-hls (comment-status c)))
+
 (fn render [path threads]
   (let [lines []
         headers []
@@ -134,7 +150,7 @@
       (table.insert lines "")
       (each [j c (ipairs (or t.conversation []))]
         (when (> j 1) (table.insert lines ""))
-        (table.insert labels {:row (+ (length lines) 1)})
+        (table.insert labels {:row (+ (length lines) 1) :hl (comment-hl c)})
         (table.insert lines (comment-label c))
         (each [_ l (ipairs (vim.split (or c.body "") "\n"))]
           (table.insert lines l))))
@@ -167,7 +183,7 @@
                                       {:line_hl_group h.hl}))
       (each [_ l (ipairs labels)]
         (vim.api.nvim_buf_set_extmark buf extmark-ns (- l.row 1) 0
-                                      {:line_hl_group :Comment})))))
+                                      {:line_hl_group (or l.hl :Comment)})))))
 
 (fn pane-thread-at [row]
   (var t nil)
@@ -304,6 +320,29 @@
                                                                                         "\n"))
                                               (refresh-pane))}))))))))
 
+(fn pane-delete []
+  (let [t (pane-thread-at (?. (vim.api.nvim_win_get_cursor pane-win) 1))]
+    (if (not t)
+        (vim.notify "codeboomer: no thread block under the pane cursor"
+                    vim.log.levels.WARN)
+        (let [cs (review.conversation-comments (or t.id 0))
+              c (. cs (length cs))]
+          (if (not c)
+              (vim.notify "codeboomer: the thread has no messages"
+                          vim.log.levels.WARN)
+              (or (not= :user (or c.source :user)) (> (or c.sent 0) 0)
+                  (> (or c.posted 0) 0) c.gh_comment_id)
+              (vim.notify "codeboomer: the last message already left — nothing unsent to delete"
+                          vim.log.levels.WARN)
+              (do
+                (review.delete-comment (or c.id 0))
+                (refresh-pane)
+                (vim.notify (string.format "codeboomer: deleted the unsent message on thread #%d"
+                                           (or t.id 0))
+                            vim.log.levels.INFO)))))))
+
+(fn pane-refresh [] (when current-thread (refresh-pane)))
+
 (fn covering-at-source []
   (if (not (and pane-source-win (vim.api.nvim_win_is_valid pane-source-win)
                 pane-win (vim.api.nvim_win_is_valid pane-win)))
@@ -364,6 +403,11 @@
       (vim.keymap.set :n :e pane-edit
                       {:buffer buf
                        :desc "codeboomer: edit the promoted comment"})
+      (vim.keymap.set :n :d pane-delete
+                      {:buffer buf
+                       :desc "codeboomer: delete the last unsent message"})
+      (vim.keymap.set :n :f pane-refresh
+                      {:buffer buf :desc "codeboomer: refresh this thread"})
       (vim.keymap.set :n :q pane-resolve
                       {:buffer buf :desc "codeboomer: resolve this thread"})
       (vim.keymap.set :n :n #(pane-jump 1)
