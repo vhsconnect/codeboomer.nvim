@@ -7,6 +7,7 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - Send text from Neovim to any tmux pane
 - Fuzzy-finder interface (via fzf-lua) to select target panes, showing each pane's last output line and working directory, with a live content preview
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
+- Resend the last prompt (`SendLastPrompt`) without retyping it — the current selection or file is recomposed as context
 - Annotation workflow — accumulate multiple code selections for review before sending
 - **Branch sessions (`ResetSession`)** — annotations are grouped into one session per branch, created on the first annotation and resolved from the branch the buffer sits on — never picked (a detached HEAD has no branch, so no session). `ResetSession` soft-deletes the branch's session — its threads and comments vanish everywhere while the rows stay, the way to terminate a set of comments and start fresh
 - **PR review (`Review`)** — review the PR's branch as you have it checked out, committed or not — the flow is always the same, simple annotation. `Review` picks a PR whose head is the checked-out branch, binds the branch's session to it (once — re-binding to another PR takes a `ResetSession`) and pulls its inline comments down as threads; `PostReview` pushes the threads you **promoted** (the pane's `p`) up as a pending review (a draft submitted on GitHub). No worktree is created and nothing is checked out — be on the branch you mean to review when you launch Neovim
@@ -43,6 +44,7 @@ The plugin sets up no default keybindings; configure them like this:
 | Mode | Binding | Description |
 |------|---------|-------------|
 | Normal + Visual | `<leader>cs` | `SendPrompt` — open the prompt; the selection is included as context when invoked visually |
+| Normal + Visual | `<leader>cl` | `SendLastPrompt` — resend the last prompt; the current selection (or file) is recomposed as context |
 | Visual | `<leader>cr` | `SendSelection` — send the selection to the pane as-is, then press Enter |
 | Normal + Visual | `<leader>cc` | `AskOneOff` — run a one-off query; the answer is shown in a notification |
 | Normal | `<leader>cp` | `SetPane` — pick a tmux pane to send messages to |
@@ -59,6 +61,7 @@ Disable or customize any binding under `keybindings` in `setup()` (set to `false
 require("codeboomer").setup({
   keybindings = {
     send_prompt = "<leader>cs",
+    send_last_prompt = "<leader>cl",
     send_selection = "<leader>cr",
     ask_one_off = "<leader>cc",
     flush_with_directive = "<leader>cd",
@@ -153,6 +156,22 @@ Opens the input UI and sends the composed message to the selected pane.
 
 ```
 :'<,'>Codeboomer SendPrompt
+```
+
+### `:Codeboomer SendLastPrompt`
+
+Sends the most recent `SendPrompt` text again, without opening the input
+UI — handy for retrying the same instruction against a fresh selection or
+after the agent's context moved on.
+
+- The context header is recomposed from the current range: with a visual
+  range the selection is included, without one the current file is used
+- Requires a pane (picked first if none is selected)
+- If no prompt was sent yet this session, a warning notification is shown
+  instead of sending
+
+```
+:'<,'>Codeboomer SendLastPrompt
 ```
 
 ### `:Codeboomer SendSelection`
@@ -381,7 +400,7 @@ Opens fzf to select a pre-defined directive, then sends it along with all unsent
 ### Basic workflow
 
 1. Select a pane with `<leader>cp` or `:Codeboomer SetPane`
-2. Send a prompt with `<leader>cs` (`:Codeboomer SendPrompt`), or send the selection as-is with `<leader>cr` (`:Codeboomer SendSelection`)
+2. Send a prompt with `<leader>cs` (`:Codeboomer SendPrompt`), or send the selection as-is with `<leader>cr` (`:Codeboomer SendSelection`) — resend the last prompt with `<leader>cl` (`:Codeboomer SendLastPrompt`)
 
 ### Annotation workflow
 
@@ -440,7 +459,7 @@ These are available automatically when nfnl is loaded (no extra config needed):
 
 ### Setting up a dev environment
 
-For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-codeboomer`. It requires `CODEBOOMER_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cr`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>cS`, `<leader>cR`, `<leader>cP`, `<leader>cL`, `<leader>ca`). Extra arguments pass through to nvim, so you can land straight in a review:
+For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-codeboomer`. It requires `CODEBOOMER_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cl`, `<leader>cr`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>cS`, `<leader>cR`, `<leader>cP`, `<leader>cL`, `<leader>ca`). Extra arguments pass through to nvim, so you can land straight in a review:
 
 ```bash
 CODEBOOMER_PATH=$PWD ./test-codeboomer                          # plain launch

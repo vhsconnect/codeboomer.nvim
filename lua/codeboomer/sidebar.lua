@@ -616,8 +616,14 @@ local function _92_(bufnr)
     end
     local path = buf_rel_path(bufnr)
     local file_threads = (threads_by_path[path] or {})
-    if ((#file_threads > 0) and (not current_thread or ((current_thread.file_path or "") ~= path))) then
-      current_thread = file_threads[1]
+    local candidate
+    if (current_thread and ((current_thread.file_path or "") == path)) then
+      candidate = current_thread
+    else
+      candidate = file_threads[1]
+    end
+    if (candidate and (not pane_win or not vim.api.nvim_win_is_valid(pane_win) or (candidate ~= current_thread))) then
+      current_thread = candidate
       pane_source_win = vim.api.nvim_get_current_win()
       return show_current()
     else
@@ -631,16 +637,16 @@ M["enter-file"] = _92_
 local function flash_line(win, row)
   local buf = vim.api.nvim_win_get_buf(win)
   local id = vim.api.nvim_buf_set_extmark(buf, flash_ns, (row - 1), 0, {end_row = row, hl_group = "IncSearch", hl_eol = true})
-  local function _96_()
+  local function _97_()
     if vim.api.nvim_buf_is_valid(buf) then
       return pcall(vim.api.nvim_buf_del_extmark, buf, flash_ns, id)
     else
       return nil
     end
   end
-  return vim.defer_fn(_96_, flash_ms)
+  return vim.defer_fn(_97_, flash_ms)
 end
-local function _98_(dir)
+local function _99_(dir)
   if not (pane_source_win and vim.api.nvim_win_is_valid(pane_source_win)) then
     return vim.notify("codeboomer: the pane has no code window to jump from", vim.log.levels.WARN)
   else
@@ -649,20 +655,20 @@ local function _98_(dir)
       return vim.notify("codeboomer: no threads to jump to", vim.log.levels.WARN)
     else
       local target
-      local or_99_ = index_of(current_thread)
-      if not or_99_ then
+      local or_100_ = index_of(current_thread)
+      if not or_100_ then
         if (dir > 0) then
-          or_99_ = -1
+          or_100_ = -1
         else
-          or_99_ = 0
+          or_100_ = 0
         end
       end
-      target = all_threads[(1 + ((or_99_ + dir) % n))]
+      target = all_threads[(1 + ((or_100_ + dir) % n))]
       local cur_path = buf_rel_path(vim.api.nvim_win_get_buf(pane_source_win))
       local target_path = ((git["repo-root"]() or "") .. "/" .. target.file_path)
       do
         local jump_to
-        local function _101_()
+        local function _102_()
           if (cur_path ~= target.file_path) then
             vim.cmd({cmd = "edit", args = {target_path}})
           else
@@ -672,7 +678,7 @@ local function _98_(dir)
           vim.cmd("normal! zz")
           return row
         end
-        jump_to = _101_
+        jump_to = _102_
         local row = vim.api.nvim_win_call(pane_source_win, jump_to)
         flash_line(pane_source_win, row)
       end
@@ -682,18 +688,18 @@ local function _98_(dir)
     end
   end
 end
-pane_jump = _98_
+pane_jump = _99_
 local function evaluate_at(win)
   local buf = vim.api.nvim_win_get_buf(win)
   if normal_buf(buf) then
     local row
     do
-      local t_105_ = vim.api.nvim_win_get_cursor(win)
-      if (nil ~= t_105_) then
-        t_105_ = t_105_[1]
+      local t_106_ = vim.api.nvim_win_get_cursor(win)
+      if (nil ~= t_106_) then
+        t_106_ = t_106_[1]
       else
       end
-      row = t_105_
+      row = t_106_
     end
     local path = buf_rel_path(buf)
     local threads = threads_at(path, (row or 0))
@@ -717,16 +723,16 @@ local function check_now()
       return nil
     end
   else
-    local _111_
+    local _112_
     do
-      local t_110_ = vim.api.nvim_win_get_config(win)
-      if (nil ~= t_110_) then
-        t_110_ = t_110_.relative
+      local t_111_ = vim.api.nvim_win_get_config(win)
+      if (nil ~= t_111_) then
+        t_111_ = t_111_.relative
       else
       end
-      _111_ = t_110_
+      _112_ = t_111_
     end
-    if ("" == (_111_ or "")) then
+    if ("" == (_112_ or "")) then
       return evaluate_at(win)
     else
       return nil
@@ -802,24 +808,24 @@ M["reload-threads"] = function(_3fprefer)
 end
 local function attach_autocmds()
   vim.api.nvim_create_augroup(augroup_name, {clear = true})
-  local function _122_()
+  local function _123_()
     maybe_reload_session()
     return open_on_session()
   end
-  vim.api.nvim_create_autocmd("VimEnter", {group = augroup_name, callback = _122_})
-  local function _123_(ev)
+  vim.api.nvim_create_autocmd("VimEnter", {group = augroup_name, callback = _123_})
+  local function _124_(ev)
     maybe_reload_session()
     M["enter-file"](ev.buf)
     schedule_check()
     return schedule_db_refresh()
   end
-  vim.api.nvim_create_autocmd("BufEnter", {group = augroup_name, callback = _123_})
-  local function _124_()
+  vim.api.nvim_create_autocmd("BufEnter", {group = augroup_name, callback = _124_})
+  local function _125_()
     schedule_check()
     return schedule_db_refresh()
   end
-  vim.api.nvim_create_autocmd({"WinEnter", "TabEnter", "CursorMoved", "CursorMovedI", "FocusGained"}, {group = augroup_name, callback = _124_})
-  local function _125_(ev)
+  vim.api.nvim_create_autocmd({"WinEnter", "TabEnter", "CursorMoved", "CursorMovedI", "FocusGained"}, {group = augroup_name, callback = _125_})
+  local function _126_(ev)
     if (pane_win == tonumber(ev.match)) then
       pane_win = nil
       rendered_sig = nil
@@ -828,17 +834,17 @@ local function attach_autocmds()
       return nil
     end
   end
-  vim.api.nvim_create_autocmd("WinClosed", {group = augroup_name, callback = _125_})
-  local function _127_()
+  vim.api.nvim_create_autocmd("WinClosed", {group = augroup_name, callback = _126_})
+  local function _128_()
     return M["reload-threads"]()
   end
-  return vim.api.nvim_create_autocmd("User", {group = augroup_name, pattern = {"CodeboomerAnnotated", "CodeboomerSessionReset", "CodeboomerImported"}, callback = _127_})
+  return vim.api.nvim_create_autocmd("User", {group = augroup_name, pattern = {"CodeboomerAnnotated", "CodeboomerSessionReset", "CodeboomerImported"}, callback = _128_})
 end
-local function _128_()
+local function _129_()
   M["reload-threads"]()
   open_on_session()
   return check_now()
 end
-M.open = _128_
+M.open = _129_
 attach_autocmds()
 return M

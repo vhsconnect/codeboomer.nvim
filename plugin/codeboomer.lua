@@ -1,5 +1,5 @@
 if vim.g.loaded_codeboomer then
-  return
+    return
 end
 vim.g.loaded_codeboomer = 1
 
@@ -10,67 +10,71 @@ require("codeboomer.agent")
 local subcommands = {}
 
 subcommands.SetPane = function()
-  require("codeboomer").SetPane()
+    require("codeboomer").SetPane()
 end
 
 subcommands.ResetSession = function()
-  require("codeboomer").ResetSession()
+    require("codeboomer").ResetSession()
 end
 
 subcommands.Review = function(opts)
-  -- fargs[1] is the subcommand name itself; the PR number, if any,
-  -- is the second farg
-  require("codeboomer.review-mode").open(tonumber(opts.fargs[2]))
+    -- fargs[1] is the subcommand name itself; the PR number, if any,
+    -- is the second farg
+    require("codeboomer.review-mode").open(tonumber(opts.fargs[2]))
 end
 
 subcommands.PostReview = function()
-  require("codeboomer.review-mode").post()
+    require("codeboomer.review-mode").post()
 end
 
 subcommands.PullReview = function()
-  require("codeboomer.review-mode").pull()
+    require("codeboomer.review-mode").pull()
 end
 
 subcommands.SendPrompt = function(opts)
-  require("codeboomer").SendPrompt(opts)
+    require("codeboomer").SendPrompt(opts)
+end
+
+subcommands.SendLastPrompt = function(opts)
+    require("codeboomer").SendLastPrompt(opts)
 end
 
 subcommands.SendSelection = function(opts)
-  require("codeboomer").SendSelection(opts)
+    require("codeboomer").SendSelection(opts)
 end
 
 subcommands.AskOneOff = function(opts)
-  require("codeboomer").AskOneOff(opts)
+    require("codeboomer").AskOneOff(opts)
 end
 
 subcommands.Annotate = function(opts)
-  require("codeboomer").Annotate(opts)
+    require("codeboomer").Annotate(opts)
 end
 
 subcommands.FlushWithDirective = function()
-  require("codeboomer").FlushWithDirective()
+    require("codeboomer").FlushWithDirective()
 end
 
 vim.api.nvim_create_user_command("Codeboomer", function(opts)
-  local name = opts.fargs[1]
-  local run = subcommands[name]
-  if not run then
-    vim.notify(("codeboomer: unknown subcommand %q"):format(name), vim.log.levels.ERROR)
-    vim.notify("codeboomer: available: " .. table.concat(vim.tbl_keys(subcommands), " "), vim.log.levels.INFO)
-    return
-  end
-  run(opts)
-end, {
-  nargs = "*",
-  range = true,
-  desc = "codeboomer.nvim",
-  complete = function(arg_lead)
-    local matches = {}
-    for name in pairs(subcommands) do
-      if vim.startswith(name, arg_lead) then
-        table.insert(matches, name)
-      end
+    local name = opts.fargs[1]
+    local run = subcommands[name]
+    if not run then
+        vim.notify(("codeboomer: unknown subcommand %q"):format(name), vim.log.levels.ERROR)
+        vim.notify("codeboomer: available: " .. table.concat(vim.tbl_keys(subcommands), " "), vim.log.levels.INFO)
+        return
     end
-    return matches
-  end,
+    run(opts)
+end, {
+    nargs = "*",
+    range = true,
+    desc = "codeboomer.nvim",
+    complete = function(arg_lead)
+        local matches = {}
+        for name in pairs(subcommands) do
+            if vim.startswith(name, arg_lead) then
+                table.insert(matches, name)
+            end
+        end
+        return matches
+    end,
 })

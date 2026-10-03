@@ -12,7 +12,7 @@
 (local one-offs (require :codeboomer.one-offs))
 (local git (require :codeboomer.git))
 
-(local state {:pane nil})
+(local state {:pane nil :last-input nil})
 
 (local M {})
 
@@ -270,13 +270,12 @@
                                                                               0)))]
                        (comment-line c))]
     (if (= :file (or t.type :line))
-        (string.format "regarding %s (thread %s)\n%s"
-                       (or t.file_path "?") (or t.id "?")
-                       (table.concat conversation "\n\n"))
+        (string.format "regarding %s (thread %s)\n%s" (or t.file_path "?")
+                       (or t.id "?") (table.concat conversation "\n\n"))
         (string.format "regarding %s lines %s to %s (thread %s)\n%s\n%s"
                        (or t.file_path "?") (or t.line_start "?")
-                       (or t.line_end "?") (or t.id "?") (or t.code_snapshot "") (table.concat conversation
-                                                                                          "\n\n")))))
+                       (or t.line_end "?") (or t.id "?") (or t.code_snapshot "")
+                       (table.concat conversation "\n\n")))))
 
 (set M.SetPane
      (fn []
@@ -289,8 +288,18 @@
                                 :on-submit (fn [lines]
                                              (let [text (concat-list lines)]
                                                (when (not= text "")
+                                                 (set state.last-input text)
                                                  (send-keys-to-selected-pane (compose-message context
                                                                                               text)))))})))))
+
+(set M.SendLastPrompt
+     (fn [opts]
+       (if state.last-input
+           (with-pan (let [context (get-visual-lines opts)]
+                       (send-keys-to-selected-pane (compose-message context
+                                                                    state.last-input))))
+           (schedule-notify "codeboomer: no prompt sent yet — nothing to resend"
+                            vim.log.levels.WARN))))
 
 ;; Raw send
 (set M.SendSelection
@@ -332,8 +341,7 @@
                   ;; comment requires a name rel-path actually relativized
                   file-path (when (not context) (git.rel-path))
                   repo-file? (and file-path (not= file-path "")
-                                     (not= file-path
-                                          (vim.api.nvim_buf_get_name 0)))]
+                                  (not= file-path (vim.api.nvim_buf_get_name 0)))]
               (if (and (not context) (not repo-file?))
                   (schedule-notify "codeboomer: annotate needs a selection or a repo file"
                                    vim.log.levels.ERROR)
