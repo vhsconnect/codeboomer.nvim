@@ -74,9 +74,15 @@
     (if (= :file (or t.type :line))
         (set item.subject_type "file")
         (do
+          ;; line comments must carry side/start_side explicitly: a
+          ;; multi-line range with start_line but no start_side is a
+          ;; 422 ("start_side" wasn't supplied). Threads anchor lines
+          ;; as seen in the buffer — the diff's RIGHT side
+          (set item.side :RIGHT)
           (set item.line (or t.line_end (or t.line_start 1)))
           (when (and t.line_start t.line_end (< t.line_start t.line_end))
-            (set item.start_line t.line_start))))
+            (set item.start_line t.line_start)
+            (set item.start_side :RIGHT))))
     item))
 
 ;; pending annotations grouped by anchor-commit SHA — a GitHub review

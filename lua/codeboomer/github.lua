@@ -57,9 +57,11 @@ local function pr_comment(t, c)
   if ("file" == (t.type or "line")) then
     item.subject_type = "file"
   else
+    item.side = "RIGHT"
     item.line = (t.line_end or (t.line_start or 1))
     if (t.line_start and t.line_end and (t.line_start < t.line_end)) then
       item.start_line = t.line_start
+      item.start_side = "RIGHT"
     else
     end
   end
