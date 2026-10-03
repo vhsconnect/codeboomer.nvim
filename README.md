@@ -457,6 +457,23 @@ These are available automatically when nfnl is loaded (no extra config needed):
 | `:NfnlDeleteOrphans` | Delete those orphan `.lua` files |
 | `:NfnlFile` | Execute a compiled `.lua` file from disk |
 
+### Hot reload
+
+`dev/reload.fnl` reloads the plugin inside the running Neovim session, via Conjure. Conjure's Fennel client evaluates in-process — the same Lua instance the plugin runs in — so an evaluated form can purge `package.loaded` and re-require everything. The file lives outside `fnl/` on purpose: nfnl's `source-file-patterns` only build `fnl/**`, so nothing in it is compiled into `lua/` or ships with the plugin.
+
+Two functions in it:
+
+- `(reload)` — close the shared sqlite handle, drop every `codeboomer.*` module from the require cache, re-require and re-run `setup()`
+- `(setup)` — re-apply opts to the live modules only; no purge, no recompile — that's the whole loop for iterating on configuration
+
+The loop, no restart:
+
+1. edit `fnl/codeboomer/*.fnl`
+2. `:NfnlCompileAllFiles` — compiles from disk, so stale open buffers don't matter
+3. evaluate the whole file once (Conjure's eval-buffer) — the trailing `(reload)` runs in the same chunk as the definitions; from then on re-evaluating just that `(reload)` form is enough — the entry points are globals, since locals don't survive between Conjure evals
+
+Setup opts come from the `dev-opts` table at the top of the file (mirroring `./test-codeboomer`); set it to `nil` to instead re-use the live merged config from the previous `setup()`. The `:Codeboomer` command survives reloads untouched — `plugin/codeboomer.lua`'s handlers require lazily, at call time. After a reload the chosen tmux pane is forgotten (re-pick with `<leader>cp`), and an open comments pane should be closed first: the fresh sidebar module has no reference to the old window and would open a duplicate.
+
 ### Setting up a dev environment
 
 For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-codeboomer`. It requires `CODEBOOMER_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cl`, `<leader>cr`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>cS`, `<leader>cR`, `<leader>cP`, `<leader>cL`, `<leader>ca`). Extra arguments pass through to nvim, so you can land straight in a review:
