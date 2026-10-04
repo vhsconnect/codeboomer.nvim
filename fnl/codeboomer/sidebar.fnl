@@ -276,21 +276,23 @@
               (let [as-is (virgin-body t)]
                 (if as-is
                     (do
-                      (review.promote (or t.id 0) as-is ctx.session-id)
-                      (refresh-pane)
-                      (vim.notify (string.format "codeboomer: thread #%d promoted"
-                                                 (or t.id 0))
-                                  vim.log.levels.INFO))
+                      ;; promote nil-refuses with the specific reason on
+                      ;; its own notify — only claim success when it landed
+                      (when (review.promote (or t.id 0) as-is ctx.session-id)
+                        (refresh-pane)
+                        (vim.notify (string.format "codeboomer: thread #%d promoted"
+                                                   (or t.id 0))
+                                    vim.log.levels.INFO)))
                     (input.open {:title (string.format " Promote thread #%d> "
                                                        (or t.id 0))
                                  :prefill (or (first-user-body t) "")
                                  :on-submit (fn [lines]
                                               (let [body (table.concat lines
                                                                        "\n")]
-                                                (when (not= "" (vim.trim body))
-                                                  (review.promote (or t.id 0)
-                                                                  body
-                                                                  ctx.session-id)
+                                                (when (and (not= "" (vim.trim body))
+                                                           (review.promote (or t.id 0)
+                                                                           body
+                                                                           ctx.session-id))
                                                   (refresh-pane)
                                                   (vim.notify (string.format "codeboomer: thread #%d promoted"
                                                                              (or t.id

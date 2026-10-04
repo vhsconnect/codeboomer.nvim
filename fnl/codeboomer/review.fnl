@@ -313,6 +313,68 @@
                                                        :path))})]
                 (thread-by-id id)))))))
 
+;; per-line trailing whitespace dropped, blank edge lines dropped —
+;; snapshot comparisons key on content and indentation only
+(fn significant [s]
+  (let [trimmed (icollect [_ l (ipairs (vim.split (or s "") "\n"))]
+                  (l:gsub "[ \t]+$" ""))]
+    (var from 1)
+    (var to (length trimmed))
+    (while (and (<= from to) (= "" (. trimmed from)))
+      (set from (+ from 1)))
+    (while (and (< from to) (= "" (. trimmed to)))
+      (set to (- to 1)))
+    (let [out []]
+      (for [i from to] (table.insert out (. trimmed i)))
+      (table.concat out "\n"))))
+
+;; first differing line, clipped for a notify
+(fn clip [s]
+  (let [s (or s "<end>")]
+    (if (> (length s) 48) (.. (s:sub 1 45) "...") s)))
+
+;; why the thread's snapshot fails to match the file at its own anchor
+;; — nil when it matches or the check doesn't apply. Posting ships the
+;; thread's line numbers and GitHub resolves them against the anchor
+;; commit's content — a snapshot taken after that commit (WIP
+;; annotated before it landed, lines shifted since) cannot resolve
+;; there and the post dies with "Line could not be resolved".
+;; File-scoped threads and unanchored ones have nothing to resolve
+;; against — both already have their own posting paths
+(fn mismatch-detail [t]
+  (if (= :file (or t.type :line)) nil
+      (not t.anchor_commit) nil
+      (let [sha (M.commit-sha t.anchor_commit)]
+        (if (not sha)
+            nil
+            (let [out (git.run (git.repo-root) :show (.. sha ":" (or t.file_path "")))]
+              (if (not out)
+                  (string.format "%s doesn't exist at the anchor" (or t.file_path "?"))
+                  (let [file-lines (vim.split out "\n")
+                        line-end (or t.line_end (or t.line_start 1))]
+                    (if (< (length file-lines) line-end)
+                        (string.format "the anchor has only %d lines — the range runs past its end"
+                                       (length file-lines))
+                        (let [expected []]
+                          (for [i (or t.line_start 1) line-end]
+                            (table.insert expected (. file-lines i)))
+                          (let [a (significant (table.concat expected "\n"))
+                                b (significant (or t.code_snapshot ""))]
+                            (if (= a b)
+                                nil
+                                (let [al (vim.split a "\n")
+                                      bl (vim.split b "\n")]
+                                  (var at nil)
+                                  (local limit (math.max (length al) (length bl)))
+                                  (for [i 1 limit :until at]
+                                    (when (not= (. al i) (. bl i))
+                                      (set at i)))
+                                  (string.format
+                                    "first difference: anchor has %s, snapshot has %s"
+                                    (clip (. al at)) (clip (. bl at)))))))))))))))
+
+(fn snapshot-matches? [t] (not (mismatch-detail t)))
+
 ;; promote a local thread: create its :review half carrying the final
 ;; shipping text — the one deliberate door into the posting outbox.
 ;; ?session-id is the open PR review's session (defaults to the
@@ -332,6 +394,14 @@
         (twin-of t)
         (refuse (string.format "codeboomer: thread #%d already promoted"
                                (or t.id 0)) vim.log.levels.WARN)
+        (not (snapshot-matches? t))
+        (refuse (string.format
+                  "codeboomer: thread #%d can't promote — snapshot doesn't match anchor %s in %s: %s; re-annotate at the current state"
+                  (or t.id 0)
+                  (or (M.commit-sha (or t.anchor_commit 0)) "?")
+                  (or t.file_path "?")
+                  (mismatch-detail t))
+                vim.log.levels.ERROR)
         (= "" (vim.trim (or body "")))
         (refuse "codeboomer: empty promotion ignored" vim.log.levels.WARN)
         (let [repo (session-repo t.session_id)

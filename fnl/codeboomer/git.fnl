@@ -83,4 +83,9 @@
   (let [root (M.repo-root ?path)]
     (when root (run root :config :user.name))))
 
+;; the raw git runner — review.fnl's promotion guard reads file
+;; content at a commit (git show sha:path) to verify a thread's
+;; snapshot still matches its anchor before shipping it
+(set M.run run)
+
 M

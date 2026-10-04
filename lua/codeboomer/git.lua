@@ -141,4 +141,5 @@ M["user-name"] = function(_3fpath)
     return nil
   end
 end
+M.run = run
 return M
