@@ -179,6 +179,29 @@
                               (assert.is_nil (find-pane tab1))
                               (rest code-win 3)
                               (assert.is_not_nil (find-pane tab1))))))
+            (describe "floating windows over the pane"
+                      (fn []
+                        (it "keeps the thread while a nofile float holds focus"
+                            (fn []
+                              (rest code-win 3)
+                              (api.nvim_set_current_win (find-pane tab1))
+                              (let [before (pane-lines)
+                                    ;; the input and the fzf pickers open as
+                                    ;; floating nofile buffers — entering one
+                                    ;; fires BufEnter, which must not read as
+                                    ;; leaving the session
+                                    fbuf (api.nvim_create_buf false true)
+                                    fwin (api.nvim_open_win fbuf true
+                                                            {:relative :editor
+                                                             :row 1
+                                                             :col 1
+                                                             :width 10
+                                                             :height 2})]
+                                (api.nvim_command "doautocmd BufEnter")
+                                (eq before (pane-lines))
+                                (api.nvim_win_close fwin true)
+                                (settle)
+                                (eq before (pane-lines)))))))
             (describe :promotion
                       (fn []
                         (var wide nil)

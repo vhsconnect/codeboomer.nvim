@@ -54,12 +54,13 @@ local function buf_rel_path(bufnr)
   return or_5_
 end
 local function source_buf_name()
-  local in_pane = (pane_win and vim.api.nvim_win_is_valid(pane_win) and (vim.api.nvim_get_current_win() == pane_win))
+  local cur = vim.api.nvim_get_current_win()
+  local via_source = not normal_buf(vim.api.nvim_win_get_buf(cur))
   local win
-  if (in_pane and pane_source_win and vim.api.nvim_win_is_valid(pane_source_win)) then
+  if (via_source and pane_source_win and vim.api.nvim_win_is_valid(pane_source_win)) then
     win = pane_source_win
   else
-    win = vim.api.nvim_get_current_win()
+    win = cur
   end
   local buf = vim.api.nvim_win_get_buf(win)
   if normal_buf(buf) then

@@ -45,12 +45,17 @@
                                  p)))
 
 (fn source-buf-name []
-  (let [in-pane (and pane-win (vim.api.nvim_win_is_valid pane-win)
-                     (= (vim.api.nvim_get_current_win) pane-win))
-        win (if (and in-pane pane-source-win
+  (let [cur (vim.api.nvim_get_current_win)
+        ;; the pane itself and any floating window over it (the input,
+        ;; an fzf picker) show nofile buffers — neither is the code
+        ;; window a session resolves from. Fall back to the pane's
+        ;; source window for both, or the session blinks to nil while
+        ;; a float is open and reload-threads wipes the pane empty
+        via-source (not (normal-buf (vim.api.nvim_win_get_buf cur)))
+        win (if (and via-source pane-source-win
                      (vim.api.nvim_win_is_valid pane-source-win))
                 pane-source-win
-                (vim.api.nvim_get_current_win))
+                cur)
         buf (vim.api.nvim_win_get_buf win)]
     (when (normal-buf buf) (vim.api.nvim_buf_get_name buf))))
 
