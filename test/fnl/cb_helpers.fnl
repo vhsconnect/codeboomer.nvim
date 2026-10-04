@@ -137,6 +137,13 @@ esac
   (with-open [file (assert (io.open (.. M.repo "/" path) :w))]
     (file:write (.. (table.concat lines "\n") "\n"))))
 
+(fn M.content-snapshot [start end]
+  "The exact content setup-test-repo writes across lines [start, end] of
+  every fixture file — annotate with this when the thread must survive
+  promote's snapshot-matches gate."
+  (let [lines (fcollect [i start end] (: "line %d" :format i))]
+    (table.concat lines "\n")))
+
 (fn M.setup-test-repo []
   (M.git :init :-q :-b :main)
   (M.git :config :user.email "tester@example.com")

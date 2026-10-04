@@ -70,7 +70,8 @@
                            (set sid (review.ensure-session))
                            (review.user-comment sid files.main 3 3 "code A"
                                                 :testing)
-                           (review.user-comment sid files.main 1 69 "code B"
+                           (review.user-comment sid files.main 1 69
+                                                (helpers.content-snapshot 1 69)
                                                 "another test")
                            (review.user-reply (. (thread-at 3 3) :id) "a reply")
                            (sidebar.reload-threads)

@@ -55,7 +55,9 @@
                         (var twin-id nil)
                         (before_each (fn []
                                        (review.user-comment sid files.main 10
-                                                            12 "code A"
+                                                            12
+                                                            (helpers.content-snapshot 10
+                                                                                      12)
                                                             "annotation A")
                                        (set thread
                                             (. (review.threads-for-session sid)
@@ -146,7 +148,10 @@
                         (var posted nil)
                         (before_each (fn []
                                        (review.user-comment sid files.readme 5
-                                                            5 "code B" item.body)
+                                                            5
+                                                            (helpers.content-snapshot 5
+                                                                                      5)
+                                                            item.body)
                                        (set thread
                                             (. (threads-on files.readme) 1))
                                        (review.promote thread.id item.body sid

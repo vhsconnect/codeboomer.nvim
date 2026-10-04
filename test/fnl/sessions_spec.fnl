@@ -243,10 +243,14 @@
                                                       "pulled 0 new comment")
                                        (let [sid (. (review.session-for) :id)]
                                          (review.user-comment sid files.main 40
-                                                              40 :code
+                                                              40
+                                                              (helpers.content-snapshot 40
+                                                                                        40)
                                                               "on the diff")
                                          (review.user-comment sid files.main 80
-                                                              80 :code
+                                                              80
+                                                              (helpers.content-snapshot 80
+                                                                                        80)
                                                               "off the diff"))
                                        (helpers.restart)
                                        (helpers.edit files.main)
