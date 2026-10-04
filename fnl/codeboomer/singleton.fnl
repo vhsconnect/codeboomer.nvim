@@ -15,9 +15,8 @@
     (let [sqlite (require :codeboomer.sqlite)]
       (each [_ tbl (ipairs [sqlite.session sqlite.thread sqlite.comments])]
         (tbl db)))
-    (db:with_open
-      (fn [d]
-        (d:execute "create unique index if not exists session_live_branch
+    (db:with_open (fn [d]
+                    (d:execute "create unique index if not exists session_live_branch
                     on session (repo_id, branch) where deleted_at is null")))))
 
 ;; a failed bind (an unbindable column value) aborts sqlite.lua's

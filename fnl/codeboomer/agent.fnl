@@ -27,19 +27,19 @@
 ;; the agent's own entry point for discovering the tool cold: given
 ;; nothing but the shim's path, `help`/`-h`/`--help`/no args at all
 ;; print this instead of failing
-(local help-text
-  (.. usage "\n\n"
-      "codeboomer-agent posts a review agent's replies into codeboomer's\n"
-      "comment threads from outside nvim — thread ids arrive inline\n"
-      "wherever a review's annotations were sent to you.\n\n"
-      "verbs:\n"
-      "  reply <thread-id> <text...>   reply to an existing, open thread.\n"
-      "                                <text> is every argument after the\n"
-      "                                id, joined with spaces — no quoting\n"
-      "                                needed. Fails if the thread doesn't\n"
-      "                                exist or is resolved/deleted.\n"
-      "  help | -h | --help            show this message.\n\n"
-      "exit status: 0 on success, 1 on failure (the message says why).\n"))
+(local help-text (.. usage "\n\n" "codeboomer-agent posts a review agent's replies into codeboomer's
+" "comment threads from outside nvim — thread ids arrive inline
+" "wherever a review's annotations were sent to you.
+
+" "verbs:\n" "  reply <thread-id> <text...>   reply to an existing, open thread.
+" "                                <text> is every argument after the
+" "                                id, joined with spaces — no quoting
+" "                                needed. Fails if the thread doesn't
+" "                                exist or is resolved/deleted.
+" "  help | -h | --help            show this message.
+
+" "exit status: 0 on success, 1 on failure (the message says why).
+"))
 
 (fn fail [msg]
   (print (.. "codeboomer-agent: " msg "\n" usage
@@ -50,7 +50,7 @@
   (let [args (vim.split (or (os.getenv :CODEBOOMER_AGENT_ARGS) "") " "
                         {:trimempty true})
         verb (. args 1)]
-    (if (or (not verb) (= verb :help) (= verb "-h") (= verb "--help"))
+    (if (or (not verb) (= verb :help) (= verb :-h) (= verb :--help))
         (do
           (print help-text)
           (os.exit 0 true))

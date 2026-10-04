@@ -445,6 +445,19 @@ Edit `.fnl` files under `fnl/`; **nfnl** auto-compiles them to `.lua` under
 `lua/` on save. The `.lua` files are generated (marked by an `[nfnl]` header)
 and never hand-edited.
 
+The same pipeline is available from the shell as Babashka tasks:
+
+```bash
+nix develop -c bb format  # fnlfmt every Fennel source in the repo, in place
+nix develop -c bb compile # compile every fnl/ source to lua/ (byte-identical to :NfnlCompileAllFiles)
+nix develop -c bb build   # format, then compile
+```
+
+`compile` drives the Fennel compiler vendored under `lua/nfnl/` (via
+`scripts/compile.lua`), so it runs headlessly with no plugins on the
+runtimepath; `format` uses `fnlfmt` from `PATH` when available and falls
+back to `nix run nixpkgs#fnlfmt` otherwise.
+
 ### nfnl commands
 
 These are available automatically when nfnl is loaded (no extra config needed):

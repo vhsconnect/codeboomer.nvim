@@ -6,45 +6,49 @@
 
 (local M helpers)
 
-(local pj-root (assert (os.getenv :PJ_ROOT)
-                       "PJ_ROOT is unset, run tests through `make test`"))
+(local pj-root
+       (assert (os.getenv :PJ_ROOT)
+               "PJ_ROOT is unset, run tests through `make test`"))
 
 (local scratch-root (.. pj-root :/scratch))
 (local base-path (os.getenv :PATH))
 (local timeout 2000)
 (var scratch-seq 0)
 
-(set M.fixtures
-     {:files {:main :main.txt :readme :README.md}
-      :file-line-count 100
-      :pulled-item {:id 555
-                    :path :main.txt
-                    :line 40
-                    :body "reviewer note"
-                    :user {:login :somebody}
-                    :commit_id :abc123}
-      :come-home-item {:id 987
-                       :path :README.md
-                       :line 5
-                       :body "posted wording"
-                       :user {:login :me}}
-      :remote "https://github.com/acme/widgets.git"
-      :pr {:number 42 :title :Widgets :headRefName :main}
-      :same-branch-pr {:number 43 :title :Gadgets :headRefName :main}
-      :other-branch-pr {:number 44 :title :Gizmos :headRefName :feature}
-      :pr-diff "diff --git a/main.txt b/main.txt
+(set M.fixtures {:files {:main :main.txt :readme :README.md}
+                 :file-line-count 100
+                 :pulled-item {:id 555
+                               :path :main.txt
+                               :line 40
+                               :body "reviewer note"
+                               :user {:login :somebody}
+                               :commit_id :abc123}
+                 :come-home-item {:id 987
+                                  :path :README.md
+                                  :line 5
+                                  :body "posted wording"
+                                  :user {:login :me}}
+                 :remote "https://github.com/acme/widgets.git"
+                 :pr {:number 42 :title :Widgets :headRefName :main}
+                 :same-branch-pr {:number 43
+                                  :title :Gadgets
+                                  :headRefName :main}
+                 :other-branch-pr {:number 44
+                                   :title :Gizmos
+                                   :headRefName :feature}
+                 :pr-diff "diff --git a/main.txt b/main.txt
 --- a/main.txt
 +++ b/main.txt
 @@ -40 +40 @@
 -line 40
 +line forty
 "
-      :pr-reply {:id 556
-                 :in_reply_to_id 555
-                 :path :main.txt
-                 :line 40
-                 :body "follow-up"
-                 :user {:login :somebody}}})
+                 :pr-reply {:id 556
+                            :in_reply_to_id 555
+                            :path :main.txt
+                            :line 40
+                            :body :follow-up
+                            :user {:login :somebody}}})
 
 ;; stand-ins for the gh and tmux CLIs: every call is logged under
 ;; $CODEBOOMER_FAKES, gh answers from fixture files written by fake-gh
@@ -141,7 +145,7 @@ esac
                 (: "line %d" :format i))]
     (each [_ path (pairs M.fixtures.files)]
       (M.write-to-file path lines)))
-  (M.git :add :.)
+  (M.git :add ".")
   (M.git :commit :-q :-m :init)
   (M.git :remote :add :origin M.fixtures.remote))
 
@@ -210,8 +214,7 @@ esac
   (exec-lua (fn [win line]
               (vim.api.nvim_win_set_cursor win [line 0])
               (vim.cmd "doautocmd CursorMoved")
-              (vim.wait 300))
-            win line))
+              (vim.wait 300)) win line))
 
 (fn M.find-pane [tab]
   (exec-lua (fn [tab]
@@ -219,8 +222,7 @@ esac
                            &until found]
                 (when (: (vim.api.nvim_buf_get_name (vim.api.nvim_win_get_buf w))
                          :find "^codeboomer://review%-comments")
-                  w)))
-            tab))
+                  w))) tab))
 
 (fn M.edit [path]
   (M.api.nvim_command (.. "edit " path)))
@@ -232,8 +234,7 @@ esac
   (M.create_callindex (fn [fn-name ...]
                         (exec-lua (fn [mod fname ...]
                                     (let [res (vim.F.pack_len ((. (require mod)
-                                                                  fname)
-                                                               ...))]
+                                                                  fname) ...))]
                                       (for [i 1 res.n]
                                         (when (not (pcall vim.mpack.encode
                                                           (. res i)))

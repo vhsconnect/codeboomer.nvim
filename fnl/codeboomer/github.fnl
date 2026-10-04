@@ -69,10 +69,9 @@
 ;; repo-relative, as the API wants. File-scoped threads post as
 ;; subject_type "file" with no line at all
 (fn pr-comment [t c]
-  (let [item {:path (or t.file_path "")
-              :body (or c.body "")}]
+  (let [item {:path (or t.file_path "") :body (or c.body "")}]
     (if (= :file (or t.type :line))
-        (set item.subject_type "file")
+        (set item.subject_type :file)
         (do
           ;; line comments must carry side/start_side explicitly: a
           ;; multi-line range with start_line but no start_side is a
@@ -123,8 +122,8 @@
               (if (= obj.code 0)
                   (let [res (vim.json.decode (or obj.stdout "{}"))]
                     (review.mark-annotations :posted ids)
-                    (notify (string.format "codeboomer: drafted %d annotation(s) — pending review, submit it on GitHub\n%s"
-                                           (length comments)
+                    (notify (string.format "codeboomer: drafted %d annotation(s) — pending review, submit it on GitHub
+%s" (length comments)
                                            (or res.html_url
                                                (tostring (?. res :id))))
                             vim.log.levels.INFO))
@@ -150,8 +149,10 @@
                  :text true}
                 (fn [obj]
                   (if (= obj.code 0)
-                      (let [(ok res) (pcall vim.json.decode (or obj.stdout "{}"))
-                            gh-id (when (and ok (= :table (type res))) res.id)]
+                      (let [(ok res) (pcall vim.json.decode
+                                            (or obj.stdout "{}"))
+                            gh-id (when (and ok (= :table (type res)))
+                                    res.id)]
                         (review.mark-annotations :posted [a.comment.id])
                         ;; remember the gh comment this became — re-pulls
                         ;; match back onto this row instead of duplicating

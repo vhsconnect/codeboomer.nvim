@@ -14,7 +14,40 @@
     (def base-env
       {"PJ_ROOT" pj-root
        "NVIM_TEST_HOME" nvim-test-home
-       "NVIM_LOG_FILE" (env-or "NVIM_LOG_FILE" (str pj-root "/.nvimlog"))}))
+       "NVIM_LOG_FILE" (env-or "NVIM_LOG_FILE" (str pj-root "/.nvimlog"))})
+
+    (defn fennel-source-files []
+      "Every Fennel source in the repo: the plugin tree (incl. .fnlm macros),
+      the test specs, dev tooling and the root config files."
+      (->> ["fnl/*.fnl" "fnl/**/*.fnl" "fnl/*.fnlm" "fnl/**/*.fnlm"
+            "test/fnl/*.fnl" "test/fnl/**/*.fnl"
+            "dev/*.fnl" "*.fnl"]
+           (mapcat (fn [pattern] (fs/glob "." pattern)))
+           (map str)
+           (distinct)
+           (sort)))
+
+    (defn fnlfmt-cmd []
+      "fnlfmt from PATH, or the nix fallback for use outside the dev shell."
+      (or (fs/which "fnlfmt") "nix run nixpkgs#fnlfmt --")))
+
+  format
+  {:doc "Format all Fennel sources in place with fnlfmt"
+   :task
+   (let [files (fennel-source-files)]
+     (if (seq files)
+       (apply shell (concat [(fnlfmt-cmd) "--fix"] files))
+       (println "No Fennel sources found")))}
+
+  compile
+  {:doc "Compile every fnl/ source to lua/ (same output as :NfnlCompileAllFiles)"
+   :task (shell {:extra-env base-env}
+                nvim-test-runner "-l" "scripts/compile.lua")}
+
+  build
+  {:doc "Format all Fennel sources, then compile them to Lua"
+   :depends [format compile]
+   :task (println "Done: all Fennel sources formatted and compiled.")}
 
   compile-tests
   {:doc "Compile the test files"

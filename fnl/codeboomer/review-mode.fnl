@@ -112,8 +112,8 @@
 (fn ranges-for [pr-number]
   (when (= nil (. diff-ranges pr-number))
     (let [obj (: (vim.system (diff-argv pr-number) {:text true}) :wait 10000)]
-      (tset diff-ranges pr-number
-            (if (= obj.code 0) (parse-ranges obj.stdout) false))))
+      (tset diff-ranges pr-number (if (= obj.code 0) (parse-ranges obj.stdout)
+                                      false))))
   (or (. diff-ranges pr-number) nil))
 
 ;; what the pane's p key promotes against, for the branch session row
@@ -191,10 +191,9 @@
      (fn []
        (let [sid (sidebar.session-id)
              session (when sid (review.session-by-id sid))]
-         (github.post-threads
-           {:session-id sid
-            :ranges (when (?. session :pr_number)
-                      (ranges-for session.pr_number))}))))
+         (github.post-threads {:session-id sid
+                               :ranges (when (?. session :pr_number)
+                                         (ranges-for session.pr_number))}))))
 
 ;; :Codeboomer PullReview — refresh this branch's session with the
 ;; bound PR's current inline comments (idempotent by gh comment id)

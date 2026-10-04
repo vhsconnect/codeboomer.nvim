@@ -289,8 +289,10 @@
                                  :on-submit (fn [lines]
                                               (let [body (table.concat lines
                                                                        "\n")]
-                                                (when (and (not= "" (vim.trim body))
-                                                           (review.promote (or t.id 0)
+                                                (when (and (not= ""
+                                                                 (vim.trim body))
+                                                           (review.promote (or t.id
+                                                                               0)
                                                                            body
                                                                            ctx.session-id))
                                                   (refresh-pane)
