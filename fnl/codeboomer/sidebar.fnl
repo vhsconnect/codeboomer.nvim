@@ -38,6 +38,16 @@
 (fn normal-buf [bufnr]
   (= "" (or (?. vim.bo bufnr :buftype) "")))
 
+;; a window the pane may open for or follow: a split (not a float —
+;; plugin popups and previews) on a real file inside a work tree.
+;; Terminals, plugin scratch buffers and unnamed buffers never qualify
+(fn source-win? [win]
+  (let [buf (vim.api.nvim_win_get_buf win)
+        name (vim.api.nvim_buf_get_name buf)]
+    (and (= "" (or (?. (vim.api.nvim_win_get_config win) :relative) ""))
+         (normal-buf buf) (not= "" name) (= 1 (vim.fn.filereadable name))
+         (not= nil (git.work-root name)))))
+
 (var rel-path-cache {})
 (fn buf-rel-path [bufnr]
   (or (. rel-path-cache bufnr) (let [p (git.rel-path (vim.api.nvim_buf_get_name bufnr))]
@@ -381,53 +391,62 @@
     (when (and win (vim.api.nvim_win_is_valid win))
       (pcall vim.api.nvim_win_close win true))))
 
+(fn open-pane []
+  (vim.cmd (string.format "botright %dvnew" pane-width))
+  (set pane-win (vim.api.nvim_get_current_win))
+  (let [buf (vim.api.nvim_get_current_buf)
+        bo (. vim.bo buf)
+        wo (. vim.wo pane-win)]
+    (set bo.buftype :nofile)
+    (set bo.swapfile false)
+    (set bo.bufhidden :wipe)
+    (set bo.modifiable false)
+    (pcall vim.api.nvim_buf_set_name buf pane-buf-name)
+    (set wo.wrap true)
+    (set wo.linebreak true)
+    (set wo.number false)
+    (set wo.relativenumber false)
+    (set wo.signcolumn :no)
+    (set wo.winfixwidth true)
+    (vim.keymap.set :n :r pane-reply
+                    {:buffer buf :desc "codeboomer: reply on this thread"})
+    (vim.keymap.set :n :a pane-agent-reply
+                    {:buffer buf
+                     :desc "codeboomer: reply to the agent on this thread"})
+    (vim.keymap.set :n :p pane-promote
+                    {:buffer buf
+                     :desc "codeboomer: promote this thread to the PR review"})
+    (vim.keymap.set :n :e pane-edit
+                    {:buffer buf :desc "codeboomer: edit the promoted comment"})
+    (vim.keymap.set :n :d pane-delete
+                    {:buffer buf
+                     :desc "codeboomer: delete the last unsent message"})
+    (vim.keymap.set :n :f pane-refresh
+                    {:buffer buf :desc "codeboomer: refresh this thread"})
+    (vim.keymap.set :n :q pane-resolve
+                    {:buffer buf :desc "codeboomer: resolve this thread"})
+    (vim.keymap.set :n :n #(pane-jump 1)
+                    {:buffer buf :desc "codeboomer: jump to the next thread"})
+    (vim.keymap.set :n :N #(pane-jump -1)
+                    {:buffer buf
+                     :desc "codeboomer: jump to the previous thread"}))
+  (vim.cmd "wincmd p"))
+
+(fn pane-valid? [] (and pane-win (vim.api.nvim_win_is_valid pane-win)))
+
+;; only a source window opens the pane or pulls it into its tab — from
+;; anywhere else (a terminal tab, a plugin window) an open pane just
+;; re-renders where it is
 (fn show-pane [path threads]
-  (when (and pane-win (vim.api.nvim_win_is_valid pane-win)
-             (not= (vim.api.nvim_win_get_tabpage pane-win)
-                   (vim.api.nvim_get_current_tabpage)))
-    (hide-pane))
-  (when (not (and pane-win (vim.api.nvim_win_is_valid pane-win)))
-    (vim.cmd (string.format "botright %dvnew" pane-width))
-    (set pane-win (vim.api.nvim_get_current_win))
-    (let [buf (vim.api.nvim_get_current_buf)
-          bo (. vim.bo buf)
-          wo (. vim.wo pane-win)]
-      (set bo.buftype :nofile)
-      (set bo.swapfile false)
-      (set bo.bufhidden :wipe)
-      (set bo.modifiable false)
-      (pcall vim.api.nvim_buf_set_name buf pane-buf-name)
-      (set wo.wrap true)
-      (set wo.linebreak true)
-      (set wo.number false)
-      (set wo.relativenumber false)
-      (set wo.signcolumn :no)
-      (set wo.winfixwidth true)
-      (vim.keymap.set :n :r pane-reply
-                      {:buffer buf :desc "codeboomer: reply on this thread"})
-      (vim.keymap.set :n :a pane-agent-reply
-                      {:buffer buf
-                       :desc "codeboomer: reply to the agent on this thread"})
-      (vim.keymap.set :n :p pane-promote
-                      {:buffer buf
-                       :desc "codeboomer: promote this thread to the PR review"})
-      (vim.keymap.set :n :e pane-edit
-                      {:buffer buf
-                       :desc "codeboomer: edit the promoted comment"})
-      (vim.keymap.set :n :d pane-delete
-                      {:buffer buf
-                       :desc "codeboomer: delete the last unsent message"})
-      (vim.keymap.set :n :f pane-refresh
-                      {:buffer buf :desc "codeboomer: refresh this thread"})
-      (vim.keymap.set :n :q pane-resolve
-                      {:buffer buf :desc "codeboomer: resolve this thread"})
-      (vim.keymap.set :n :n #(pane-jump 1)
-                      {:buffer buf :desc "codeboomer: jump to the next thread"})
-      (vim.keymap.set :n :N #(pane-jump -1)
-                      {:buffer buf
-                       :desc "codeboomer: jump to the previous thread"}))
-    (vim.cmd "wincmd p"))
-  (render-pane path threads))
+  (let [here (source-win? (vim.api.nvim_get_current_win))]
+    (when (and here (pane-valid?)
+               (not= (vim.api.nvim_win_get_tabpage pane-win)
+                     (vim.api.nvim_get_current_tabpage)))
+      (hide-pane))
+    (when (and here (not (pane-valid?)))
+      (open-pane)))
+  (when (pane-valid?)
+    (render-pane path threads)))
 
 (fn show-current []
   (if current-thread
@@ -443,7 +462,8 @@
 
 (set M.enter-file (fn [bufnr]
                     (when (and (vim.api.nvim_buf_is_valid bufnr)
-                               (normal-buf bufnr))
+                               (= bufnr (vim.api.nvim_get_current_buf))
+                               (source-win? (vim.api.nvim_get_current_win)))
                       (when (and pane-win (vim.api.nvim_win_is_valid pane-win)
                                  (= (vim.api.nvim_win_get_tabpage pane-win)
                                     (vim.api.nvim_get_current_tabpage)))
@@ -512,7 +532,7 @@
 
 (fn evaluate-at [win]
   (let [buf (vim.api.nvim_win_get_buf win)]
-    (when (normal-buf buf)
+    (when (source-win? win)
       (let [row (?. (vim.api.nvim_win_get_cursor win) 1)
             path (buf-rel-path buf)
             threads (threads-at path (or row 0))]
@@ -534,8 +554,7 @@
     (if (= win pane-win)
         (when (and pane-source-win (vim.api.nvim_win_is_valid pane-source-win))
           (evaluate-at pane-source-win))
-        (when (= "" (or (?. (vim.api.nvim_win_get_config win) :relative) ""))
-          (evaluate-at win)))))
+        (evaluate-at win))))
 
 (fn schedule-check []
   (when timer-id (vim.fn.timer_stop timer-id))

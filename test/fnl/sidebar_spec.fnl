@@ -170,6 +170,33 @@
                                                       {:group :codeboomer-review-pane})
                               (settle)
                               (assert.is_nil (find-pane tab1))))))
+            (describe "windows that are not source code"
+                      (fn []
+                        (it "opens no pane from a float showing a file"
+                            (fn []
+                              (exec-lua (fn []
+                                          (vim.api.nvim_open_win 0 true
+                                                                 {:relative :editor
+                                                                  :row 1
+                                                                  :col 1
+                                                                  :width 30
+                                                                  :height 10})
+                                          (vim.api.nvim_win_set_cursor 0 [3 0])
+                                          (vim.cmd "doautocmd BufEnter")
+                                          (vim.cmd "doautocmd CursorMoved")
+                                          (vim.wait 300)))
+                              (assert.is_nil (find-pane tab1))))
+                        (it "keeps the pane in its tab while a terminal tab has focus"
+                            (fn []
+                              (rest code-win 3)
+                              (api.nvim_command "tabnew | terminal")
+                              (let [term-tab (api.nvim_get_current_tabpage)]
+                                (review.user-comment sid files.readme 5 5
+                                                     "readme code" :elsewhere)
+                                (sidebar.reload-threads)
+                                (settle)
+                                (assert.is_nil (find-pane term-tab))
+                                (assert.is_not_nil (find-pane tab1)))))))
             (describe "closing by hand"
                       (fn []
                         (it "stays closed until the cursor rests again"
