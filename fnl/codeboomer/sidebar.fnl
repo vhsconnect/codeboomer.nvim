@@ -489,8 +489,9 @@
                                               (if (> dir 0) -1 0))
                                           dir)
                                        n)))
-                       cur-path (buf-rel-path (vim.api.nvim_win_get_buf pane-source-win))
-                       target-path (.. (or (git.repo-root) "") "/"
+                       source-buf (vim.api.nvim_win_get_buf pane-source-win)
+                       cur-path (buf-rel-path source-buf)
+                       target-path (.. (or (git.work-root source-buf) "") "/"
                                        target.file_path)]
                    (let [jump-to (fn []
                                    (when (not= cur-path target.file_path)

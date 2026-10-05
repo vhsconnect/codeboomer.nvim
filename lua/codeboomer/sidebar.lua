@@ -721,8 +721,9 @@ local function _107_(dir)
         end
       end
       target = all_threads[(1 + ((or_108_ + dir) % n))]
-      local cur_path = buf_rel_path(vim.api.nvim_win_get_buf(pane_source_win))
-      local target_path = ((git["repo-root"]() or "") .. "/" .. target.file_path)
+      local source_buf = vim.api.nvim_win_get_buf(pane_source_win)
+      local cur_path = buf_rel_path(source_buf)
+      local target_path = ((git["work-root"](source_buf) or "") .. "/" .. target.file_path)
       do
         local jump_to
         local function _110_()

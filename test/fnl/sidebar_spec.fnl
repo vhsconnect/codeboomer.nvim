@@ -282,7 +282,30 @@
                               (api.nvim_buf_set_lines (api.nvim_win_get_buf code-win)
                                                       2 -1 false [])
                               (matches "3%-3" (. (press-in-pane :n) 1))
-                              (eq [2 0] (api.nvim_win_get_cursor code-win))))))
+                              (eq [2 0] (api.nvim_win_get_cursor code-win))))
+                        (it "opens the cycled thread's file in the linked worktree it was read from"
+                            (fn []
+                              (let [wt (.. helpers.scratch :/wt)
+                                    feature-file :feature.txt]
+                                (helpers.git :worktree :add :-q :-b :feature wt)
+                                (helpers.write-to-file (.. :../wt/ feature-file)
+                                                       ["feature only"])
+                                (helpers.git :-C wt :add feature-file)
+                                (helpers.git :-C wt :commit :-q :-m :feature)
+                                (open-file (.. wt "/" files.main))
+                                (let [wt-sid (review.ensure-session)]
+                                  (review.user-comment wt-sid files.main 3 3
+                                                       "code A" :testing)
+                                  (review.user-comment wt-sid feature-file 1 1
+                                                       "feature only" :elsewhere))
+                                (sidebar.reload-threads)
+                                (rest code-win 3)
+                                (matches "feature%.txt:1%-1"
+                                         (. (press-in-pane :n) 1))
+                                (eq (.. wt "/" feature-file)
+                                    (api.nvim_buf_get_name (api.nvim_win_get_buf code-win)))
+                                (matches "main%.txt:3%-3"
+                                         (. (press-in-pane :n) 1)))))))
             (describe :resolve
                       (fn []
                         (before_each (fn []

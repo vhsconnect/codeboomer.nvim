@@ -35,6 +35,11 @@
   (let [root (buffer-root ?path)]
     (when root (main-of root))))
 
+;; the IMMEDIATE work tree root — unlike repo-root, a linked worktree
+;; resolves to itself, so thread paths open in the checkout being read
+(fn M.work-root [?path]
+  (buffer-root ?path))
+
 ;; absolute path → repo-relative; the original when {path} is not
 ;; inside a work tree (or the buffer has no name). Threads store
 ;; relative paths so they survive different checkouts — worktrees,

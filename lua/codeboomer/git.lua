@@ -59,6 +59,9 @@ M["repo-root"] = function(_3fpath)
     return nil
   end
 end
+M["work-root"] = function(_3fpath)
+  return buffer_root(_3fpath)
+end
 M["rel-path"] = function(_3fpath)
   local p = (_3fpath or vim.api.nvim_buf_get_name(0))
   local root = buffer_root(p)
