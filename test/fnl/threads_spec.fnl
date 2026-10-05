@@ -174,7 +174,15 @@
                               (eq 1 (length (threads-on files.readme)))
                               (eq (tostring item.id)
                                   (review.gh-root-comment-id (. (review.twin thread.id)
-                                                                :id)))))))
+                                                                :id)))))
+                        (it "matches by its original line after new commits move it"
+                            (fn []
+                              (let [drifted (vim.tbl_extend :force item
+                                                            {:line 40
+                                                             :original_line item.line})]
+                                (eq posted.id
+                                    (. (review.match-posted-comment sid drifted)
+                                       :id)))))))
             (it "refuses threads outside the diff hunks"
                 (fn []
                   (let [thread {:file_path files.readme

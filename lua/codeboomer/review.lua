@@ -2345,7 +2345,7 @@ M["comment-author"] = function(c)
   return t_417_
 end
 M["match-posted-comment"] = function(session_id, item)
-  local line = (item.line or item.original_line)
+  local line = (item.original_line or item.line)
   local want_path = (item.path or "")
   local want_body = (item.body or "")
   local found = nil

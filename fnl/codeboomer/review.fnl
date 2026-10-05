@@ -629,9 +629,11 @@
   (?. (db sqlite.user :get {:where {:id (or c.author_id 0)}}) 1))
 
 ;; a pulled item that is one of MY posted comments come home: stamp
-;; its gh id onto the matching local row instead of duplicating
+;; its gh id onto the matching local row instead of duplicating.
+;; original_line is the line on the commit it was posted against —
+;; the row's own anchor — while line drifts with every later push
 (fn M.match-posted-comment [session-id item]
-  (let [line (or item.line item.original_line)
+  (let [line (or item.original_line item.line)
         want-path (or item.path "")
         want-body (or item.body "")]
     (var found nil)
