@@ -23,8 +23,8 @@
                     res (db:with_open #($1:eval statement))]
                 (if (= :table (type res)) res []))) statement))
 
-(fn live-sessions []
-  (sql "select * from session where deleted_at is null"))
+(fn all-sessions []
+  (sql "select * from session"))
 
 (fn fake-pr [pr comments]
   (helpers.fake-gh-json (.. :pr-view- pr.number :.json) pr)
@@ -139,7 +139,7 @@
                               (let [sid (review.ensure-session)]
                                 (review.delete-session sid)
                                 (helpers.neq sid (review.ensure-session))
-                                (eq 1 (length (live-sessions))))))))
+                                (eq 1 (length (all-sessions))))))))
             (describe :Review
                       (fn []
                         (before_each (fn []
@@ -157,7 +157,7 @@
                               (fake-pr fixtures.other-branch-pr [])
                               (review-pr fixtures.other-branch-pr.number)
                               (wait-notified error-level :feature)
-                              (eq [] (live-sessions))))
+                              (eq [] (all-sessions))))
                         (it "refuses a PR picked from the list whose head is another branch"
                             (fn []
                               (fake-pr fixtures.other-branch-pr [])
@@ -165,7 +165,7 @@
                                                     [fixtures.other-branch-pr])
                               (review-pr nil)
                               (wait-notified error-level :feature)
-                              (eq [] (live-sessions))))
+                              (eq [] (all-sessions))))
                         (describe "on a local branch named apart from the PR's head"
                                   (fn []
                                     (before_each (fn []
@@ -205,7 +205,7 @@
                                           (review-pr fixtures.other-branch-pr.number)
                                           (wait-notified error-level
                                                          "neither tracks it")
-                                          (eq [] (live-sessions))))))
+                                          (eq [] (all-sessions))))))
                         (it "refuses to re-bind the session to another PR of the same branch"
                             (fn []
                               (review-pr fixtures.pr.number)
@@ -234,12 +234,12 @@
                         (it "gets no session"
                             (fn []
                               (assert.is_nil (review.ensure-session))
-                              (eq [] (live-sessions))))
+                              (eq [] (all-sessions))))
                         (it "refuses Review"
                             (fn []
                               (review-pr fixtures.pr.number)
                               (wait-notified error-level "detached HEAD")
-                              (eq [] (live-sessions))))))
+                              (eq [] (all-sessions))))))
             (describe "after a restart"
                       (fn []
                         (var code-win nil)
@@ -290,6 +290,23 @@
                                 (assert.is_nil (review.twin (. (thread-on-line sid
                                                                                80)
                                                                :id))))))))
+            (describe "the database file"
+                      (fn []
+                        (it "is named after the schema version"
+                            (fn []
+                              (review.ensure-session)
+                              (eq (.. helpers.data-home :/nvim/codeboomer-db-v1)
+                                  (exec-lua "return require('codeboomer.singleton')['db-path']()"))
+                              (eq 1
+                                  (helpers.fn.filereadable (.. helpers.data-home
+                                                               :/nvim/codeboomer-db-v1)))))
+                        (it "leaves an earlier version's file untouched"
+                            (fn []
+                              (let [legacy (.. helpers.data-home
+                                               :/nvim/codeboomer)]
+                                (helpers.fn.writefile [:legacy] legacy)
+                                (review.ensure-session)
+                                (eq [:legacy] (helpers.fn.readfile legacy)))))))
             (describe "the session schema"
                       (fn []
                         (it "has no unused commit columns"

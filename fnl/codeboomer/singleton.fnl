@@ -2,22 +2,36 @@
 
 (var db nil)
 
-;; the one piece of schema sqlite.lua's dsl cannot express: a partial
-;; unique index — one live session per (repo, branch), so a reset
-;; branch can start over. Runs once per process on the first
+;; the schema version, part of the database's file name. Any schema
+;; change bumps it: there are no migrations, a new version starts an
+;; empty file and earlier files stay on disk untouched
+(local db-version 1)
+
+(fn db-path []
+  (string.format "%s/codeboomer-db-v%d" (vim.fn.stdpath :data) db-version))
+
+;; the one piece of schema sqlite.lua's dsl cannot express: a
+;; composite unique index — one session per (repo, branch). Runs once
+;; per process on the first
 ;; connection; the tables are created first because no tbl call has
 ;; had the chance to on a fresh database (delete-session's raw sql
-;; relies on them too)
+;; relies on them too, and its foreign key checks on the tables
+;; they reference)
 (var schema-ready nil)
 (fn ensure-schema []
   (when (and (not schema-ready) db)
     (set schema-ready true)
     (let [sqlite (require :codeboomer.sqlite)]
-      (each [_ tbl (ipairs [sqlite.session sqlite.thread sqlite.comments])]
+      (each [_ tbl (ipairs [sqlite.user
+                            sqlite.repo
+                            sqlite.commit
+                            sqlite.session
+                            sqlite.thread
+                            sqlite.comments])]
         (tbl db)))
     (db:with_open (fn [d]
-                    (d:execute "create unique index if not exists session_live_branch
-                    on session (repo_id, branch) where deleted_at is null")))))
+                    (d:execute "create unique index if not exists session_branch
+                    on session (repo_id, branch)")))))
 
 ;; a failed bind (an unbindable column value) aborts sqlite.lua's
 ;; insert loop between parse and finalize, leaving statements
@@ -45,8 +59,7 @@
                     (case db
                       nil (let [sqlite (require :sqlite)]
                             (set db
-                                 (sqlite {:uri (.. (vim.fn.stdpath :data)
-                                                   :/codeboomer)
+                                 (sqlite {:uri (db-path)
                                           :opts {:journal_mode :WAL
                                                  :synchronous :NORMAL
                                                  :busy_timeout 500
@@ -65,7 +78,8 @@
           ;; NEXT write gets a fresh connection instead of inheriting
           ;; a wedged one. Same mechanics as close-db — the split
           ;; name only documents intent
-          :reset-db (fn reset-db [] (force-close))})
+          :reset-db (fn reset-db [] (force-close))
+          : db-path})
 
 ;; checkpoint + close on exit. sqlite.lua connects per operation and
 ;; closes right after (every tbl call is wrapped in with_open when the

@@ -127,16 +127,14 @@
 
 ;; the session row of the branch ?path sits on (the current buffer
 ;; by default) — nil outside a repo or when the branch has no
-;; session yet. Soft-deleted rows read as gone
+;; session yet
 (fn M.session-for [?path]
   (let [root (git.repo-root ?path)
         branch (when root (git.branch-name ?path))]
     (when (and root branch)
       (let [repo-id (repo-id-of root)]
         (when repo-id
-          (?. (sqlite.active-rows (db sqlite.session :get
-                                      {:where {:repo_id repo-id : branch}}))
-              1))))))
+          (?. (db sqlite.session :get {:where {:repo_id repo-id : branch}}) 1))))))
 
 ;; the one and only session per (repo, branch) — private to
 ;; ensure-session, and backed by the session_live_branch index (see
@@ -161,11 +159,9 @@
   (db sqlite.session :update
       {:set {:pr_number pr-number} :where {:id (or session-id 0)}}))
 
-;; soft-deleted sessions read as gone everywhere: the listings, the
-;; outboxes and PR-binding reads all resolve through here
 (fn M.session-by-id [id]
   (when id
-    (?. (sqlite.active-rows (db sqlite.session :get {:where {: id}})) 1)))
+    (?. (db sqlite.session :get {:where {: id}}) 1)))
 
 ;; ── gh import (pull down) ───────────────────────────────────── the storage
 ;; half of PR sync: pulled rows are keyed by GitHub's comment id, so
@@ -260,9 +256,7 @@
 (fn twin-of [t]
   (let [root (root-of t)]
     (if (= (or root.id 0) (or t.id 0))
-        (?. (sqlite.active-rows (db sqlite.thread :get
-                                    {:where {:parent_id (or t.id 0)}}))
-            1)
+        (?. (db sqlite.thread :get {:where {:parent_id (or t.id 0)}}) 1)
         root)))
 
 (fn M.twin [id]
@@ -448,7 +442,7 @@
 (fn M.agent-reply [thread-id body]
   (let [rows (or (db sqlite.thread :get {:where {:id thread-id}}) [])
         thread (. rows 1)]
-    (if (or (not thread) thread.deleted_at (= thread.status :resolved))
+    (if (or (not thread) (= thread.status :resolved))
         (do
           (vim.notify (.. "codeboomer: no active thread #" (tostring thread-id))
                       vim.log.levels.ERROR)
@@ -475,7 +469,7 @@
 (fn M.user-reply [thread-id body]
   (let [rows (or (db sqlite.thread :get {:where {:id thread-id}}) [])
         thread (. rows 1)]
-    (if (or (not thread) thread.deleted_at (= thread.status :resolved))
+    (if (or (not thread) (= thread.status :resolved))
         (do
           (vim.notify (.. "codeboomer: no active thread #" (tostring thread-id))
                       vim.log.levels.ERROR)
@@ -583,14 +577,13 @@
 ;; pulls its root in even when that root lives in another session (a
 ;; live session's local thread promoted into the PR review still
 ;; shows there). The pane and the flush all walk this;
-;; a soft-deleted session reads as empty
+;; a deleted session reads as empty
 (fn M.threads-for-session [session-id]
   (if (not (M.session-by-id session-id))
       []
-      (let [rows (unresolved-rows (sqlite.active-rows (or (db sqlite.thread
-                                                              :get
-                                                              {:where {:session_id session-id}})
-                                                          [])))
+      (let [rows (unresolved-rows (or (db sqlite.thread :get
+                                          {:where {:session_id session-id}})
+                                      []))
             seen {}
             roots []]
         (each [_ row (ipairs rows)]
@@ -604,22 +597,19 @@
 ;; the session's :review halves — what the posting outbox walks.
 ;; Promoted twins live in the session they were promoted into,
 ;; pulled threads in the session they were imported to; a
-;; soft-deleted session reads as empty
+;; deleted session reads as empty
 (fn M.review-rows-for-session [session-id]
   (if (not (M.session-by-id session-id))
       []
-      (let [rows (unresolved-rows (sqlite.active-rows (or (db sqlite.thread
-                                                              :get
-                                                              {:where {:session_id session-id
-                                                                       :kind :review}})
-                                                          [])))]
+      (let [rows (unresolved-rows (or (db sqlite.thread :get
+                                          {:where {:session_id session-id
+                                                   :kind :review}})
+                                      []))]
         (table.sort rows by-file-then-line)
         rows)))
 
 (fn M.comments-for [thread-id]
-  (let [rows (sqlite.active-rows (or (db sqlite.comments :get
-                                         {:where {:thread_id thread-id}})
-                                     []))]
+  (let [rows (or (db sqlite.comments :get {:where {:thread_id thread-id}}) [])]
     (table.sort rows by-created)
     rows))
 
@@ -646,21 +636,23 @@
             (set found c)))))
     found))
 
-;; delete a session the soft way: deleted_at, and because every
-;; reader resolves through session-by-id, its threads and comments
-;; vanish from every listing and outbox while the rows stay —
-;; terminating a set of comments without destroying history, and
-;; leaving cross-session pairs untouched by construction
+;; hard-delete a session with its threads and comments. The deletes
+;; are explicit rather than left to on_delete: databases created
+;; before the references were declared carry no foreign keys, and
+;; twins in other sessions are detached by hand for the same reason
 (fn M.delete-session [session-id]
-  (db sqlite.session :update
-      {:set {:deleted_at (os.time)} :where {:id (or session-id 0)}})
-  ;; gh_comment_id is unique table-wide, so the dead session would
-  ;; otherwise keep holding the PR's comment ids: a re-Review could
-  ;; never pull them into the branch's next session
-  (db-with-open (fn [d]
-                  (d:execute (string.format "update comment set gh_comment_id = null
-                                             where thread_id in (select id from comment_thread
-                                                                 where session_id = %d)"
-                                            (or session-id 0))))))
+  (let [threads (string.format "select id from comment_thread where session_id = %d"
+                               (or session-id 0))]
+    (db-with-open (fn [d]
+                    (d:execute (string.format "begin;
+                                               delete from comment where thread_id in (%s);
+                                               update comment_thread set parent_id = null
+                                                 where parent_id in (%s) and session_id != %d;
+                                               delete from comment_thread where session_id = %d;
+                                               delete from session where id = %d;
+                                               commit;"
+                                              threads threads (or session-id 0)
+                                              (or session-id 0)
+                                              (or session-id 0)))))))
 
 M

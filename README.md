@@ -9,7 +9,7 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Resend the last prompt (`SendLastPrompt`) without retyping it — the current selection or file is recomposed as context
 - Annotation workflow — accumulate multiple code selections for review before sending
-- **Branch sessions (`ResetSession`)** — annotations are grouped into one session per branch, created on the first annotation and resolved from the branch the buffer sits on — never picked (a detached HEAD has no branch, so no session). `ResetSession` soft-deletes the branch's session — its threads and comments vanish everywhere while the rows stay, the way to terminate a set of comments and start fresh
+- **Branch sessions (`ResetSession`)** — annotations are grouped into one session per branch, created on the first annotation and resolved from the branch the buffer sits on — never picked (a detached HEAD has no branch, so no session). `ResetSession` deletes the branch's session with its threads and comments, the way to terminate a set of comments and start fresh
 - **PR review (`Review`)** — review the PR's branch as you have it checked out, committed or not — the flow is always the same, simple annotation. `Review` picks a PR whose head is the checked-out branch, binds the branch's session to it (once — re-binding to another PR takes a `ResetSession`) and pulls its inline comments down as threads; `PostReview` pushes the threads you **promoted** (the pane's `p`) up as a pending review (a draft submitted on GitHub). No worktree is created and nothing is checked out — be on the branch you mean to review when you launch Neovim
 - **Local/review thread halves** — every annotation starts as a local conversation with the agent (annotate, `a`-replies, agent answers via the shim); `p` in the comments pane promotes a thread: the shipping half is born with the final wording, anchored at the thread's own commit, after two refusals — the annotation must sit inside the PR's diff, and its code snapshot must still match the anchor commit's file content (lines that moved on after annotation can't resolve on GitHub). Nothing reaches `PostReview` without that deliberate step — agent chatter and your negotiation with it are structurally unshippable
 - **Review comments pane** — a first-class side split that always shows exactly one thread, the current one: opening a repo whose branch session already has comments opens the pane straight away; resting the cursor inside a commented range shows that thread (both halves interleaved as one conversation), entering a file with threads shows its first, and `n`/`N` cycle through the session's threads in a loop — each hop landing the code window on the thread without leaving the pane; only source-file windows drive it — floats, terminals and plugin windows never open the pane or pull it into their tab; the pane keeps its thread when the cursor moves off every range or the buffer changes — window-navigate into it, where `r` replies on the review half (promoted threads and pulled ones), `a` replies to the agent, `p` promotes, `e` edits the promoted comment, `q` resolves and `n`/`N` step to the next/previous thread
@@ -279,14 +279,13 @@ its session behind (the new name starts a fresh one), and a deleted
 branch whose name is later reused picks its old session — and PR
 binding — back up. `ResetSession` is the way out of either.
 
-The branch's session is **deleted softly**: `deleted_at` is set and
-its threads and comments vanish from every listing and outbox (pane,
-flush, post) while the rows stay in the database. The comments pane
-reloads empty, and the next annotation starts a fresh session — its
-PR binding, if any, is gone with the old one, so run `Review` again to
-re-bind — the old session lets go of the PR's comments, so that
-`Review` pulls them into the fresh session. Warns when the branch has
-no session.
+The branch's session is **deleted for good**, with its threads and
+comments; there is no undo. Ids are never reused, so an agent
+answering a deleted thread is refused rather than landing on a newer
+one. The comments pane reloads empty, and the next annotation starts
+a fresh session — its PR binding, if any, is gone with the old one,
+so run `Review` again to re-bind and pull the PR's comments into the
+fresh session. Warns when the branch has no session.
 
 ### `:Codeboomer PostReview`
 
@@ -524,6 +523,14 @@ The test tree mirrors the plugin's `fnl/` → `lua/` split:
   embedded under `lua/nfnl`, line-correlated so failures point at the
   Fennel line
 - `test/vendor/nvim-test/` is the vendored test framework
+
+### Schema changes
+
+There are no migrations. The database lives at
+`stdpath("data")/codeboomer-db-v<N>`, where `N` is `db-version` in
+`fnl/codeboomer/singleton.fnl`. Any schema change bumps it: the next
+start opens a new, empty file, and earlier versions' files stay on
+disk untouched (delete them by hand once you no longer need them).
 
 ### Trusting the repo
 

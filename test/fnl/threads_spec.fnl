@@ -194,7 +194,7 @@
                         (github.thread-off-diff thread {files.readme [[1 9]]})))))
             (describe :delete-session
                       (fn []
-                        (it "hides threads but keeps their rows"
+                        (it "deletes threads and their comments"
                             (fn []
                               (review.user-comment sid files.readme 90 91
                                                    "code C" "doomed session")
@@ -204,8 +204,26 @@
                                 (eq 0 (length (review.threads-for-session sid)))
                                 (eq 0
                                     (length (review.review-rows-for-session sid)))
-                                (eq 1 (length (review.comments-for thread.id)))
+                                (eq 0 (length (review.comments-for thread.id)))
                                 (assert.is_nil (review.session-by-id sid)))))
+                        (it "detaches a twin promoted into another session"
+                            (fn []
+                              (review.user-comment sid files.main 10 12
+                                                   (helpers.content-snapshot 10
+                                                                             12)
+                                                   "annotation A")
+                              (let [thread (. (review.threads-for-session sid)
+                                              1)]
+                                (helpers.git :checkout :-q :-b :other)
+                                (helpers.api.nvim_command :edit!)
+                                (let [other (review.ensure-session)
+                                      twin-id (review.promote thread.id
+                                                              "final wording"
+                                                              other nil)]
+                                  (review.delete-session sid)
+                                  (let [roots (review.threads-for-session other)]
+                                    (eq 1 (length roots))
+                                    (eq twin-id (. roots 1 :id)))))))
                         (it "leaves the branch session-less even with a PR bound"
                             (fn []
                               (review.set-session-pr sid 4242)

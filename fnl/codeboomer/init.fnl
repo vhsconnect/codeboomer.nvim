@@ -206,7 +206,7 @@
                                           (when ?then (?then cmd))))}})))
 
 ;; :Codeboomer ResetSession — terminate this branch's set of comments:
-;; soft-delete the branch's session (the rows stay) so the next
+;; delete the branch's session with its threads so the next
 ;; annotation starts a fresh one; the pane reloads empty via
 ;; CodeboomerSessionReset. The one replacement for the old session
 ;; picker's d — with sessions tied to branches there is nothing left

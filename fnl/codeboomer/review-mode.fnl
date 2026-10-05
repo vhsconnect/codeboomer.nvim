@@ -118,8 +118,8 @@
 
 ;; what the pane's p key promotes against, for the branch session row
 ;; the sidebar resolved: PR-bound sessions promote, carrying their
-;; PR's diff for the off-diff gate; nil (unbound, or soft-deleted and
-;; so resolved as gone) refuses p
+;; PR's diff for the off-diff gate; nil (unbound, or deleted) refuses
+;; p
 (fn M.promote-context [session]
   (when (and session session.pr_number)
     {:session-id session.id :head-ranges (ranges-for session.pr_number)}))
