@@ -9,14 +9,59 @@ local function notify(msg, level)
   end
   return vim.schedule(_1_)
 end
+local log_path = (vim.fn.stdpath("log") .. "/codeboomer-gh.log")
+local function debug_log(label, value)
+  if require("codeboomer.config")["debug?"]() then
+    return vim.fn.writefile({string.format("[%s] %s %s", os.date("%F %T"), label, vim.inspect(value))}, log_path, "a")
+  else
+    return nil
+  end
+end
 local function system(argv, opts, on_exit)
-  local function _2_(obj)
-    local function _3_()
+  debug_log("request", {argv = argv, stdin = opts.stdin})
+  local function _3_(obj)
+    local function _4_()
+      debug_log("response", {code = obj.code, stdout = obj.stdout, stderr = obj.stderr})
       return on_exit(obj)
     end
-    return vim.schedule(_3_)
+    return vim.schedule(_4_)
   end
-  return vim.system(argv, opts, _2_)
+  return vim.system(argv, opts, _3_)
+end
+local function gh_error(obj)
+  local ok, res = pcall(vim.json.decode, (obj.stdout or ""))
+  local reasons
+  if (ok and ("table" == type(res))) then
+    local tbl_26_ = {}
+    local i_27_ = 0
+    for _, e in ipairs((res.errors or {})) do
+      local val_28_
+      if ("table" == type(e)) then
+        val_28_ = (e.message or table.concat({(e.field or ""), (e.code or "")}, " "))
+      else
+        val_28_ = tostring(e)
+      end
+      if (nil ~= val_28_) then
+        i_27_ = (i_27_ + 1)
+        tbl_26_[i_27_] = val_28_
+      else
+      end
+    end
+    reasons = tbl_26_
+  else
+    reasons = nil
+  end
+  local _8_
+  if (reasons and (#reasons > 0)) then
+    _8_ = ("\n" .. table.concat(reasons, "\n"))
+  else
+    if (ok and ("table" == type(res)) and res.message) then
+      _8_ = ("\n" .. res.message)
+    else
+      _8_ = ""
+    end
+  end
+  return ((obj.stderr or "") .. _8_)
 end
 local function parse_github_slug(url)
   if url then
@@ -112,35 +157,35 @@ local function post_review(slug, pr_number, sha, entries)
     payload.commit_id = sha
   else
   end
-  local function _14_(obj)
+  local function _21_(obj)
     if (obj.code == 0) then
       local res = vim.json.decode((obj.stdout or "{}"))
       review["mark-annotations"]("posted", ids)
-      local or_15_ = res.html_url
-      if not or_15_ then
-        local function _17_()
-          local t_16_ = res
-          if (nil ~= t_16_) then
-            t_16_ = t_16_.id
+      local or_22_ = res.html_url
+      if not or_22_ then
+        local function _24_()
+          local t_23_ = res
+          if (nil ~= t_23_) then
+            t_23_ = t_23_.id
           else
           end
-          return t_16_
+          return t_23_
         end
-        or_15_ = tostring(_17_())
+        or_22_ = tostring(_24_())
       end
-      return notify(string.format("codeboomer: drafted %d annotation(s) \226\128\148 pending review, submit it on GitHub\n%s", #comments, or_15_), vim.log.levels.INFO)
+      return notify(string.format("codeboomer: drafted %d annotation(s) \226\128\148 pending review, submit it on GitHub\n%s", #comments, or_22_), vim.log.levels.INFO)
     else
-      return notify(string.format("codeboomer: gh api failed (exit %d)\n%s", obj.code, (obj.stderr or "")), vim.log.levels.ERROR)
+      return notify(string.format("codeboomer: gh api failed (exit %d)\n%s", obj.code, gh_error(obj)), vim.log.levels.ERROR)
     end
   end
-  return system({"gh", "api", string.format("repos/%s/pulls/%s/reviews", slug, pr_number), "--input", "-"}, {stdin = vim.json.encode(payload), text = true}, _14_)
+  return system({"gh", "api", string.format("repos/%s/pulls/%s/reviews", slug, pr_number), "--input", "-"}, {stdin = vim.json.encode(payload), text = true}, _21_)
 end
 local function post_reply(slug, pr_number, a)
   local root = review["gh-root-comment-id"](a.thread.id)
   if not root then
     return notify(string.format("codeboomer: thread #%s has no gh comment to reply to", tostring((a.thread.id or 0))), vim.log.levels.ERROR)
   else
-    local function _20_(obj)
+    local function _27_(obj)
       if (obj.code == 0) then
         local ok, res = pcall(vim.json.decode, (obj.stdout or "{}"))
         local gh_id
@@ -156,31 +201,31 @@ local function post_reply(slug, pr_number, a)
         end
         return notify("codeboomer: reply posted", vim.log.levels.INFO)
       else
-        return notify(string.format("codeboomer: reply failed (exit %d)\n%s", obj.code, (obj.stderr or "")), vim.log.levels.ERROR)
+        return notify(string.format("codeboomer: reply failed (exit %d)\n%s", obj.code, gh_error(obj)), vim.log.levels.ERROR)
       end
     end
-    return system({"gh", "api", string.format("repos/%s/pulls/%s/comments/%s/replies", slug, pr_number, root), "--input", "-"}, {stdin = vim.json.encode({body = (a.comment.body or "")}), text = true}, _20_)
+    return system({"gh", "api", string.format("repos/%s/pulls/%s/comments/%s/replies", slug, pr_number, root), "--input", "-"}, {stdin = vim.json.encode({body = (a.comment.body or "")}), text = true}, _27_)
   end
 end
-local function _25_(t, ranges)
+local function _32_(t, ranges)
   if ("file" == (t.type or "line")) then
     return false
   else
     local rs = (ranges and ranges[(t.file_path or "")])
-    local and_26_ = rs
-    if and_26_ then
+    local and_33_ = rs
+    if and_33_ then
       local hit = false
-      for _, _27_ in ipairs(rs) do
-        local s = _27_[1]
-        local e = _27_[2]
+      for _, _34_ in ipairs(rs) do
+        local s = _34_[1]
+        local e = _34_[2]
         hit = (hit or ((s <= (t.line_end or 0)) and (e >= (t.line_start or 0))))
       end
-      and_26_ = hit
+      and_33_ = hit
     end
-    return not and_26_
+    return not and_33_
   end
 end
-M["thread-off-diff"] = _25_
+M["thread-off-diff"] = _32_
 M["validate-ranges"] = function(pending, ranges)
   local tbl_26_ = {}
   local i_27_ = 0
@@ -322,16 +367,16 @@ M["pull-comments"] = function(pr_number, sid)
   elseif (not session or (session.pr_number ~= pr_number)) then
     return notify("codeboomer: this branch's session is not bound to the PR \226\128\148 :Codeboomer Review it first", vim.log.levels.WARN)
   else
-    local function _45_(obj)
+    local function _52_(obj)
       if (obj.code == 0) then
         local n = M["import-items"](session.id, parse_jsonl(obj.stdout))
         vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerImported"})
         return notify(string.format("codeboomer: pulled %d new comment(s)", n), vim.log.levels.INFO)
       else
-        return notify(string.format("codeboomer: gh api failed (exit %d)\n%s", obj.code, (obj.stderr or "")), vim.log.levels.ERROR)
+        return notify(string.format("codeboomer: gh api failed (exit %d)\n%s", obj.code, gh_error(obj)), vim.log.levels.ERROR)
       end
     end
-    return system({"gh", "api", string.format("repos/%s/pulls/%s/comments", slug, pr_number), "--paginate", "--jq", ".[]"}, {text = true}, _45_)
+    return system({"gh", "api", string.format("repos/%s/pulls/%s/comments", slug, pr_number), "--paginate", "--jq", ".[]"}, {text = true}, _52_)
   end
 end
 return M

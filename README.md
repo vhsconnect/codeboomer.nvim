@@ -139,7 +139,9 @@ Table operations are debounced per table — queries on the same table
 within a second collapse into one notification carrying the count
 (`querying 5 sqlite.thread`); raw-SQL `with_open` batches log one each
 (`opening connection to sqlite`). Handy when tuning how often queries
-run; off by default:
+run. Every `gh` call — its arguments, the JSON payload sent up and the
+response — is appended to `stdpath("log")/codeboomer-gh.log`, the place
+to look when GitHub rejects a post. Off by default:
 
 ```lua
 require("codeboomer").setup({ debug = true })

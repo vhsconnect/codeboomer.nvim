@@ -61,6 +61,9 @@ case \"$1 $2\" in
   'pr list') f=\"$dir/gh/pr-list.json\" ;;
   'pr diff') f=\"$dir/gh/pr-diff-$3.txt\" ;;
   api\\ *)
+    if [ -f \"$dir/gh/post-error.json\" ] && [[ $2 =~ /(replies|reviews)$ ]]; then
+      cat \"$dir/gh/post-error.json\"; echo 'gh: Unprocessable Entity (HTTP 422)' >&2; exit 1
+    fi
     case \"$2\" in
       */replies) cat >> \"$dir/gh-stdin.log\"; echo '{\"id\": 9001}'; exit 0 ;;
       */reviews) cat >> \"$dir/gh-stdin.log\"; echo '{\"id\": 1}'; exit 0 ;;

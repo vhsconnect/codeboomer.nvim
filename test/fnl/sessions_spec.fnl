@@ -101,6 +101,24 @@
                               (eq 0
                                   (github.import-items sid
                                                        [fixtures.pulled-item]))))))
+            (describe "posting to GitHub"
+                      (fn []
+                        (it "surfaces GitHub's reason when gh rejects the post"
+                            (fn []
+                              (let [sid (review.ensure-session)]
+                                (review.set-session-pr sid 42)
+                                (github.import-items sid [fixtures.pulled-item])
+                                (review.user-reply (. (thread-on-line sid
+                                                                      fixtures.pulled-item.line)
+                                                      :id)
+                                                   "my reply")
+                                (helpers.fake-gh-json :post-error.json
+                                                      {:message "Unprocessable Entity"
+                                                       :errors ["user_id can only have one pending review per pull request"]
+                                                       :status :422})
+                                (github.post-threads {:session-id sid})
+                                (wait-notified error-level
+                                               "one pending review per pull request"))))))
             (describe "one live session per branch"
                       (fn []
                         (fn insert-duplicate [sid]

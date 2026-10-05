@@ -30,13 +30,46 @@
 (fn notify [msg level]
   (vim.schedule #(vim.notify msg level)))
 
+;; under `debug = true` every gh round trip — argv, stdin payload and
+;; the response — is appended here
+(local log-path (.. (vim.fn.stdpath :log) :/codeboomer-gh.log))
+
+(fn debug-log [label value]
+  (when ((. (require :codeboomer.config) :debug?))
+    (vim.fn.writefile [(string.format "[%s] %s %s" (os.date "%F %T") label
+                                      (vim.inspect value))]
+                      log-path :a)))
+
 ;; vim.system, but on_exit is scheduled onto the main loop first — every
 ;; on_exit handler below touches the db (via git.repo-root) or fires
 ;; notify/autocmds, none of which are safe off the main loop
 (fn system [argv opts on-exit]
+  (debug-log :request {: argv :stdin opts.stdin})
   (vim.system argv opts
               (fn [obj]
-                (vim.schedule #(on-exit obj)))))
+                (vim.schedule (fn []
+                                (debug-log :response
+                                           {:code obj.code
+                                            :stdout obj.stdout
+                                            :stderr obj.stderr})
+                                (on-exit obj))))))
+
+;; gh api prints only "gh: <status> (HTTP 422)" on stderr — GitHub's
+;; actual reason is the JSON error body it leaves on stdout, as
+;; {:message :errors [string | {:message :code :field}]}
+(fn gh-error [obj]
+  (let [(ok res) (pcall vim.json.decode (or obj.stdout ""))
+        reasons (when (and ok (= :table (type res)))
+                  (icollect [_ e (ipairs (or res.errors []))]
+                    (if (= :table (type e))
+                        (or e.message
+                            (table.concat [(or e.field "") (or e.code "")] " "))
+                        (tostring e))))]
+    (.. (or obj.stderr "") (if (and reasons (> (length reasons) 0))
+                               (.. "\n" (table.concat reasons "\n"))
+                               (if (and ok (= :table (type res)) res.message)
+                                   (.. "\n" res.message)
+                                   "")))))
 
 ;; "owner/repo" out of the common GitHub remote forms —
 ;;   git@github.com:owner/repo.git
@@ -128,7 +161,7 @@
                                                (tostring (?. res :id))))
                             vim.log.levels.INFO))
                   (notify (string.format "codeboomer: gh api failed (exit %d)\n%s"
-                                         obj.code (or obj.stderr ""))
+                                         obj.code (gh-error obj))
                           vim.log.levels.ERROR))))))
 
 ;; POST a reply to a pulled thread: attaches under its root gh comment
@@ -160,8 +193,7 @@
                           (review.stamp-gh-comment a.comment.id gh-id))
                         (notify "codeboomer: reply posted" vim.log.levels.INFO))
                       (notify (string.format "codeboomer: reply failed (exit %d)
-%s" obj.code (or obj.stderr ""))
-                              vim.log.levels.ERROR)))))))
+%s" obj.code (gh-error obj)) vim.log.levels.ERROR)))))))
 
 ;; does this thread's range intersect the diff at all — GitHub
 ;; rejects inline comments off the diff, so we refuse them first.
@@ -295,7 +327,6 @@
                                                n)
                                 vim.log.levels.INFO))
                       (notify (string.format "codeboomer: gh api failed (exit %d)
-%s" obj.code (or obj.stderr ""))
-                              vim.log.levels.ERROR)))))))
+%s" obj.code (gh-error obj)) vim.log.levels.ERROR)))))))
 
 M
