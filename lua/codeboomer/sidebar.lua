@@ -86,11 +86,14 @@ local function _10_()
   return t_11_
 end
 M["session-id"] = _10_
+local function covers_3f(t, line)
+  return (t.line_start and t.line_end and (line >= t.line_start) and (line <= t.line_end))
+end
 local function threads_at(path, line)
   local found = nil
   for _, t in ipairs((threads_by_path[path] or {})) do
     if found then break end
-    if (t.line_start and t.line_end and (line >= t.line_start) and (line <= t.line_end)) then
+    if covers_3f(t, line) then
       found = t
     else
     end
@@ -763,7 +766,14 @@ local function evaluate_at(win)
     local threads = threads_at(path, (row or 0))
     if (#threads > 0) then
       pane_source_win = win
-      current_thread = threads[1]
+      do
+        local cur = fresh(current_thread)
+        if (cur and ((cur.file_path or "") == path) and covers_3f(cur, (row or 0))) then
+          current_thread = cur
+        else
+          current_thread = threads[1]
+        end
+      end
       return show_current()
     else
       return nil
@@ -781,16 +791,16 @@ local function check_now()
       return nil
     end
   else
-    local _120_
+    local _121_
     do
-      local t_119_ = vim.api.nvim_win_get_config(win)
-      if (nil ~= t_119_) then
-        t_119_ = t_119_.relative
+      local t_120_ = vim.api.nvim_win_get_config(win)
+      if (nil ~= t_120_) then
+        t_120_ = t_120_.relative
       else
       end
-      _120_ = t_119_
+      _121_ = t_120_
     end
-    if ("" == (_120_ or "")) then
+    if ("" == (_121_ or "")) then
       return evaluate_at(win)
     else
       return nil
@@ -866,24 +876,24 @@ M["reload-threads"] = function(_3fprefer)
 end
 local function attach_autocmds()
   vim.api.nvim_create_augroup(augroup_name, {clear = true})
-  local function _131_()
+  local function _132_()
     maybe_reload_session()
     return open_on_session()
   end
-  vim.api.nvim_create_autocmd("VimEnter", {group = augroup_name, callback = _131_})
-  local function _132_(ev)
+  vim.api.nvim_create_autocmd("VimEnter", {group = augroup_name, callback = _132_})
+  local function _133_(ev)
     maybe_reload_session()
     M["enter-file"](ev.buf)
     schedule_check()
     return schedule_db_refresh()
   end
-  vim.api.nvim_create_autocmd("BufEnter", {group = augroup_name, callback = _132_})
-  local function _133_()
+  vim.api.nvim_create_autocmd("BufEnter", {group = augroup_name, callback = _133_})
+  local function _134_()
     schedule_check()
     return schedule_db_refresh()
   end
-  vim.api.nvim_create_autocmd({"WinEnter", "TabEnter", "CursorMoved", "CursorMovedI", "FocusGained"}, {group = augroup_name, callback = _133_})
-  local function _134_(ev)
+  vim.api.nvim_create_autocmd({"WinEnter", "TabEnter", "CursorMoved", "CursorMovedI", "FocusGained"}, {group = augroup_name, callback = _134_})
+  local function _135_(ev)
     if (pane_win == tonumber(ev.match)) then
       pane_win = nil
       rendered_sig = nil
@@ -892,17 +902,17 @@ local function attach_autocmds()
       return nil
     end
   end
-  vim.api.nvim_create_autocmd("WinClosed", {group = augroup_name, callback = _134_})
-  local function _136_()
+  vim.api.nvim_create_autocmd("WinClosed", {group = augroup_name, callback = _135_})
+  local function _137_()
     return M["reload-threads"]()
   end
-  return vim.api.nvim_create_autocmd("User", {group = augroup_name, pattern = {"CodeboomerAnnotated", "CodeboomerSessionReset", "CodeboomerImported"}, callback = _136_})
+  return vim.api.nvim_create_autocmd("User", {group = augroup_name, pattern = {"CodeboomerAnnotated", "CodeboomerSessionReset", "CodeboomerImported"}, callback = _137_})
 end
-local function _137_()
+local function _138_()
   M["reload-threads"]()
   open_on_session()
   return check_now()
 end
-M.open = _137_
+M.open = _138_
 attach_autocmds()
 return M

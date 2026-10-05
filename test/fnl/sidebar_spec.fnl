@@ -270,6 +270,22 @@
                                        (. (press-in-pane :n) 1))
                               (matches (.. files.readme "$")
                                        (api.nvim_buf_get_name (api.nvim_win_get_buf code-win)))))
+                        (it "steps past threads that share a start line"
+                            (fn []
+                              (review.user-comment sid files.main 3 10
+                                                   (helpers.content-snapshot 3
+                                                                             10)
+                                                   "same start")
+                              (sidebar.reload-threads)
+                              (rest code-win 3)
+                              (let [seen (collect [_ (ipairs [1 2 3])]
+                                           (do
+                                             (press-in-pane :n)
+                                             (settle)
+                                             (values (: (. (pane-lines) 1)
+                                                        :match "^#%d+")
+                                                     true)))]
+                                (eq 3 (accumulate [n 0 _ (pairs seen)] (+ n 1))))))
                         (it "cycles from a threadless file too"
                             (fn []
                               (rest code-win 3)

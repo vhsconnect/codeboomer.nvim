@@ -65,11 +65,13 @@
 
 (set M.session-id (fn [] (?. (source-session) :id)))
 
+(fn covers? [t line]
+  (and t.line_start t.line_end (>= line t.line_start) (<= line t.line_end)))
+
 (fn threads-at [path line]
   (var found nil)
   (each [_ t (ipairs (or (. threads-by-path path) [])) &until found]
-    (when (and t.line_start t.line_end (>= line t.line_start)
-               (<= line t.line_end))
+    (when (covers? t line)
       (set found t)))
   (if found [found] []))
 
@@ -516,7 +518,15 @@
             threads (threads-at path (or row 0))]
         (when (> (length threads) 0)
           (set pane-source-win win)
-          (set current-thread (. threads 1))
+          ;; where ranges overlap the thread on screen stays put — n
+          ;; landing on a shared start line must not snap back to the
+          ;; earliest covering thread
+          (let [cur (fresh current-thread)]
+            (set current-thread
+                 (if (and cur (= (or cur.file_path "") path)
+                          (covers? cur (or row 0)))
+                     cur
+                     (. threads 1))))
           (show-current))))))
 
 (fn check-now []
