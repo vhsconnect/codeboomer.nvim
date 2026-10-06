@@ -15,6 +15,7 @@
 (local review (require :codeboomer.review))
 (local sidebar (require :codeboomer.sidebar))
 (local github (require :codeboomer.github))
+(local picker (require :codeboomer.picker))
 
 (local M {})
 
@@ -54,19 +55,10 @@
                        vim.log.levels.ERROR))))))
 
 (fn choose-pr [prs k]
-  (let [fzf (require :fzf-lua)
-        by-display {}
-        lines (icollect [_ p (ipairs prs)]
-                (let [display (string.format "#%-5s %-55s %s"
-                                             (tostring p.number) (or p.title "")
-                                             (or p.headRefName ""))]
-                  (tset by-display display p)
-                  display))]
-    (fzf.fzf_exec lines
-                  {:prompt "Pick a PR> "
-                   :actions {:default (fn [selected]
-                                        (let [pr (. by-display (. selected 1))]
-                                          (when pr (k pr))))}})))
+  (picker.choose "Pick a PR> " prs
+                 #(string.format "#%-5s %-55s %s" (tostring $1.number)
+                                 (or $1.title "") (or $1.headRefName ""))
+                 k))
 
 ;; unified-diff text → {rel-path [[start last] ...]} of the lines the
 ;; diff's + side touches: the +++ b/ path and the +(start,count) hunk
@@ -139,8 +131,9 @@
 ;; branch's session may be bound to it only — then find-or-create the
 ;; session, bind it, open the comments pane, pull the PR's inline
 ;; comments down as threads and load the diff ranges. No checkout
-;; happens — the code you annotate is the branch you are on
-(fn open-pr [pr]
+;; happens — the code you annotate is the branch you are on. ?then
+;; receives the PR once the review is open
+(fn open-pr [pr ?then]
   (let [branch (git.branch-name)
         bound (?. (review.session-for) :pr_number)]
     (if (not branch)
@@ -160,28 +153,31 @@
           (review.set-session-pr session-id pr.number)
           (sidebar.open)
           (github.pull-comments pr.number session-id)
-          (load-ranges pr.number)))))
+          (load-ranges pr.number)
+          (when ?then (?then pr))))))
 
 ;; :Codeboomer Review [n] — no number means pick from `gh pr list`;
-;; choosing a PR IS opening its review
+;; choosing a PR IS opening its review. ?then receives the PR once
+;; it is open — LaunchReviewer's PR scope rides on it
 (set M.open
-     (fn [?n]
-       (if (not (git.repo-root))
-           (notify "codeboomer: not inside a git repository"
-                   vim.log.levels.ERROR)
-           (if ?n
-               (gh-view ?n open-pr)
-               (run [:gh
-                     :pr
-                     :list
-                     :--json
-                     "number,title,headRefName,headRefOid"]
-                    (fn [out]
-                      (let [(ok prs) (pcall vim.json.decode out)]
-                        (if (and ok (= :table (type prs)) (> (length prs) 0))
-                            (choose-pr prs open-pr)
-                            (notify "codeboomer: no open PRs (or `gh` unavailable)"
-                                    vim.log.levels.WARN)))))))))
+     (fn [?n ?then]
+       (let [open #(open-pr $1 ?then)]
+         (if (not (git.repo-root))
+             (notify "codeboomer: not inside a git repository"
+                     vim.log.levels.ERROR)
+             (if ?n
+                 (gh-view ?n open)
+                 (run [:gh
+                       :pr
+                       :list
+                       :--json
+                       "number,title,headRefName,headRefOid"]
+                      (fn [out]
+                        (let [(ok prs) (pcall vim.json.decode out)]
+                          (if (and ok (= :table (type prs)) (> (length prs) 0))
+                              (choose-pr prs open)
+                              (notify "codeboomer: no open PRs (or `gh` unavailable)"
+                                      vim.log.levels.WARN))))))))))
 
 ;; :Codeboomer PostReview — push the unposted annotations of this
 ;; branch's session to GitHub: replies to pulled threads via the

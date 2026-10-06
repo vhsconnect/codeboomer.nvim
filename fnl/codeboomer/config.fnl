@@ -3,6 +3,7 @@
 (local M {})
 (local directives (require :codeboomer.directives))
 (local one-offs (require :codeboomer.one-offs))
+(local review-agents (require :codeboomer.review-agents))
 
 (local keymaps
        {:send_prompt [[:n :x]
@@ -33,13 +34,16 @@
         :pull_review [:n
                       "<cmd>Codeboomer PullReview<cr>"
                       "codeboomer: pull the PR's inline comments into the session"]
+        :launch_reviewer [:n
+                          "<cmd>Codeboomer LaunchReviewer<cr>"
+                          "codeboomer: launch a review agent in a new tmux window"]
         :annotate [[:n :x]
                    ":Codeboomer Annotate<cr>"
                    "codeboomer: annotate selection or whole file"]})
 
 (fn fold-by-label [defaults entries]
   ;; entries override the built-ins by label and append new labels —
-  ;; shared by the directive and one-off command lists
+  ;; shared by the directive, one-off command and review agent lists
   (let [effective (vim.list_slice defaults)
         index {}]
     (each [i entry (ipairs effective)]
@@ -65,6 +69,8 @@
          (fold-by-label (one-offs.defaults) prompting.one_off_commands))
     (set prompting.directives
          (fold-by-label (directives.defaults) prompting.directives))
+    (set prompting.review_agents
+         (fold-by-label (review-agents.defaults) prompting.review_agents))
     (set M.config.prompting prompting))
   (each [k [mode rhs desc] (pairs keymaps)]
     (let [lhs (?. M.config :keybindings k)]

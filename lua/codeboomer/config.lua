@@ -3,7 +3,8 @@ vim = vim
 local M = {}
 local directives = require("codeboomer.directives")
 local one_offs = require("codeboomer.one-offs")
-local keymaps = {send_prompt = {{"n", "x"}, ":Codeboomer SendPrompt<cr>", "codeboomer: send prompt to pane"}, send_last_prompt = {{"n", "x"}, ":Codeboomer SendLastPrompt<cr>", "codeboomer: resend the last prompt to pane"}, send_selection = {"x", ":Codeboomer SendSelection<cr>", "codeboomer: send selection to pane as-is"}, ask_one_off = {{"n", "x"}, ":Codeboomer AskOneOff<cr>", "codeboomer: run one-off query, reply shown here"}, flush_with_directive = {"n", "<cmd>Codeboomer FlushWithDirective<cr>", "codeboomer: flush annotations with directive to pane"}, pane = {"n", "<cmd>Codeboomer SetPane<cr>", "codeboomer: pick a tmux pane"}, reset_session = {"n", "<cmd>Codeboomer ResetSession<cr>", "codeboomer: reset this branch's review session"}, review = {"n", "<cmd>Codeboomer Review<cr>", "codeboomer: pick a PR to review on this branch"}, post_review = {"n", "<cmd>Codeboomer PostReview<cr>", "codeboomer: push unposted annotations to the PR"}, pull_review = {"n", "<cmd>Codeboomer PullReview<cr>", "codeboomer: pull the PR's inline comments into the session"}, annotate = {{"n", "x"}, ":Codeboomer Annotate<cr>", "codeboomer: annotate selection or whole file"}}
+local review_agents = require("codeboomer.review-agents")
+local keymaps = {send_prompt = {{"n", "x"}, ":Codeboomer SendPrompt<cr>", "codeboomer: send prompt to pane"}, send_last_prompt = {{"n", "x"}, ":Codeboomer SendLastPrompt<cr>", "codeboomer: resend the last prompt to pane"}, send_selection = {"x", ":Codeboomer SendSelection<cr>", "codeboomer: send selection to pane as-is"}, ask_one_off = {{"n", "x"}, ":Codeboomer AskOneOff<cr>", "codeboomer: run one-off query, reply shown here"}, flush_with_directive = {"n", "<cmd>Codeboomer FlushWithDirective<cr>", "codeboomer: flush annotations with directive to pane"}, pane = {"n", "<cmd>Codeboomer SetPane<cr>", "codeboomer: pick a tmux pane"}, reset_session = {"n", "<cmd>Codeboomer ResetSession<cr>", "codeboomer: reset this branch's review session"}, review = {"n", "<cmd>Codeboomer Review<cr>", "codeboomer: pick a PR to review on this branch"}, post_review = {"n", "<cmd>Codeboomer PostReview<cr>", "codeboomer: push unposted annotations to the PR"}, pull_review = {"n", "<cmd>Codeboomer PullReview<cr>", "codeboomer: pull the PR's inline comments into the session"}, launch_reviewer = {"n", "<cmd>Codeboomer LaunchReviewer<cr>", "codeboomer: launch a review agent in a new tmux window"}, annotate = {{"n", "x"}, ":Codeboomer Annotate<cr>", "codeboomer: annotate selection or whole file"}}
 local function fold_by_label(defaults, entries)
   local effective = vim.list_slice(defaults)
   local index = {}
@@ -37,6 +38,7 @@ M.setup = function(opts)
     local prompting = (M.config.prompting or {})
     prompting.one_off_commands = fold_by_label(one_offs.defaults(), prompting.one_off_commands)
     prompting.directives = fold_by_label(directives.defaults(), prompting.directives)
+    prompting.review_agents = fold_by_label(review_agents.defaults(), prompting.review_agents)
     M.config.prompting = prompting
   end
   for k, _5_ in pairs(keymaps) do

@@ -4,6 +4,7 @@ local git = require("codeboomer.git")
 local review = require("codeboomer.review")
 local sidebar = require("codeboomer.sidebar")
 local github = require("codeboomer.github")
+local picker = require("codeboomer.picker")
 local M = {}
 local diff_ranges = {}
 local function notify(msg, level)
@@ -37,36 +38,10 @@ local function gh_view(n, k)
   return run({"gh", "pr", "view", tostring(n), "--json", "number,headRefName,headRefOid"}, _5_)
 end
 local function choose_pr(prs, k)
-  local fzf = require("fzf-lua")
-  local by_display = {}
-  local lines
-  do
-    local tbl_26_ = {}
-    local i_27_ = 0
-    for _, p in ipairs(prs) do
-      local val_28_
-      do
-        local display = string.format("#%-5s %-55s %s", tostring(p.number), (p.title or ""), (p.headRefName or ""))
-        by_display[display] = p
-        val_28_ = display
-      end
-      if (nil ~= val_28_) then
-        i_27_ = (i_27_ + 1)
-        tbl_26_[i_27_] = val_28_
-      else
-      end
-    end
-    lines = tbl_26_
+  local function _7_(_241)
+    return string.format("#%-5s %-55s %s", tostring(_241.number), (_241.title or ""), (_241.headRefName or ""))
   end
-  local function _8_(selected)
-    local pr = by_display[selected[1]]
-    if pr then
-      return k(pr)
-    else
-      return nil
-    end
-  end
-  return fzf.fzf_exec(lines, {prompt = "Pick a PR> ", actions = {default = _8_}})
+  return picker.choose("Pick a PR> ", prs, _7_, k)
 end
 local function parse_ranges(diff)
   local header_re = "^%+%+%+ b/(.*)"
@@ -83,14 +58,14 @@ local function parse_ranges(diff)
     if (file and c) then
       local start = tonumber(c)
       local count
-      local function _11_()
+      local function _9_()
         if (not d or (d == "")) then
           return "1"
         else
           return d
         end
       end
-      count = tonumber(_11_())
+      count = tonumber(_9_())
       if (count > 0) then
         local bucket = (out[file] or {})
         table.insert(bucket, {start, (start + count + -1)})
@@ -106,31 +81,31 @@ local function diff_argv(pr_number)
   return {"gh", "pr", "diff", tostring(pr_number), "--color=never"}
 end
 local function load_ranges(pr_number)
-  local function _14_(obj)
-    local function _15_()
-      local _16_
+  local function _12_(obj)
+    local function _13_()
+      local _14_
       if (obj.code == 0) then
-        _16_ = parse_ranges(obj.stdout)
+        _14_ = parse_ranges(obj.stdout)
       else
-        _16_ = false
+        _14_ = false
       end
-      diff_ranges[pr_number] = _16_
+      diff_ranges[pr_number] = _14_
       return nil
     end
-    return vim.schedule(_15_)
+    return vim.schedule(_13_)
   end
-  return vim.system(diff_argv(pr_number), {text = true}, _14_)
+  return vim.system(diff_argv(pr_number), {text = true}, _12_)
 end
 local function ranges_for(pr_number)
   if (nil == diff_ranges[pr_number]) then
     local obj = vim.system(diff_argv(pr_number), {text = true}):wait(10000)
-    local _18_
+    local _16_
     if (obj.code == 0) then
-      _18_ = parse_ranges(obj.stdout)
+      _16_ = parse_ranges(obj.stdout)
     else
-      _18_ = false
+      _16_ = false
     end
-    diff_ranges[pr_number] = _18_
+    diff_ranges[pr_number] = _16_
   else
   end
   return (diff_ranges[pr_number] or nil)
@@ -146,16 +121,16 @@ local function pr_branch_3f(branch, pr)
   local merge = git["merge-ref"](branch)
   return ((branch == pr.headRefName) or (merge == ("refs/heads/" .. (pr.headRefName or ""))) or (merge == string.format("refs/pull/%d/head", pr.number)) or ((nil ~= pr.headRefOid) and (git["head-sha"]() == pr.headRefOid)))
 end
-local function open_pr(pr)
+local function open_pr(pr, _3fthen)
   local branch = git["branch-name"]()
   local bound
   do
-    local t_22_ = review["session-for"]()
-    if (nil ~= t_22_) then
-      t_22_ = t_22_.pr_number
+    local t_20_ = review["session-for"]()
+    if (nil ~= t_20_) then
+      t_20_ = t_20_.pr_number
     else
     end
-    bound = t_22_
+    bound = t_20_
   end
   if not branch then
     return notify(string.format("codeboomer: check out PR #%d's branch `%s` first \226\128\148 sessions are tied to branches, a detached HEAD has none", pr.number, (pr.headRefName or "?")), vim.log.levels.ERROR)
@@ -168,20 +143,30 @@ local function open_pr(pr)
     review["set-session-pr"](session_id, pr.number)
     sidebar.open()
     github["pull-comments"](pr.number, session_id)
-    return load_ranges(pr.number)
+    load_ranges(pr.number)
+    if _3fthen then
+      return _3fthen(pr)
+    else
+      return nil
+    end
   end
 end
-local function _25_(_3fn)
+local function _24_(_3fn, _3fthen)
+  local open
+  local function _25_(_241)
+    return open_pr(_241, _3fthen)
+  end
+  open = _25_
   if not git["repo-root"]() then
     return notify("codeboomer: not inside a git repository", vim.log.levels.ERROR)
   else
     if _3fn then
-      return gh_view(_3fn, open_pr)
+      return gh_view(_3fn, open)
     else
       local function _26_(out)
         local ok, prs = pcall(vim.json.decode, out)
         if (ok and ("table" == type(prs)) and (#prs > 0)) then
-          return choose_pr(prs, open_pr)
+          return choose_pr(prs, open)
         else
           return notify("codeboomer: no open PRs (or `gh` unavailable)", vim.log.levels.WARN)
         end
@@ -190,7 +175,7 @@ local function _25_(_3fn)
     end
   end
 end
-M.open = _25_
+M.open = _24_
 local function _30_()
   local sid = sidebar["session-id"]()
   local session

@@ -13,6 +13,7 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - **PR review (`Review`)** — review the PR's branch as you have it checked out, committed or not — the flow is always the same, simple annotation. `Review` picks a PR whose head is the checked-out branch, binds the branch's session to it (once — re-binding to another PR takes a `ResetSession`) and pulls its inline comments down as threads; `PostReview` pushes the threads you **promoted** (the pane's `p`) up as a pending review (a draft submitted on GitHub). No worktree is created and nothing is checked out — be on the branch you mean to review when you launch Neovim
 - **Local/review thread halves** — every annotation starts as a local conversation with the agent (annotate, `a`-replies, agent answers via the shim) — the agent may open threads too (`codeboomer-agent comment`), on the same local footing; `p` in the comments pane promotes a thread: the shipping half is born with the final wording, anchored at the thread's own commit, after two refusals — the annotation must sit inside the PR's diff, and its code snapshot must still match the anchor commit's file content (lines that moved on after annotation can't resolve on GitHub). Nothing reaches `PostReview` without that deliberate step — agent chatter and your negotiation with it are structurally unshippable
 - **Review comments pane** — a first-class side split that always shows exactly one thread, the current one: opening a repo whose branch session already has comments opens the pane straight away; resting the cursor inside a commented range shows that thread (both halves interleaved as one conversation), entering a file with threads shows its first, and `n`/`N` cycle through the session's threads in a loop — each hop landing the code window on the thread without leaving the pane; only source-file windows drive it — floats, terminals and plugin windows never open the pane or pull it into their tab; the pane keeps its thread when the cursor moves off every range or the buffer changes — window-navigate into it, where `r` replies on the review half (promoted threads and pulled ones), `a` replies to the agent, `p` promotes, `e` edits the promoted comment, `q` resolves and `n`/`N` step to the next/previous thread
+- **Review agent (`LaunchReviewer`)** — pick an agent (claude, pi, …) and what it reviews — a GitHub PR (through `Review`'s own picker), your uncommitted changes, or the commits from a picked one through `HEAD` — and it starts in a new background tmux window on the current work tree, posting its findings back as threads through the `codeboomer-agent` shim; the new window becomes the selected pane, so later flushes reach the same agent
 - Bracketed-paste support for proper multi-line handling
 - **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane; define any number of user-named one-off commands and pick one with fzf when there is more than one
 
@@ -48,6 +49,7 @@ The plugin sets up no default keybindings; configure them like this:
 | Visual | `<leader>cr` | `SendSelection` — send the selection to the pane as-is, then press Enter |
 | Normal + Visual | `<leader>cc` | `AskOneOff` — run a one-off query; the answer is shown in a notification |
 | Normal | `<leader>cp` | `SetPane` — pick a tmux pane to send messages to |
+| Normal | `<leader>cA` | `LaunchReviewer` — launch a review agent in a new tmux window and select it as the pane |
 | Normal | `<leader>cS` | `ResetSession` — reset this branch's review session |
 | Normal | `<leader>cR` | `Review` — pick a PR to review on the current checkout |
 | Normal | `<leader>cP` | `PostReview` — push the promoted threads to the PR |
@@ -66,6 +68,7 @@ require("codeboomer").setup({
     ask_one_off = "<leader>cc",
     flush_with_directive = "<leader>cd",
     pane = "<leader>cp",
+    launch_reviewer = "<leader>cA",
     reset_session = "<leader>cS",
     review = "<leader>cR",
     post_review = "<leader>cP",
@@ -132,6 +135,28 @@ Point entries at whatever the machine at hand provides — a plain binary, a
 container wrapper, a nix flake invocation, … Output that is JSON with a
 `result` field is shown as just the result; anything else is displayed raw.
 
+`prompting.review_agents` lists the agents `<leader>cA`
+(`:Codeboomer LaunchReviewer`) can spawn: entries with a `label` and a
+static `argv`, the review prompt appended as the final argument. The
+argv runs directly in the new tmux window — no shell — so nothing needs
+quoting. Like the one-off commands, a matching label overrides a
+built-in and new labels are appended; the built-in is
+`{ label = "claude", argv = { "claude" } }`, an interactive session that
+still asks before running tools:
+
+```lua
+require("codeboomer").setup({
+  prompting = {
+    review_agents = {
+      { label = "claude",
+        argv = { "nix", "run", "github:numtide/llm-agents.nix#claude-code", "--",
+                 "--dangerously-skip-permissions" } },
+      { label = "pi", argv = { "nix", "run", "github:numtide/llm-agents.nix#pi", "--" } },
+    },
+  },
+})
+```
+
 ### Debugging
 
 Set `debug = true` in `setup()` to get database-call notifications.
@@ -192,6 +217,44 @@ Sends the visual selection to the selected pane **as-is** — no prompt, no cont
 Opens fzf-lua to select a target tmux pane. Each entry shows the running
 command, location, working directory, mode, and last output line; a live
 preview shows the pane's recent content.
+
+### `:Codeboomer LaunchReviewer`
+
+Spawns a review agent in a new background tmux window (named
+`review:<branch>`, working directory the current work tree — Neovim
+keeps the focus), after two fzf pickers:
+
+1. **Which agent** — the `prompting.review_agents` entries (skipped when
+   only one is configured)
+2. **What to review**:
+   - **GitHub PR** — runs `:Codeboomer Review`'s own flow (pick this
+     branch's PR, bind the session, pull its comments, load its diff);
+     the agent launches once the review is open and is pointed at
+     `gh pr diff <n>`
+   - **Uncommitted** — staged, unstaged and untracked changes
+     (`git diff HEAD` plus `git status`'s untracked files); refused on a
+     clean tree. Threads on lines changed since `HEAD` can't be promoted
+     to a PR — they stay local conversation
+   - **Commits** — a third picker lists the last 100 commits on the
+     branch's first-parent line; the picked one through `HEAD` is
+     reviewed (`git log -p --first-parent <sha>~1..HEAD`, or a diff
+     against the empty tree when the root commit is picked)
+
+The prompt appended to the agent's argv is short: what to review, a
+pointer to the shim (`codeboomer-agent help` documents its verbs), a
+request for one- or two-sentence comments with the detail kept in the
+agent's own output, and not to switch branches.
+
+- The new window becomes the selected pane — `FlushWithDirective` and
+  the send commands reach the same agent without a `SetPane`
+- The agent's threads land in the branch's session and show up in the
+  comments pane marked `· by agent`; promote them with `p` as usual
+- Refuses outside a repo and on a detached HEAD; a tmux failure (e.g.
+  no server running) is reported and leaves the selected pane alone
+
+```vim
+:Codeboomer LaunchReviewer
+```
 
 ### `:Codeboomer Review [pr]`
 
@@ -420,6 +483,12 @@ annotations, flushes and the comments pane all follow the branch you
 are on. `:Codeboomer ResetSession` (`<leader>cS`) terminates it — the
 next annotation starts fresh.
 
+### Agent review workflow
+
+1. On the branch to review, run `<leader>cA` (`:Codeboomer LaunchReviewer`), pick the agent and what it reviews (a PR, your uncommitted changes, or commits back to a picked one) — the agent starts in a new background tmux window and becomes the selected pane
+2. It posts findings as threads (`codeboomer-agent comment` / `file-comment`); they appear in the comments pane marked `· by agent`
+3. Discuss with `a` and `FlushWithDirective` as in the annotation workflow, resolve with `q`, and promote the keepers with `p` — the compose input opens with the agent's wording for you to rewrite
+
 ### PR review workflow (local)
 
 1. Check out the branch you mean to review and launch Neovim on it
@@ -493,7 +562,7 @@ Setup opts come from the `dev-opts` table at the top of the file (mirroring `./t
 
 ### Setting up a dev environment
 
-For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-codeboomer`. It requires `CODEBOOMER_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cl`, `<leader>cr`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>cS`, `<leader>cR`, `<leader>cP`, `<leader>cL`, `<leader>ca`). Extra arguments pass through to nvim, so you can land straight in a review:
+For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-codeboomer`. It requires `CODEBOOMER_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cl`, `<leader>cr`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>cA`, `<leader>cS`, `<leader>cR`, `<leader>cP`, `<leader>cL`, `<leader>ca`). Extra arguments pass through to nvim, so you can land straight in a review:
 
 ```bash
 CODEBOOMER_PATH=$PWD ./test-codeboomer                          # plain launch

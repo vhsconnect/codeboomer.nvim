@@ -11,6 +11,9 @@
 (local agent (require :codeboomer.agent))
 (local one-offs (require :codeboomer.one-offs))
 (local git (require :codeboomer.git))
+(local tmux (require :codeboomer.tmux))
+(local picker (require :codeboomer.picker))
+(local reviewer (require :codeboomer.reviewer))
 
 (local state {:pane nil :last-input nil})
 
@@ -19,25 +22,13 @@
 (macro with-pan [body]
   `(if state.pane
        ,body
-       (choose-pane (parse-panes (shell panes-command)) (fn [] ,body))))
+       (choose-pane (tmux.list-panes) (fn [] ,body))))
 
 (fn schedule-notify [msg level]
   (vim.schedule #(vim.notify msg level)))
 
 (set M.setup (fn [opts]
                (config.setup opts)))
-
-(fn shell [command]
-  (let [handle (io.popen command)
-        output (handle:read :*a)]
-    (handle:close)
-    output))
-
-(local panes-command
-       "tmux list-panes -a -F '#{session_name}|#{session_id}|#{window_index}|#{pane_index}|#{pane_id}|#{pane_current_command}|#{pane_mode}|#{pane_active}|#{window_active}|#{pane_current_path}'")
-
-(local last-lines-command
-       "tmux list-panes -a -F '#{pane_id}' | while read -r p; do printf '%s\\t' \"$p\"; tmux capture-pane -p -t \"$p\" -S -5 -E -1 2>/dev/null | sed -e '/^[[:space:]]*$/d' | tail -n 1; echo; done")
 
 (fn one-off-result [stdout]
   ;; --output-format json wraps the answer in an object; show the .result
@@ -61,73 +52,14 @@
                                                      (or obj.stderr ""))
                                                  vim.log.levels.ERROR)))))))
 
-(fn parse-panes [x]
-  (let [pattern "([^|
-]*)|([^|
-]*)|([^|
-]*)|([^|
-]*)|([^|
-]*)|([^|
-]*)|([^|
-]*)|([^|
-]*)|([^|
-]*)|([^|
-]*)"
-        result (string.gmatch x pattern)]
-    (icollect [(session-name session-id window-index pane-index pane-id
-                             pane-current-command pane-mode pane-active
-                             window-active pane-current-path) result]
-      {: session-name
-       : session-id
-       : window-index
-       : pane-index
-       : pane-id
-       : pane-current-command
-       : pane-mode
-       : pane-active
-       : window-active
-       : pane-current-path})))
-
-(fn parse-last-lines [x]
-  (let [result {}]
-    (each [line (string.gmatch x "[^\n]+")]
-      (let [sep (string.find line "\t" 1 true)]
-        (when sep
-          (tset result (string.sub line 1 (- sep 1))
-                (vim.trim (string.sub line (+ sep 1)))))))
-    result))
-
 (fn shorten-path [path]
   (let [home (os.getenv :HOME)]
     (if (and home (= 1 (string.find path home 1 true)))
         (.. "~" (string.sub path (+ 1 (length home))))
         path)))
 
-(fn paste-text [pane-id text]
-  ;; send-keys -l delivers raw LF bytes, which TUI input fields (pi, Claude
-  ;; Code, ...) drop — only CR counts as a key — so multi-line text arrived
-  ;; without line breaks. Loading a tmux buffer and pasting it with -p wraps
-  ;; the text in bracketed-paste control codes (when the app supports them)
-  ;; so newlines are inserted literally; -r stops tmux from rewriting LF to
-  ;; CR inside the paste; -d deletes the buffer after pasting.
-  (let [handle (io.popen (.. "tmux load-buffer -b codeboomer-paste - && "
-                             "tmux paste-buffer -p -r -d -b codeboomer-paste -t "
-                             pane-id) :w)]
-    (handle:write text)
-    (handle:close)))
-
-(fn press-key-command [pane-id key]
-  (string.format "tmux send-keys -t %s %s" pane-id key))
-
-(fn cancel-mode-command [pane-id]
-  (string.format "tmux send-keys -t %s -X cancel" pane-id))
-
 (fn send-keys-to-selected-pane [text]
-  (let [pane-id state.pane.pane-id]
-    (when (not= "" state.pane.pane-mode)
-      (shell (cancel-mode-command pane-id)))
-    (paste-text pane-id text)
-    (shell (press-key-command pane-id :Enter))))
+  (tmux.send state.pane text))
 
 (local last-line-max-length 80)
 
@@ -144,39 +76,26 @@
                    p.pane-current-command location
                    (shorten-path p.pane-current-path) mode short-line)))
 
-(local pane-preview-command
-       ;; {1} is fzf's first field of the highlighted entry — the pane-id
-       "tmux capture-pane -p -t {1} -S -40")
-
 (fn choose-pane [panes ?then]
-  (let [fzf (require :fzf-lua)
-        last-lines (parse-last-lines (shell last-lines-command))
-        by-display {}
-        lines (icollect [_ p (ipairs panes)]
-                (let [display (pane-display p (. last-lines p.pane-id))]
-                  (tset by-display display p)
-                  display))]
-    (fzf.fzf_exec lines
-                  {:prompt "Pick a Pane> "
-                   :preview pane-preview-command
-                   ;; hide the pane-id from the visible entries — fzf
-                   ;; extracts {1} from the original (untransformed) line,
-                   ;; so the preview still receives it
-                   :fzf_opts {:--with-nth :2..}
-                   :winopts {:preview {:wrap false
-                                       :layout :vertical
-                                       :vertical "down:45%:follow"}}
-                   :actions {:default (fn [selected]
-                                        (let [pane (. by-display (. selected 1))]
-                                          (set state.pane pane)
-                                          (schedule-notify (string.format "codeboomer: pane %s (%s:%s.%s) selected"
-                                                                          pane.pane-id
-                                                                          pane.session-name
-                                                                          pane.window-index
-                                                                          pane.pane-index)
-                                                           vim.log.levels.INFO)
-                                          ;; execute callback when passed
-                                          (when ?then (?then))))}})))
+  (let [last-lines (tmux.last-lines)
+        on-pick (fn [pane]
+                  (set state.pane pane)
+                  (schedule-notify (string.format "codeboomer: pane %s (%s:%s.%s) selected"
+                                                  pane.pane-id pane.session-name
+                                                  pane.window-index
+                                                  pane.pane-index)
+                                   vim.log.levels.INFO)
+                  (when ?then (?then)))]
+    (picker.choose "Pick a Pane> " panes
+                   #(pane-display $1 (. last-lines $1.pane-id)) on-pick
+                   {:preview tmux.preview-command
+                    ;; hide the pane-id from the visible entries — fzf
+                    ;; extracts {1} from the original (untransformed) line,
+                    ;; so the preview still receives it
+                    :fzf_opts {:--with-nth :2..}
+                    :winopts {:preview {:wrap false
+                                        :layout :vertical
+                                        :vertical "down:45%:follow"}}})))
 
 (local one-off-argv-max-length 80)
 
@@ -191,19 +110,8 @@
                     "")]
     (string.format "%-22s %s%s" c.label short-argv timeout)))
 
-(fn choose-one-off [commands ?then]
-  (let [fzf (require :fzf-lua)
-        by-display {}
-        lines (icollect [_ c (ipairs commands)]
-                (let [display (one-off-display c)]
-                  (tset by-display display c)
-                  display))]
-    (fzf.fzf_exec lines
-                  {:prompt "Pick a One-off> "
-                   :actions {:default (fn [selected]
-                                        (let [cmd (. by-display (. selected 1))]
-                                          ;; execute callback when passed
-                                          (when ?then (?then cmd))))}})))
+(fn choose-one-off [commands k]
+  (picker.choose "Pick a One-off> " commands one-off-display k))
 
 ;; :Codeboomer ResetSession — terminate this branch's set of comments:
 ;; delete the branch's session with its threads so the next
@@ -277,9 +185,14 @@
                        (or t.line_end "?") (or t.id "?") (or t.code_snapshot "")
                        (table.concat conversation "\n\n")))))
 
-(set M.SetPane
+(set M.SetPane (fn []
+                 (choose-pane (tmux.list-panes))))
+
+;; the picked agent's window becomes the pane — later flushes reach it
+(set M.LaunchReviewer
      (fn []
-       (choose-pane (parse-panes (shell panes-command)))))
+       (reviewer.launch (fn [pane]
+                          (set state.pane pane)))))
 
 (set M.SendPrompt
      (fn [opts]
@@ -410,15 +323,7 @@
 
 (set M.FlushWithDirective
      (fn []
-       (with-pan (let [fzf (require :fzf-lua)
-                       all-directives (directives.list)
-                       lines (icollect [_ d (ipairs all-directives)]
-                               d.label)]
-                   (fzf.fzf_exec lines
-                                 {:prompt "Pick a Directive> "
-                                  :actions {:default (fn [selected]
-                                                       (let [directive-text (directives.get (. selected
-                                                                                               1))]
-                                                         (flush-pending directive-text)))}})))))
+       (with-pan (picker.choose "Pick a Directive> " (directives.list)
+                                #$1.label #(flush-pending $1.text)))))
 
 M

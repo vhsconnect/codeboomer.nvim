@@ -31,6 +31,10 @@ subcommands.PullReview = function()
     require("codeboomer.review-mode").pull()
 end
 
+subcommands.LaunchReviewer = function()
+    require("codeboomer").LaunchReviewer()
+end
+
 subcommands.SendPrompt = function(opts)
     require("codeboomer").SendPrompt(opts)
 end

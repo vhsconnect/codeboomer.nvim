@@ -78,8 +78,9 @@ if [ -n \"$f\" ] && [ -f \"$f\" ]; then cat \"$f\"; else echo \"fake gh: no fixt
 dir=\"$CODEBOOMER_FAKES\"
 printf '%s\\n' \"$*\" >> \"$dir/tmux.log\"
 case \"$1\" in
-  list-panes) case \"$*\" in *session_name*) echo 'dev|$1|1|0|%1|claude||1|1|/tmp' ;; *) echo '%1' ;; esac ;;
+  list-panes) case \"$*\" in *session_name*) echo 'dev|$1|1|0|%1|claude||1|1|/tmp'; echo 'dev|$1|2|0|%2|pi||1|0|/tmp' ;; *) echo '%1'; echo '%2' ;; esac ;;
   capture-pane) echo ready ;;
+  new-window) [ -f \"$dir/tmux-new-window-error\" ] && { cat \"$dir/tmux-new-window-error\" >&2; exit 1; }; echo '%9' ;;
   load-buffer) cat >> \"$dir/tmux-paste.txt\" ;;
 esac
 ")
@@ -170,20 +171,45 @@ esac
               (set vim.notify
                    (fn [msg level]
                      (table.insert _G.notifications {: msg : level})))
-              ;; every fzf picker resolves at once to its first entry
+              ;; every fzf picker resolves at once — to the first entry
+              ;; containing the text fzf-pick queued for its prompt,
+              ;; else to its first entry
               (set _G.fzf_prompts [])
+              (set _G.fzf_calls [])
+              (set _G.fzf_picks {})
               (tset package.preload :fzf-lua
                     (fn []
                       {:fzf_exec (fn [lines opts]
                                    (table.insert _G.fzf_prompts opts.prompt)
-                                   (opts.actions.default [(. lines 1)]))})))
+                                   (table.insert _G.fzf_calls
+                                                 {: lines
+                                                  :prompt opts.prompt
+                                                  :preview opts.preview
+                                                  :fzf_opts opts.fzf_opts})
+                                   (let [needle (. _G.fzf_picks opts.prompt)
+                                         picked (accumulate [found nil _ l (ipairs lines)
+                                                             &until found]
+                                                  (when (and needle
+                                                             (l:find needle 1
+                                                                     true))
+                                                    l))]
+                                     (opts.actions.default [(or picked
+                                                                (. lines 1))])))})))
             pj-root (os.getenv :SQLITE_LUA_PATH) M.repo))
+
+(fn M.fzf-pick [prompt needle]
+  (exec-lua (fn [prompt needle]
+              (tset _G.fzf_picks prompt needle)) prompt needle))
 
 (fn M.notifications []
   (M.exec_lua "return _G.notifications"))
 
 (fn M.fzf-prompts []
   (M.exec_lua "return _G.fzf_prompts"))
+
+;; every fzf_exec call so far: its prompt, lines, preview and fzf_opts
+(fn M.fzf-calls []
+  (M.exec_lua "return _G.fzf_calls"))
 
 (fn M.fake-gh-json [name value]
   (exec-lua (fn [path value]

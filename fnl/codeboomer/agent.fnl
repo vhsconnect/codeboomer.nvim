@@ -25,6 +25,15 @@
   (.. "Reply to each thread above. Keep your responses in the thread short and consice and use the harnass to provide detail. Answer in the thread with: "
       shim-path " reply <thread-id> <text>\n"))
 
+;; the launch prompt — short on purpose: {scope} says what to review,
+;; the shim's own help carries the API, the agent's own output carries
+;; the detail
+(fn M.review-prompt [scope]
+  (.. scope " Post your findings with " shim-path
+      " — run it with `help` first."
+      " Keep each comment to one or two sentences; put the detailed reasoning in your own output here."
+      " Don't switch branches while reviewing."))
+
 (local usage "usage: codeboomer-agent reply <thread-id> <text>
        codeboomer-agent comment <file> <line>[-<line>] <text>
        codeboomer-agent file-comment <file> <text>")
