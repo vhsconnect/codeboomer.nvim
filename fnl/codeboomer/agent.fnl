@@ -50,10 +50,11 @@
 " "paths inside it work too); lines count from 1 as the file reads on
 " "disk — comment on committed code: a range edited since HEAD can't
 " "be promoted to the PR. <text> is every argument after the last
-" "positional one, joined with spaces — no quoting needed.
-
+" "positional one, joined with spaces — no quoting needed. Arguments
 "
-                     "exit status: 0 on success, 1 on failure (the message says why).
+                     "split on every space, so a <file> containing one can't be named.
+
+" "exit status: 0 on success, 1 on failure (the message says why).
 "))
 
 ;; the work tree file an agent named, as a repo-relative path plus its
@@ -64,14 +65,14 @@
         joined (if (vim.startswith path "/") path
                    (vim.fs.joinpath (vim.fn.getcwd) path))
         real (vim.uv.fs_realpath joined)
-        stat (when real (vim.uv.fs_stat real))]
-    (if (not real-root) (values nil "not inside a git work tree") (not real)
-        (values nil (.. "no such file: " path))
-        (not (vim.startswith real (.. real-root "/")))
-        (values nil (.. "file is outside the work tree: " path))
-        (not= :file (?. stat :type)) (values nil (.. "not a file: " path))
-        {:rel (real:sub (+ 2 (length real-root)))
-         :lines (vim.fn.readfile real)})))
+        kind (?. (when real (vim.uv.fs_stat real)) :type)]
+    (case (values real-root real kind)
+      (nil) (values nil "not inside a git work tree")
+      (_ nil) (values nil (.. "no such file: " path))
+      (where (r f) (not (vim.startswith f (.. r "/"))))
+      (values nil (.. "file is outside the work tree: " path))
+      (r f :file) {:rel (f:sub (+ 2 (length r))) :lines (vim.fn.readfile f)}
+      _ (values nil (.. "not a file: " path)))))
 
 (fn parse-range [spec]
   (let [single (tonumber (string.match (or spec "") "^(%d+)$"))

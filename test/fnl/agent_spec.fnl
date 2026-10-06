@@ -81,18 +81,27 @@
                                                            :finding]))))
                         (it "refuses files outside the work tree"
                             (fn []
+                              (helpers.write-to-file :../outside.txt ["line 1"])
                               (let [(ok msg) (agent.run [:comment
                                                          :../outside.txt
                                                          :1
                                                          :finding])]
                                 (assert.is_false ok)
-                                (matches "no such file" msg))
+                                (matches "outside the work tree" msg))
                               (let [(ok msg) (agent.run [:comment
                                                          :/etc/hostname
                                                          :1
                                                          :finding])]
                                 (assert.is_false ok)
                                 (matches "outside the work tree" msg))))
+                        (it "refuses a directory"
+                            (fn []
+                              (let [(ok msg) (agent.run [:comment
+                                                         :.git
+                                                         :1
+                                                         :finding])]
+                                (assert.is_false ok)
+                                (matches "not a file" msg))))
                         (it "refuses an empty comment"
                             (fn []
                               (assert.is_false (agent.run [:comment
