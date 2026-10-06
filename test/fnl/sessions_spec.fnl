@@ -103,6 +103,32 @@
                                                        [fixtures.pulled-item]))))))
             (describe "posting to GitHub"
                       (fn []
+                        (it "drafts a file comment into the pending review through GraphQL"
+                            (fn []
+                              (let [sid (review.ensure-session)]
+                                (review.set-session-pr sid 42)
+                                (review.user-comment sid files.main 40 40
+                                                     (helpers.content-snapshot 40
+                                                                               40)
+                                                     "on a line")
+                                (review.file-comment sid files.readme
+                                                     "on the whole file")
+                                (each [_ t (ipairs (review.threads-for-session sid))]
+                                  (review.promote t.id
+                                                  (. (review.comments-for t.id)
+                                                     1 :body)
+                                                  sid nil))
+                                (github.post-threads {:session-id sid})
+                                (expectf #(eq 0
+                                              (length (review.pending-for-post sid))))
+                                (let [[drafted added] (helpers.gh-payloads)]
+                                  (eq [files.main]
+                                      (icollect [_ c (ipairs drafted.comments)]
+                                        c.path))
+                                  (eq {:review :PRR_1
+                                       :path files.readme
+                                       :body "on the whole file"}
+                                      added.variables)))))
                         (it "surfaces GitHub's reason when gh rejects the post"
                             (fn []
                               (let [sid (review.ensure-session)]

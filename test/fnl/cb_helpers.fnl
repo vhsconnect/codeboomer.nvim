@@ -65,8 +65,9 @@ case \"$1 $2\" in
       cat \"$dir/gh/post-error.json\"; echo 'gh: Unprocessable Entity (HTTP 422)' >&2; exit 1
     fi
     case \"$2\" in
-      */replies) cat >> \"$dir/gh-stdin.log\"; echo '{\"id\": 9001}'; exit 0 ;;
-      */reviews) cat >> \"$dir/gh-stdin.log\"; echo '{\"id\": 1}'; exit 0 ;;
+      */replies) { cat; echo; } >> \"$dir/gh-stdin.log\"; echo '{\"id\": 9001}'; exit 0 ;;
+      */reviews) { cat; echo; } >> \"$dir/gh-stdin.log\"; echo '{\"id\": 1, \"node_id\": \"PRR_1\"}'; exit 0 ;;
+      graphql) { cat; echo; } >> \"$dir/gh-stdin.log\"; echo '{\"data\": {}}'; exit 0 ;;
       */comments) n=${2%/comments}; f=\"$dir/gh/pulls-${n##*/}-comments.jsonl\" ;;
     esac ;;
 esac
@@ -196,6 +197,11 @@ esac
 
 (fn M.fake-gh-text [name text]
   (write-file (.. M.fakes :/gh/ name) text))
+
+(fn M.gh-payloads []
+  (exec-lua (fn [path]
+              (vim.tbl_map vim.json.decode (vim.fn.readfile path)))
+            (.. M.fakes :/gh-stdin.log)))
 
 (fn M.fake-log [name]
   (case (io.open (.. M.fakes "/" name) :r)

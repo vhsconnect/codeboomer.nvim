@@ -183,6 +183,19 @@
                                 (eq posted.id
                                     (. (review.match-posted-comment sid drifted)
                                        :id)))))))
+            (it "matches a posted file comment coming home without a line"
+                (fn []
+                  (review.file-comment sid files.readme "whole-file note")
+                  (let [thread (. (threads-on files.readme) 1)]
+                    (review.promote thread.id "whole-file note" sid nil)
+                    (let [posted (. (review.pending-for-post sid) 1 :comment)]
+                      (review.mark-annotations :posted [posted.id])
+                      (eq posted.id (. (review.match-posted-comment sid
+                                                                    {:id 988
+                                                                     :subject_type :file
+                                                                     :path files.readme
+                                                                     :body "whole-file note"})
+                                       :id))))))
             (it "refuses threads outside the diff hunks"
                 (fn []
                   (let [thread {:file_path files.readme

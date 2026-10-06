@@ -624,15 +624,20 @@
 ;; the row's own anchor — while line drifts with every later push
 (fn M.match-posted-comment [session-id item]
   (let [line (or item.original_line item.line)
+        file? (= :file item.subject_type)
         want-path (or item.path "")
         want-body (or item.body "")]
+    (fn anchored? [r]
+      (if file?
+          (= :file r.type)
+          (and line (>= line (or r.line_start 0)) (<= line (or r.line_end 0)))))
+
     (var found nil)
     (each [_ r (ipairs (M.review-rows-for-session session-id)) &until found]
-      (when (= want-path (or r.file_path ""))
+      (when (and (= want-path (or r.file_path "")) (anchored? r))
         (each [_ c (ipairs (M.comments-for (or r.id 0))) &until found]
-          (when (and line (= 1 (or c.posted 0)) (= nil c.gh_comment_id)
-                     (= want-body (or c.body "")) (>= line (or r.line_start 0))
-                     (<= line (or r.line_end 0)))
+          (when (and (= 1 (or c.posted 0)) (= nil c.gh_comment_id)
+                     (= want-body (or c.body "")))
             (set found c)))))
     found))
 

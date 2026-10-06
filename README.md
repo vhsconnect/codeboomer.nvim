@@ -296,9 +296,11 @@ the outbox: local conversation halves are unreachable from this walk.
 - Comments land in a **pending review** — a draft on GitHub you
   submit there (comment / approve / request changes); nothing is
   published until you do
-- File-level threads ship as GitHub file comments
-  (`subject_type = file`) — exempt from the off-diff gate, since
-  GitHub anchors them to the file rather than to diff lines
+- File-level threads ship as GitHub file comments in the same pending
+  review, added through GraphQL (`addPullRequestReviewThread`) since
+  the REST review payload cannot carry them — exempt from the
+  off-diff gate, since GitHub anchors them to the file rather than to
+  diff lines
 - Replies to pulled threads post via the replies endpoint (attached
   under the thread's root GitHub comment) — immediately, as that
   endpoint has no draft state; everything else batches into one

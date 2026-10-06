@@ -2343,15 +2343,23 @@ M["comment-author"] = function(c)
 end
 M["match-posted-comment"] = function(session_id, item)
   local line = (item.original_line or item.line)
+  local file_3f = ("file" == item.subject_type)
   local want_path = (item.path or "")
   local want_body = (item.body or "")
+  local function anchored_3f(r)
+    if file_3f then
+      return ("file" == r.type)
+    else
+      return (line and (line >= (r.line_start or 0)) and (line <= (r.line_end or 0)))
+    end
+  end
   local found = nil
   for _, r in ipairs(M["review-rows-for-session"](session_id)) do
     if found then break end
-    if (want_path == (r.file_path or "")) then
+    if ((want_path == (r.file_path or "")) and anchored_3f(r)) then
       for _0, c in ipairs(M["comments-for"]((r.id or 0))) do
         if found then break end
-        if (line and (1 == (c.posted or 0)) and (nil == c.gh_comment_id) and (want_body == (c.body or "")) and (line >= (r.line_start or 0)) and (line <= (r.line_end or 0))) then
+        if ((1 == (c.posted or 0)) and (nil == c.gh_comment_id) and (want_body == (c.body or ""))) then
           found = c
         else
         end
@@ -2365,15 +2373,15 @@ M["delete-session"] = function(session_id)
   local threads = string.format("select id from comment_thread where session_id = %d", (session_id or 0))
   local db_mod_8_auto = require("codeboomer.singleton")
   local ok_9_auto, result_10_auto
-  local function _424_()
-    local function _425_(d)
+  local function _425_()
+    local function _426_(d)
       return d:execute(string.format("begin;\n                                               delete from comment where thread_id in (%s);\n                                               update comment_thread set parent_id = null\n                                                 where parent_id in (%s) and session_id != %d;\n                                               delete from comment_thread where session_id = %d;\n                                               delete from session where id = %d;\n                                               commit;", threads, threads, (session_id or 0), (session_id or 0), (session_id or 0)))
     end
-    return db_mod_8_auto["get-db"]():with_open(_425_)
+    return db_mod_8_auto["get-db"]():with_open(_426_)
   end
-  ok_9_auto, result_10_auto = pcall(_424_)
-  local tgt_426_ = require("codeboomer.config")
-  if (tgt_426_)["debug?"](tgt_426_) then
+  ok_9_auto, result_10_auto = pcall(_425_)
+  local tgt_427_ = require("codeboomer.config")
+  if (tgt_427_)["debug?"](tgt_427_) then
     local vim_11_auto = _G.vim
     vim_11_auto.notify("opening connection to sqlite", vim_11_auto.log.levels.INFO)
   else

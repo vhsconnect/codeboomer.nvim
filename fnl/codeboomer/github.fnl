@@ -99,8 +99,8 @@
 ;; one pending annotation → one inline PR comment: the range becomes
 ;; start_line/line (equal endpoints collapse to a single line), the
 ;; body is the annotation's text — thread paths are already
-;; repo-relative, as the API wants. File-scoped threads post as
-;; subject_type "file" with no line at all
+;; repo-relative, as the API wants. File-scoped threads carry
+;; subject_type "file" with no line at all — post-review routes them
 (fn pr-comment [t c]
   (let [item {:path (or t.file_path "") :body (or c.body "")}]
     (if (= :file (or t.type :line))
@@ -132,6 +132,28 @@
         (tset groups sha bucket)))
     groups))
 
+;; the REST review endpoint's comments[] has no subject_type, so file
+;; threads join the draft afterwards through GraphQL, which does
+(local add-file-thread-mutation "mutation($review: ID!, $path: String!, $body: String!) {
+  addPullRequestReviewThread(input: {pullRequestReviewId: $review, path: $path, body: $body, subjectType: FILE}) {
+    thread { id }
+  }
+}")
+
+(fn add-file-thread [review-node-id e]
+  (system [:gh :api :graphql :--input "-"]
+          {:stdin (vim.json.encode {:query add-file-thread-mutation
+                                    :variables {:review review-node-id
+                                                :path e.item.path
+                                                :body e.item.body}})
+           :text true}
+          (fn [obj]
+            (if (= obj.code 0)
+                (review.mark-annotations :posted [e.id])
+                (notify (string.format "codeboomer: file comment on %s failed (exit %d)
+%s" e.item.path obj.code (gh-error obj))
+                        vim.log.levels.ERROR)))))
+
 ;; POST one draft review: gh api reads the JSON payload from stdin.
 ;; The payload carries no event, which GitHub reads as PENDING — the
 ;; comments land in a draft review, submitted on the web (comment /
@@ -140,10 +162,14 @@
 ;; first is unsubmitted is rejected (422). On success the annotations
 ;; are marked posted, so the outbox drains
 (fn post-review [slug pr-number sha entries]
-  (let [comments (icollect [_ e (ipairs entries)] e.item)
-        ids (icollect [_ e (ipairs entries)] e.id)
+  (let [lines (icollect [_ e (ipairs entries)]
+                (when (not= :file e.item.subject_type) e))
+        files (icollect [_ e (ipairs entries)]
+                (when (= :file e.item.subject_type) e))
+        comments (icollect [_ e (ipairs lines)] e.item)
+        ids (icollect [_ e (ipairs lines)] e.id)
         payload {:body (string.format "codeboomer review — %d annotation(s)"
-                                      (length comments))
+                                      (length entries))
                  : comments}]
     (when (not= sha "?") (set payload.commit_id sha))
     (system [:gh
@@ -155,8 +181,10 @@
               (if (= obj.code 0)
                   (let [res (vim.json.decode (or obj.stdout "{}"))]
                     (review.mark-annotations :posted ids)
+                    (each [_ e (ipairs files)]
+                      (add-file-thread res.node_id e))
                     (notify (string.format "codeboomer: drafted %d annotation(s) — pending review, submit it on GitHub
-%s" (length comments)
+%s" (length entries)
                                            (or res.html_url
                                                (tostring (?. res :id))))
                             vim.log.levels.INFO))
