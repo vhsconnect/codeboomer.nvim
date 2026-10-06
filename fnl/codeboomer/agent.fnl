@@ -1,14 +1,17 @@
 ;; [nfnl] codeboomer/agent.fnl
 ;; The CLI half of the agent bridge: lets a review agent outside nvim
-;; post its answer to a comment thread. Agents never type nvim
-;; incantations — they call the generated `codeboomer-agent` shim (see
-;; ensure-shim), which runs this module headlessly. Arguments arrive
-;; through the CODEBOOMER_AGENT_ARGS env var, sidestepping nvim's own
-;; argument handling entirely.
+;; answer comment threads and open threads of its own. Agents never
+;; type nvim incantations — they call the generated `codeboomer-agent`
+;; shim (see ensure-shim), which runs this module headlessly.
+;; Arguments arrive through the CODEBOOMER_AGENT_ARGS env var,
+;; sidestepping nvim's own argument handling entirely.
 ;;
 ;;   codeboomer-agent reply <thread-id> <answer text...>
+;;   codeboomer-agent comment <file> <line>[-<line>] <text...>
+;;   codeboomer-agent file-comment <file> <text...>
 (global vim vim)
 
+(local git (require :codeboomer.git))
 (local review (require :codeboomer.review))
 
 (local M {})
@@ -22,29 +25,116 @@
   (.. "Reply to each thread above. Keep your responses in the thread short and consice and use the harnass to provide detail. Answer in the thread with: "
       shim-path " reply <thread-id> <text>\n"))
 
-(local usage "usage: codeboomer-agent reply <thread-id> <answer text>")
+(local usage "usage: codeboomer-agent reply <thread-id> <text>
+       codeboomer-agent comment <file> <line>[-<line>] <text>
+       codeboomer-agent file-comment <file> <text>")
 
 ;; the agent's own entry point for discovering the tool cold: given
 ;; nothing but the shim's path, `help`/`-h`/`--help`/no args at all
 ;; print this instead of failing
-(local help-text (.. usage "\n\n" "codeboomer-agent posts a review agent's replies into codeboomer's
+(local help-text (.. usage "\n\n" "codeboomer-agent posts a review agent's comments into codeboomer's
 " "comment threads from outside nvim — thread ids arrive inline
 " "wherever a review's annotations were sent to you.
 
 " "verbs:\n" "  reply <thread-id> <text...>   reply to an existing, open thread.
-" "                                <text> is every argument after the
-" "                                id, joined with spaces — no quoting
-" "                                needed. Fails if the thread doesn't
-" "                                exist or is resolved/deleted.
+" "                                Fails if the thread doesn't exist or
+" "                                is resolved/deleted.
+" "  comment <file> <line>[-<line>] <text...>
+" "                                start a new thread on a line or an
+" "                                inclusive line range of <file>.
+" "  file-comment <file> <text...> start a new thread on <file> as a
+" "                                whole.
 " "  help | -h | --help            show this message.
 
-" "exit status: 0 on success, 1 on failure (the message says why).
+" "<file> is relative to the current directory's work tree (absolute
+" "paths inside it work too); lines count from 1 as the file reads on
+" "disk — comment on committed code: a range edited since HEAD can't
+" "be promoted to the PR. <text> is every argument after the last
+" "positional one, joined with spaces — no quoting needed.
+
+"
+                     "exit status: 0 on success, 1 on failure (the message says why).
 "))
 
-(fn fail [msg]
-  (print (.. "codeboomer-agent: " msg "\n" usage
-             "\nrun `codeboomer-agent help` for details"))
-  (os.exit 1 true))
+;; the work tree file an agent named, as a repo-relative path plus its
+;; lines — nil and the reason when it escapes the tree or is missing
+(fn resolve-file [path]
+  (let [root (git.work-root (vim.fn.getcwd))
+        real-root (when root (vim.uv.fs_realpath root))
+        joined (if (vim.startswith path "/") path
+                   (vim.fs.joinpath (vim.fn.getcwd) path))
+        real (vim.uv.fs_realpath joined)
+        stat (when real (vim.uv.fs_stat real))]
+    (if (not real-root) (values nil "not inside a git work tree") (not real)
+        (values nil (.. "no such file: " path))
+        (not (vim.startswith real (.. real-root "/")))
+        (values nil (.. "file is outside the work tree: " path))
+        (not= :file (?. stat :type)) (values nil (.. "not a file: " path))
+        {:rel (real:sub (+ 2 (length real-root)))
+         :lines (vim.fn.readfile real)})))
+
+(fn parse-range [spec]
+  (let [single (tonumber (string.match (or spec "") "^(%d+)$"))
+        (from to) (string.match (or spec "") "^(%d+)-(%d+)$")]
+    (if single (values single single) (values (tonumber from) (tonumber to)))))
+
+(local no-session "no review session — run from a checked-out branch")
+
+(fn reply [args]
+  (let [thread-id (tonumber (. args 2))
+        body (table.concat (vim.list_slice args 3) " ")]
+    (if (not thread-id) (values false "thread id must be a number") (= body "")
+        (values false "missing answer text")
+        (let [id (review.agent-reply thread-id body)]
+          (if id
+              (values true
+                      (string.format "posted reply to thread #%d (comment %d)"
+                                     thread-id id))
+              ;; review.agent-reply has already said why
+              (values false "reply rejected"))))))
+
+(fn line-comment [args]
+  (let [(file err) (resolve-file (or (. args 2) ""))
+        (from to) (parse-range (. args 3))
+        body (table.concat (vim.list_slice args 4) " ")]
+    (if (not file) (values false err) (not from)
+        (values false "lines must look like 12 or 12-18")
+        (or (< from 1) (< to from) (> to (length file.lines)))
+        (values false
+                (string.format "lines %d-%d out of range — %s has %d lines"
+                               from to file.rel (length file.lines)))
+        (= body "") (values false "missing comment text")
+        (let [sid (review.ensure-session)
+              snapshot (table.concat (vim.list_slice file.lines from to) "\n")]
+          (if (not sid) (values false no-session)
+              (values true
+                      (string.format "opened thread #%d on %s:%d-%d"
+                                     (review.agent-comment sid file.rel from to
+                                                           snapshot body)
+                                     file.rel from to)))))))
+
+(fn file-comment [args]
+  (let [(file err) (resolve-file (or (. args 2) ""))
+        body (table.concat (vim.list_slice args 3) " ")]
+    (if (not file) (values false err) (= body "")
+        (values false "missing comment text")
+        (let [sid (review.ensure-session)]
+          (if (not sid) (values false no-session)
+              (values true (string.format "opened thread #%d on %s"
+                                          (review.agent-file-comment sid
+                                                                     file.rel
+                                                                     body)
+                                          file.rel)))))))
+
+(local verbs {: reply :comment line-comment : file-comment})
+
+;; one verb, no process exit — main's testable core. Returns ok and
+;; the message to print, or false and why it failed
+(fn M.run [args]
+  (let [verb (. verbs (or (. args 1) ""))]
+    (if verb (verb args)
+        (values false
+                "expected reply, comment or file-comment as the first argument"))))
 
 (fn M.main []
   (let [args (vim.split (or (os.getenv :CODEBOOMER_AGENT_ARGS) "") " "
@@ -54,23 +144,15 @@
         (do
           (print help-text)
           (os.exit 0 true))
-        (let [thread-id (tonumber (. args 2))
-              body (table.concat (vim.list_slice args 3) " ")]
-          ;; fail exits the process, so these guards are early returns
-          (when (not= verb :reply)
-            (fail "expected 'reply' as the first argument"))
-          (when (not thread-id)
-            (fail "thread id must be a number"))
-          (when (= body "")
-            (fail "missing answer text"))
-          (let [id (review.agent-reply thread-id body)]
-            (if id
-                (do
-                  (print (string.format "codeboomer-agent: posted reply to thread #%d (comment %d)"
-                                        thread-id id))
-                  (os.exit 0 true))
-                ;; review.agent-reply has already said why
-                (fail "reply rejected")))))))
+        (let [(ok msg) (M.run args)]
+          (if ok
+              (do
+                (print (.. "codeboomer-agent: " msg))
+                (os.exit 0 true))
+              (do
+                (print (.. "codeboomer-agent: " msg "\n" usage
+                           "\nrun `codeboomer-agent help` for details"))
+                (os.exit 1 true)))))))
 
 ;; the shim bakes in the running nvim's environment (plugin root,
 ;; LD_LIBRARY_PATH for libsqlite3) so the agent needs nothing but the
@@ -82,7 +164,7 @@
       (let [root (vim.fs.dirname (vim.fs.dirname entry))
             ld (or (os.getenv :LD_LIBRARY_PATH) "")]
         (string.format "#!/usr/bin/env bash
-# codeboomer-agent — post review replies from outside nvim.
+# codeboomer-agent — post review comments from outside nvim.
 # GENERATED by codeboomer.nvim on load — edits are overwritten.
 set -euo pipefail
 export CODEBOOMER_PATH='%s'

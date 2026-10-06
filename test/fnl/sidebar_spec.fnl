@@ -270,6 +270,33 @@
                                 (assert.is_true (vim.list_contains lines
                                                                    "idle refresh reply"))
                                 (matches wide-header (. lines 1)))))))
+            (describe "an agent-opened thread"
+                      (fn []
+                        (before_each (fn []
+                                       (review.resolve-thread (. (thread-at 1
+                                                                            69)
+                                                                 :id))
+                                       (review.agent-comment sid files.main 40
+                                                             40
+                                                             (helpers.content-snapshot 40
+                                                                                       40)
+                                                             "agent finding")
+                                       (review.set-session-pr sid
+                                                              fixtures.pr.number)
+                                       (helpers.fake-gh-text (.. :pr-diff-
+                                                                 fixtures.pr.number
+                                                                 :.txt)
+                                                             fixtures.pr-diff)
+                                       (sidebar.reload-threads)
+                                       (rest code-win 40)))
+                        (it "marks the header as opened by the agent"
+                            (fn []
+                              (matches "by agent" (. (pane-lines) 1))))
+                        (it "prefills promotion with the agent's finding"
+                            (fn []
+                              (press-in-pane :p)
+                              (eq ["agent finding"]
+                                  (api.nvim_buf_get_lines 0 0 -1 false))))))
             (describe :navigation
                       (fn []
                         (before_each (fn []

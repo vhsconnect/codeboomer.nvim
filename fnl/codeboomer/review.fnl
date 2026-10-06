@@ -68,51 +68,52 @@
     (when session
       (?. (db sqlite.repo :get {:where {:id session.repo_id}}) 1))))
 
-;; every annotation starts LOCAL: the note is a conversation with the
-;; agent until promotion deliberately creates the shipping half
-(fn M.user-comment [session-id file-path line-start line-end code body]
-  (let [user-id (with-user)
-        repo-id (with-repo)
-        commit-id (with-commit repo-id)
+;; every thread starts LOCAL — annotations and the agent's own
+;; findings alike: the note is a conversation until promotion
+;; deliberately creates the shipping half. Returns the thread id
+(fn new-thread [session-id author-id source anchor body]
+  (let [commit-id (with-commit (with-repo))
         thread-id (db sqlite.thread :insert
-                      {:session_id session-id
-                       :file_path file-path
-                       :line_start line-start
-                       :line_end line-end
-                       :code_snapshot (sql-literal code)
-                       :anchor_commit commit-id
-                       :status :open
-                       :type :line
-                       :kind :local
-                       :created_by user-id})]
+                      (vim.tbl_extend :force anchor
+                                      {:session_id session-id
+                                       :anchor_commit commit-id
+                                       :status :open
+                                       :kind :local
+                                       :created_by author-id}))]
     (db sqlite.comments :insert
         {:thread_id thread-id
-         :author_id user-id
+         :author_id author-id
          :body (sql-literal body)
-         :source :user
-         :commit_id commit-id})))
+         : source
+         :commit_id commit-id})
+    thread-id))
+
+(fn line-anchor [file-path line-start line-end code]
+  {:file_path file-path
+   :line_start line-start
+   :line_end line-end
+   :code_snapshot (sql-literal code)
+   :type :line})
 
 ;; a whole-file comment — no lines, no snapshot: the thread anchors
 ;; to the file itself (GitHub's subject_type=file). The pane lists it
 ;; ahead of the file's line threads; it carries no line range
+(fn file-anchor [file-path]
+  {:file_path file-path :type :file})
+
+(fn M.user-comment [session-id file-path line-start line-end code body]
+  (new-thread session-id (with-user) :user
+              (line-anchor file-path line-start line-end code) body))
+
 (fn M.file-comment [session-id file-path body]
-  (let [user-id (with-user)
-        repo-id (with-repo)
-        commit-id (with-commit repo-id)
-        thread-id (db sqlite.thread :insert
-                      {:session_id session-id
-                       :file_path file-path
-                       :anchor_commit commit-id
-                       :status :open
-                       :type :file
-                       :kind :local
-                       :created_by user-id})]
-    (db sqlite.comments :insert
-        {:thread_id thread-id
-         :author_id user-id
-         :body (sql-literal body)
-         :source :user
-         :commit_id commit-id})))
+  (new-thread session-id (with-user) :user (file-anchor file-path) body))
+
+(fn M.agent-comment [session-id file-path line-start line-end code body]
+  (new-thread session-id (with-agent-user) :agent
+              (line-anchor file-path line-start line-end code) body))
+
+(fn M.agent-file-comment [session-id file-path body]
+  (new-thread session-id (with-agent-user) :agent (file-anchor file-path) body))
 
 ;; ── the branch session ──────────────────────────────────
 ;; ONE session per (repo, branch) — never chosen, never competing:

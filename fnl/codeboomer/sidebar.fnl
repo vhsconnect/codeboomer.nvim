@@ -128,7 +128,9 @@
                    (or (when (and t.gh_outdated (> (or t.gh_outdated 0) 0))
                          ", outdated") "")
                    (or (when (= :review (or t.twin-kind :local)) " · promoted")
-                       ""))
+                       "")
+                   (or (when (= :agent (?. t.conversation 1 :source))
+                         " · by agent") ""))
         pos (if (= :file (or t.type :line)) :file
                 (.. (or t.line_start "?") "-" (or t.line_end "?")))]
     (string.format "#%d  %s:%s  (%s)  anchor %s" (or t.id 0) base pos status
@@ -266,9 +268,10 @@
       (let [c (. cs 1)]
         (when (= :user (or c.source :user)) (or c.body ""))))))
 
-(fn first-user-body [t]
-  (accumulate [body nil _ c (ipairs (review.conversation-comments (or t.id 0)))]
-    (or body (when (= :user (or c.source :user)) (or c.body "")))))
+;; the thread's opening comment — the annotation, or the finding of
+;; a thread the agent opened itself
+(fn root-body [t]
+  (?. (review.conversation-comments (or t.id 0)) 1 :body))
 
 (fn pane-promote []
   (let [t (pane-thread-at (?. (vim.api.nvim_win_get_cursor pane-win) 1))]
@@ -302,7 +305,7 @@
                                     vim.log.levels.INFO)))
                     (input.open {:title (string.format " Promote thread #%d> "
                                                        (or t.id 0))
-                                 :prefill (or (first-user-body t) "")
+                                 :prefill (or (root-body t) "")
                                  :on-submit (fn [lines]
                                               (let [body (table.concat lines
                                                                        "\n")]

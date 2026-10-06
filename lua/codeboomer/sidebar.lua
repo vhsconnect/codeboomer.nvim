@@ -216,7 +216,26 @@ local function thread_header(base, t)
   else
     _30_ = nil
   end
-  status = ((t.status or "open") .. (_28_ or "") .. (_30_ or ""))
+  local _32_
+  local _34_
+  do
+    local t_33_ = t.conversation
+    if (nil ~= t_33_) then
+      t_33_ = t_33_[1]
+    else
+    end
+    if (nil ~= t_33_) then
+      t_33_ = t_33_.source
+    else
+    end
+    _34_ = t_33_
+  end
+  if ("agent" == _34_) then
+    _32_ = " \194\183 by agent"
+  else
+    _32_ = nil
+  end
+  status = ((t.status or "open") .. (_28_ or "") .. (_30_ or "") .. (_32_ or ""))
   local pos
   if ("file" == (t.type or "line")) then
     pos = "file"
@@ -282,7 +301,7 @@ local function render(path, threads)
   return {lines = lines, headers = headers, labels = labels}
 end
 local function pane_sig(path, threads)
-  local _37_
+  local _43_
   do
     local tbl_26_ = {}
     local i_27_ = 0
@@ -294,19 +313,19 @@ local function pane_sig(path, threads)
       else
       end
     end
-    _37_ = tbl_26_
+    _43_ = tbl_26_
   end
-  return ((path or "") .. "|" .. tostring(map_version) .. "|" .. table.concat(_37_, ","))
+  return ((path or "") .. "|" .. tostring(map_version) .. "|" .. table.concat(_43_, ","))
 end
 local function render_pane(path, threads)
   if (pane_sig(path, threads) ~= rendered_sig) then
     rendered_sig = pane_sig(path, threads)
     local buf = vim.api.nvim_win_get_buf(pane_win)
     local bo = vim.bo[buf]
-    local _let_39_ = render(path, threads)
-    local lines = _let_39_.lines
-    local headers = _let_39_.headers
-    local labels = _let_39_.labels
+    local _let_45_ = render(path, threads)
+    local lines = _let_45_.lines
+    local headers = _let_45_.headers
+    local labels = _let_45_.labels
     pane_path = path
     pane_header_rows = headers
     vim.api.nvim_buf_clear_namespace(buf, extmark_ns, 0, -1)
@@ -339,14 +358,14 @@ local function refresh_pane()
     else
     end
     map_version = (1 + map_version)
-    local function _42_()
+    local function _48_()
       if current_thread then
         return {current_thread}
       else
         return {}
       end
     end
-    return render_pane(pane_path, _42_())
+    return render_pane(pane_path, _48_())
   else
     return nil
   end
@@ -365,15 +384,15 @@ local function review_half(t)
 end
 local function pane_reply()
   local t
-  local function _47_()
-    local t_46_ = vim.api.nvim_win_get_cursor(pane_win)
-    if (nil ~= t_46_) then
-      t_46_ = t_46_[1]
+  local function _53_()
+    local t_52_ = vim.api.nvim_win_get_cursor(pane_win)
+    if (nil ~= t_52_) then
+      t_52_ = t_52_[1]
     else
     end
-    return t_46_
+    return t_52_
   end
-  t = pane_thread_at(_47_())
+  t = pane_thread_at(_53_())
   if not t then
     return vim.notify("codeboomer: no thread block under the pane cursor", vim.log.levels.WARN)
   else
@@ -381,28 +400,28 @@ local function pane_reply()
     if not target then
       return vim.notify("codeboomer: thread not promoted \226\128\148 p promotes it first", vim.log.levels.WARN)
     else
-      local function _49_(lines)
+      local function _55_(lines)
         if review["user-reply"]((target.id or 0), table.concat(lines, "\n")) then
           return refresh_pane()
         else
           return nil
         end
       end
-      return input.open({title = string.format(" Reply on thread #%d> ", (t.id or 0)), ["on-submit"] = _49_})
+      return input.open({title = string.format(" Reply on thread #%d> ", (t.id or 0)), ["on-submit"] = _55_})
     end
   end
 end
 local function pane_agent_reply()
   local t
-  local function _54_()
-    local t_53_ = vim.api.nvim_win_get_cursor(pane_win)
-    if (nil ~= t_53_) then
-      t_53_ = t_53_[1]
+  local function _60_()
+    local t_59_ = vim.api.nvim_win_get_cursor(pane_win)
+    if (nil ~= t_59_) then
+      t_59_ = t_59_[1]
     else
     end
-    return t_53_
+    return t_59_
   end
-  t = pane_thread_at(_54_())
+  t = pane_thread_at(_60_())
   if not t then
     return vim.notify("codeboomer: no thread block under the pane cursor", vim.log.levels.WARN)
   else
@@ -415,14 +434,14 @@ local function pane_agent_reply()
     if not target then
       return vim.notify("codeboomer: could not open the conversation", vim.log.levels.ERROR)
     else
-      local function _57_(lines)
+      local function _63_(lines)
         if review["user-reply"]((target.id or 0), table.concat(lines, "\n")) then
           return refresh_pane()
         else
           return nil
         end
       end
-      return input.open({title = string.format(" Reply to the agent on thread #%d> ", (t.id or 0)), ["on-submit"] = _57_})
+      return input.open({title = string.format(" Reply to the agent on thread #%d> ", (t.id or 0)), ["on-submit"] = _63_})
     end
   end
 end
@@ -439,32 +458,29 @@ local function virgin_body(t)
     return nil
   end
 end
-local function first_user_body(t)
-  local body = nil
-  for _, c in ipairs(review["conversation-comments"]((t.id or 0))) do
-    local or_63_ = body
-    if not or_63_ then
-      if ("user" == (c.source or "user")) then
-        or_63_ = (c.body or "")
-      else
-        or_63_ = nil
-      end
-    end
-    body = or_63_
+local function root_body(t)
+  local t_69_ = review["conversation-comments"]((t.id or 0))
+  if (nil ~= t_69_) then
+    t_69_ = t_69_[1]
+  else
   end
-  return body
+  if (nil ~= t_69_) then
+    t_69_ = t_69_.body
+  else
+  end
+  return t_69_
 end
 local function pane_promote()
   local t
-  local function _66_()
-    local t_65_ = vim.api.nvim_win_get_cursor(pane_win)
-    if (nil ~= t_65_) then
-      t_65_ = t_65_[1]
+  local function _73_()
+    local t_72_ = vim.api.nvim_win_get_cursor(pane_win)
+    if (nil ~= t_72_) then
+      t_72_ = t_72_[1]
     else
     end
-    return t_65_
+    return t_72_
   end
-  t = pane_thread_at(_66_())
+  t = pane_thread_at(_73_())
   if not t then
     return vim.notify("codeboomer: no thread block under the pane cursor", vim.log.levels.WARN)
   elseif ("review" == (t.kind or "local")) then
@@ -488,7 +504,7 @@ local function pane_promote()
           return nil
         end
       else
-        local function _69_(lines)
+        local function _76_(lines)
           local body = table.concat(lines, "\n")
           if (("" ~= vim.trim(body)) and review.promote((t.id or 0), body, ctx["session-id"])) then
             refresh_pane()
@@ -497,22 +513,22 @@ local function pane_promote()
             return nil
           end
         end
-        return input.open({title = string.format(" Promote thread #%d> ", (t.id or 0)), prefill = (first_user_body(t) or ""), ["on-submit"] = _69_})
+        return input.open({title = string.format(" Promote thread #%d> ", (t.id or 0)), prefill = (root_body(t) or ""), ["on-submit"] = _76_})
       end
     end
   end
 end
 local function pane_edit()
   local t
-  local function _75_()
-    local t_74_ = vim.api.nvim_win_get_cursor(pane_win)
-    if (nil ~= t_74_) then
-      t_74_ = t_74_[1]
+  local function _82_()
+    local t_81_ = vim.api.nvim_win_get_cursor(pane_win)
+    if (nil ~= t_81_) then
+      t_81_ = t_81_[1]
     else
     end
-    return t_74_
+    return t_81_
   end
-  t = pane_thread_at(_75_())
+  t = pane_thread_at(_82_())
   if not t then
     return vim.notify("codeboomer: no thread block under the pane cursor", vim.log.levels.WARN)
   else
@@ -524,26 +540,26 @@ local function pane_edit()
       if not c then
         return vim.notify("codeboomer: nothing unposted to edit", vim.log.levels.WARN)
       else
-        local function _77_(lines)
+        local function _84_(lines)
           review["update-comment-body"]((c.id or 0), table.concat(lines, "\n"))
           return refresh_pane()
         end
-        return input.open({title = string.format(" Edit comment #%d> ", (c.id or 0)), prefill = (c.body or ""), ["on-submit"] = _77_})
+        return input.open({title = string.format(" Edit comment #%d> ", (c.id or 0)), prefill = (c.body or ""), ["on-submit"] = _84_})
       end
     end
   end
 end
 local function pane_delete()
   local t
-  local function _82_()
-    local t_81_ = vim.api.nvim_win_get_cursor(pane_win)
-    if (nil ~= t_81_) then
-      t_81_ = t_81_[1]
+  local function _89_()
+    local t_88_ = vim.api.nvim_win_get_cursor(pane_win)
+    if (nil ~= t_88_) then
+      t_88_ = t_88_[1]
     else
     end
-    return t_81_
+    return t_88_
   end
-  t = pane_thread_at(_82_())
+  t = pane_thread_at(_89_())
   if not t then
     return vim.notify("codeboomer: no thread block under the pane cursor", vim.log.levels.WARN)
   else
@@ -573,27 +589,27 @@ local function covering_at_source()
   else
     local row
     do
-      local t_87_ = vim.api.nvim_win_get_cursor(pane_source_win)
-      if (nil ~= t_87_) then
-        t_87_ = t_87_[1]
+      local t_94_ = vim.api.nvim_win_get_cursor(pane_source_win)
+      if (nil ~= t_94_) then
+        t_94_ = t_94_[1]
       else
       end
-      row = t_87_
+      row = t_94_
     end
     return threads_at((pane_path or ""), (row or 0))
   end
 end
 local function pane_resolve()
   local t
-  local function _91_()
-    local t_90_ = vim.api.nvim_win_get_cursor(pane_win)
-    if (nil ~= t_90_) then
-      t_90_ = t_90_[1]
+  local function _98_()
+    local t_97_ = vim.api.nvim_win_get_cursor(pane_win)
+    if (nil ~= t_97_) then
+      t_97_ = t_97_[1]
     else
     end
-    return t_90_
+    return t_97_
   end
-  t = pane_thread_at(_91_())
+  t = pane_thread_at(_98_())
   if not t then
     return vim.notify("codeboomer: no thread block under the pane cursor", vim.log.levels.WARN)
   else
@@ -644,14 +660,14 @@ local function open_pane()
     vim.keymap.set("n", "d", pane_delete, {buffer = buf, desc = "codeboomer: delete the last unsent message"})
     vim.keymap.set("n", "f", pane_refresh, {buffer = buf, desc = "codeboomer: refresh this thread"})
     vim.keymap.set("n", "q", pane_resolve, {buffer = buf, desc = "codeboomer: resolve this thread"})
-    local function _96_()
+    local function _103_()
       return pane_jump(1)
     end
-    vim.keymap.set("n", "n", _96_, {buffer = buf, desc = "codeboomer: jump to the next thread"})
-    local function _97_()
+    vim.keymap.set("n", "n", _103_, {buffer = buf, desc = "codeboomer: jump to the next thread"})
+    local function _104_()
       return pane_jump(-1)
     end
-    vim.keymap.set("n", "N", _97_, {buffer = buf, desc = "codeboomer: jump to the previous thread"})
+    vim.keymap.set("n", "N", _104_, {buffer = buf, desc = "codeboomer: jump to the previous thread"})
   end
   return vim.cmd("wincmd p")
 end
@@ -695,7 +711,7 @@ local function open_on_session()
     return nil
   end
 end
-local function _104_(bufnr)
+local function _111_(bufnr)
   if (vim.api.nvim_buf_is_valid(bufnr) and (bufnr == vim.api.nvim_get_current_buf()) and source_win_3f(vim.api.nvim_get_current_win())) then
     if (pane_win and vim.api.nvim_win_is_valid(pane_win) and (vim.api.nvim_win_get_tabpage(pane_win) == vim.api.nvim_get_current_tabpage())) then
       pane_source_win = vim.api.nvim_get_current_win()
@@ -720,20 +736,20 @@ local function _104_(bufnr)
     return nil
   end
 end
-M["enter-file"] = _104_
+M["enter-file"] = _111_
 local function flash_line(win, row)
   local buf = vim.api.nvim_win_get_buf(win)
   local id = vim.api.nvim_buf_set_extmark(buf, flash_ns, (row - 1), 0, {end_row = row, hl_group = "IncSearch", hl_eol = true})
-  local function _109_()
+  local function _116_()
     if vim.api.nvim_buf_is_valid(buf) then
       return pcall(vim.api.nvim_buf_del_extmark, buf, flash_ns, id)
     else
       return nil
     end
   end
-  return vim.defer_fn(_109_, flash_ms)
+  return vim.defer_fn(_116_, flash_ms)
 end
-local function _111_(dir)
+local function _118_(dir)
   if not (pane_source_win and vim.api.nvim_win_is_valid(pane_source_win)) then
     return vim.notify("codeboomer: the pane has no code window to jump from", vim.log.levels.WARN)
   else
@@ -742,21 +758,21 @@ local function _111_(dir)
       return vim.notify("codeboomer: no threads to jump to", vim.log.levels.WARN)
     else
       local target
-      local or_112_ = index_of(current_thread)
-      if not or_112_ then
+      local or_119_ = index_of(current_thread)
+      if not or_119_ then
         if (dir > 0) then
-          or_112_ = -1
+          or_119_ = -1
         else
-          or_112_ = 0
+          or_119_ = 0
         end
       end
-      target = all_threads[(1 + ((or_112_ + dir) % n))]
+      target = all_threads[(1 + ((or_119_ + dir) % n))]
       local source_buf = vim.api.nvim_win_get_buf(pane_source_win)
       local cur_path = buf_rel_path(source_buf)
       local target_path = ((git["work-root"](source_buf) or "") .. "/" .. target.file_path)
       do
         local jump_to
-        local function _114_()
+        local function _121_()
           if (cur_path ~= target.file_path) then
             vim.cmd({cmd = "edit", args = {target_path}})
           else
@@ -766,7 +782,7 @@ local function _111_(dir)
           vim.cmd("normal! zz")
           return row
         end
-        jump_to = _114_
+        jump_to = _121_
         local row = vim.api.nvim_win_call(pane_source_win, jump_to)
         flash_line(pane_source_win, row)
       end
@@ -776,18 +792,18 @@ local function _111_(dir)
     end
   end
 end
-pane_jump = _111_
+pane_jump = _118_
 local function evaluate_at(win)
   local buf = vim.api.nvim_win_get_buf(win)
   if source_win_3f(win) then
     local row
     do
-      local t_118_ = vim.api.nvim_win_get_cursor(win)
-      if (nil ~= t_118_) then
-        t_118_ = t_118_[1]
+      local t_125_ = vim.api.nvim_win_get_cursor(win)
+      if (nil ~= t_125_) then
+        t_125_ = t_125_[1]
       else
       end
-      row = t_118_
+      row = t_125_
     end
     local path = buf_rel_path(buf)
     local threads = threads_at(path, (row or 0))
@@ -890,24 +906,24 @@ M["reload-threads"] = function(_3fprefer)
 end
 local function attach_autocmds()
   vim.api.nvim_create_augroup(augroup_name, {clear = true})
-  local function _132_()
+  local function _139_()
     maybe_reload_session()
     return open_on_session()
   end
-  vim.api.nvim_create_autocmd("VimEnter", {group = augroup_name, callback = _132_})
-  local function _133_(ev)
+  vim.api.nvim_create_autocmd("VimEnter", {group = augroup_name, callback = _139_})
+  local function _140_(ev)
     maybe_reload_session()
     M["enter-file"](ev.buf)
     schedule_check()
     return schedule_db_refresh()
   end
-  vim.api.nvim_create_autocmd("BufEnter", {group = augroup_name, callback = _133_})
-  local function _134_()
+  vim.api.nvim_create_autocmd("BufEnter", {group = augroup_name, callback = _140_})
+  local function _141_()
     schedule_check()
     return schedule_db_refresh()
   end
-  vim.api.nvim_create_autocmd({"WinEnter", "TabEnter", "CursorMoved", "CursorMovedI", "FocusGained"}, {group = augroup_name, callback = _134_})
-  local function _135_(ev)
+  vim.api.nvim_create_autocmd({"WinEnter", "TabEnter", "CursorMoved", "CursorMovedI", "FocusGained"}, {group = augroup_name, callback = _141_})
+  local function _142_(ev)
     if (pane_win == tonumber(ev.match)) then
       pane_win = nil
       rendered_sig = nil
@@ -916,17 +932,17 @@ local function attach_autocmds()
       return nil
     end
   end
-  vim.api.nvim_create_autocmd("WinClosed", {group = augroup_name, callback = _135_})
-  local function _137_()
+  vim.api.nvim_create_autocmd("WinClosed", {group = augroup_name, callback = _142_})
+  local function _144_()
     return M["reload-threads"]()
   end
-  return vim.api.nvim_create_autocmd("User", {group = augroup_name, pattern = {"CodeboomerAnnotated", "CodeboomerSessionReset", "CodeboomerImported"}, callback = _137_})
+  return vim.api.nvim_create_autocmd("User", {group = augroup_name, pattern = {"CodeboomerAnnotated", "CodeboomerSessionReset", "CodeboomerImported"}, callback = _144_})
 end
-local function _138_()
+local function _145_()
   M["reload-threads"]()
   open_on_session()
   return check_now()
 end
-M.open = _138_
+M.open = _145_
 attach_autocmds()
 return M
