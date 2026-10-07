@@ -45,7 +45,12 @@
 
 ;; `gh pr view` → table with number, or notify
 (fn gh-view [n k]
-  (run [:gh :pr :view (tostring n) :--json "number,headRefName,headRefOid"]
+  (run [:gh
+        :pr
+        :view
+        (tostring n)
+        :--json
+        "number,headRefName,headRefOid,baseRefName"]
        (fn [out]
          (let [(ok pr) (pcall vim.json.decode out)]
            (if (and ok (= :table (type pr)) pr.number)
@@ -171,7 +176,7 @@
                        :pr
                        :list
                        :--json
-                       "number,title,headRefName,headRefOid"]
+                       "number,title,headRefName,headRefOid,baseRefName"]
                       (fn [out]
                         (let [(ok prs) (pcall vim.json.decode out)]
                           (if (and ok (= :table (type prs)) (> (length prs) 0))

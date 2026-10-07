@@ -35,7 +35,7 @@ local function gh_view(n, k)
       return notify(("codeboomer: `gh pr view " .. tostring(n) .. "` gave nothing usable"), vim.log.levels.ERROR)
     end
   end
-  return run({"gh", "pr", "view", tostring(n), "--json", "number,headRefName,headRefOid"}, _5_)
+  return run({"gh", "pr", "view", tostring(n), "--json", "number,headRefName,headRefOid,baseRefName"}, _5_)
 end
 local function choose_pr(prs, k)
   local function _7_(_241)
@@ -171,7 +171,7 @@ local function _24_(_3fn, _3fthen)
           return notify("codeboomer: no open PRs (or `gh` unavailable)", vim.log.levels.WARN)
         end
       end
-      return run({"gh", "pr", "list", "--json", "number,title,headRefName,headRefOid"}, _26_)
+      return run({"gh", "pr", "list", "--json", "number,title,headRefName,headRefOid,baseRefName"}, _26_)
     end
   end
 end

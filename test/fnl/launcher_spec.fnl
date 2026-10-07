@@ -125,6 +125,61 @@
                                   (. (review.session-for) :pr_number))
                               (assert.is_true (vim.list_contains (helpers.fzf-prompts)
                                                                  "Pick a PR> "))))))
+            (describe "with gitsigns installed"
+                      (fn []
+                        (before_each #(helpers.exec_lua (fn []
+                                                          (set _G.gitsigns_bases
+                                                               [])
+                                                          (tset package.preload
+                                                                :gitsigns
+                                                                (fn []
+                                                                  {:change_base (fn [base
+                                                                                     global?
+                                                                                     cb]
+                                                                                  (table.insert _G.gitsigns_bases
+                                                                                                {: base
+                                                                                                 :global global?})
+                                                                                  (cb))})))))
+
+                        (fn bases []
+                          (helpers.exec_lua "return _G.gitsigns_bases"))
+
+                        (fn quickfix []
+                          (helpers.exec_lua (fn []
+                                              (let [qf (vim.fn.getqflist {:title 1
+                                                                          :items 1})]
+                                                {:title qf.title
+                                                 :files (icollect [_ i (ipairs qf.items)]
+                                                          (vim.fn.fnamemodify (vim.fn.bufname i.bufnr)
+                                                                              ":t"))}))))
+
+                        (it "moves the base to the picked commit's parent and lists what changed since"
+                            (fn []
+                              (let [sha (commit :widget)]
+                                (helpers.write-to-file files.main [:changed])
+                                (helpers.fzf-pick commit-prompt :widget)
+                                (launch)
+                                (eq [{:base (.. sha "^") :global true}] (bases))
+                                (eq {:title (.. "Changes since " sha "^")
+                                     :files [files.main]}
+                                    (quickfix)))))
+                        (it "diffs uncommitted work against HEAD, untracked files included"
+                            (fn []
+                              (helpers.write-to-file files.main [:changed])
+                              (helpers.write-to-file :new.txt [:fresh])
+                              (helpers.fzf-pick scope-prompt :Uncommitted)
+                              (launch)
+                              (eq [{:base :HEAD :global true}] (bases))
+                              (eq [files.main :new.txt] (. (quickfix) :files))))
+                        (it "leaves gitsigns alone when the tmux launch fails"
+                            (fn []
+                              (helpers.exec_lua (fn [path]
+                                                  (vim.fn.writefile ["no server running"]
+                                                                    path))
+                                                (.. helpers.fakes
+                                                    :/tmux-new-window-error))
+                              (launch)
+                              (eq [] (bases))))))
             (it "tethers the new window as the pane"
                 (fn []
                   (launch)

@@ -255,6 +255,14 @@ agent's own output, and not to switch branches.
   the send commands reach the same agent without a `SetPane`
 - The agent's threads land in the branch's session and show up in the
   comments pane marked `· by agent`; promote them with `p` as usual
+- With [gitsigns.nvim](https://github.com/lewis6991/gitsigns.nvim)
+  installed, a successful launch also moves gitsigns' base (globally)
+  to what the review sits on — the picked commit's parent (the empty
+  tree for the root commit), `HEAD` for uncommitted work, or the PR
+  branch's merge-base with its base branch (`origin/<base>`, falling
+  back to the local `<base>`) — and opens the quickfix list on the
+  files changed since that base, untracked ones included. Without
+  gitsigns nothing changes
 - Refuses outside a repo and on a detached HEAD; a tmux failure (e.g.
   no server running) is reported and leaves the selected pane alone
 

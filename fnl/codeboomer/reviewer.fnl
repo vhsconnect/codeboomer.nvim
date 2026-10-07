@@ -66,7 +66,9 @@
 (fn choose-scope [root k]
   (let [pick (fn [scope]
                (case scope.kind
-                 :pr (review-mode.open nil #(k {:pr $1.number}))
+                 :pr (review-mode.open nil
+                                       #(k {:pr $1.number
+                                            :base-ref $1.baseRefName}))
                  :uncommitted (if (dirty? root) (k {:uncommitted true})
                                   (notify "codeboomer: nothing uncommitted to review"
                                           vim.log.levels.WARN))
@@ -88,6 +90,52 @@
     (string.format "Review the commits on branch %s from %s (inclusive) through HEAD (`git log -p --first-parent %s~1..HEAD`)."
                    branch short from)))
 
+(fn pr-base [root base-ref]
+  (or (git.run root :merge-base :HEAD (.. :origin/ base-ref))
+      (git.run root :merge-base :HEAD base-ref)))
+
+;; the rev the reviewed changes sit on top of — what gitsigns diffs
+;; against while the agent works
+(fn diff-base [root scope]
+  (case scope
+    {:pr _ : base-ref} (pr-base root base-ref)
+    {:uncommitted true} :HEAD
+    {:root true} empty-tree
+    {: from} (.. from "^")))
+
+(fn changed-files [root base]
+  (let [lines #(icollect [l (string.gmatch (or $1 "") "[^\n]+")]
+                 l)
+        tracked (lines (git.run root :diff :--name-only base))
+        untracked (lines (git.run root :ls-files :--others :--exclude-standard))]
+    (vim.list_extend tracked untracked)))
+
+(fn changes-to-quickfix [root base]
+  (vim.fn.setqflist [] " " {:title (.. "Changes since " base)
+                            :items (icollect [_ f (ipairs (changed-files root
+                                                                         base))]
+                                     {:filename (vim.fs.joinpath root f)
+                                      :lnum 1})})
+  (vim.cmd.copen))
+
+;; optional: with gitsigns installed, its signs follow the reviewed
+;; range and the quickfix list holds the files in it
+(fn follow-in-gitsigns [root scope]
+  (case (pcall require :gitsigns)
+    (true gitsigns) (case (diff-base root scope)
+                      nil (notify "codeboomer: no diff base for this review — gitsigns left alone"
+                                  vim.log.levels.WARN)
+                      base (gitsigns.change_base base true
+                                                 (vim.schedule_wrap (fn [err]
+                                                                      (if err
+                                                                          (vim.notify (.. "codeboomer: gitsigns base "
+                                                                                          base
+                                                                                          ": "
+                                                                                          err)
+                                                                                      vim.log.levels.ERROR)
+                                                                          (changes-to-quickfix root
+                                                                                               base))))))))
+
 (fn spawn [root branch agent-cmd scope on-pane]
   (let [prompt (agent.review-prompt (scope-text branch scope))
         argv (vim.list_extend (vim.list_slice agent-cmd.argv) [prompt])]
@@ -97,6 +145,7 @@
       pane-id (do
                 (on-pane (or (tmux.pane-by-id pane-id)
                              {: pane-id :pane-mode ""}))
+                (follow-in-gitsigns root scope)
                 (notify (string.format "codeboomer: %s reviewer launched in pane %s"
                                        agent-cmd.label pane-id)
                         vim.log.levels.INFO)))))

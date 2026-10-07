@@ -69,7 +69,7 @@ local function choose_scope(root, k)
     local case_9_ = scope.kind
     if (case_9_ == "pr") then
       local function _10_(_241)
-        return k({pr = _241.number})
+        return k({pr = _241.number, ["base-ref"] = _241.baseRefName})
       end
       return review_mode.open(nil, _10_)
     elseif (case_9_ == "uncommitted") then
@@ -107,16 +107,98 @@ local function scope_text(branch, scope)
     return nil
   end
 end
+local function pr_base(root, base_ref)
+  return (git.run(root, "merge-base", "HEAD", ("origin/" .. base_ref)) or git.run(root, "merge-base", "HEAD", base_ref))
+end
+local function diff_base(root, scope)
+  if ((_G.type(scope) == "table") and true and (nil ~= scope["base-ref"])) then
+    local _ = scope.pr
+    local base_ref = scope["base-ref"]
+    return pr_base(root, base_ref)
+  elseif ((_G.type(scope) == "table") and (scope.uncommitted == true)) then
+    return "HEAD"
+  elseif ((_G.type(scope) == "table") and (scope.root == true)) then
+    return empty_tree
+  elseif ((_G.type(scope) == "table") and (nil ~= scope.from)) then
+    local from = scope.from
+    return (from .. "^")
+  else
+    return nil
+  end
+end
+local function changed_files(root, base)
+  local lines
+  local function _16_(_241)
+    local tbl_26_ = {}
+    local i_27_ = 0
+    for l in string.gmatch((_241 or ""), "[^\n]+") do
+      local val_28_ = l
+      if (nil ~= val_28_) then
+        i_27_ = (i_27_ + 1)
+        tbl_26_[i_27_] = val_28_
+      else
+      end
+    end
+    return tbl_26_
+  end
+  lines = _16_
+  local tracked = lines(git.run(root, "diff", "--name-only", base))
+  local untracked = lines(git.run(root, "ls-files", "--others", "--exclude-standard"))
+  return vim.list_extend(tracked, untracked)
+end
+local function changes_to_quickfix(root, base)
+  local _18_
+  do
+    local tbl_26_ = {}
+    local i_27_ = 0
+    for _, f in ipairs(changed_files(root, base)) do
+      local val_28_ = {filename = vim.fs.joinpath(root, f), lnum = 1}
+      if (nil ~= val_28_) then
+        i_27_ = (i_27_ + 1)
+        tbl_26_[i_27_] = val_28_
+      else
+      end
+    end
+    _18_ = tbl_26_
+  end
+  vim.fn.setqflist({}, " ", {title = ("Changes since " .. base), items = _18_})
+  return vim.cmd.copen()
+end
+local function follow_in_gitsigns(root, scope)
+  local case_20_, case_21_ = pcall(require, "gitsigns")
+  if ((case_20_ == true) and (nil ~= case_21_)) then
+    local gitsigns = case_21_
+    local case_22_ = diff_base(root, scope)
+    if (case_22_ == nil) then
+      return notify("codeboomer: no diff base for this review \226\128\148 gitsigns left alone", vim.log.levels.WARN)
+    elseif (nil ~= case_22_) then
+      local base = case_22_
+      local function _23_(err)
+        if err then
+          return vim.notify(("codeboomer: gitsigns base " .. base .. ": " .. err), vim.log.levels.ERROR)
+        else
+          return changes_to_quickfix(root, base)
+        end
+      end
+      return gitsigns.change_base(base, true, vim.schedule_wrap(_23_))
+    else
+      return nil
+    end
+  else
+    return nil
+  end
+end
 local function spawn(root, branch, agent_cmd, scope, on_pane)
   local prompt = agent["review-prompt"](scope_text(branch, scope))
   local argv = vim.list_extend(vim.list_slice(agent_cmd.argv), {prompt})
-  local case_15_, case_16_ = tmux["new-window"](root, ("review:" .. branch), argv)
-  if ((case_15_ == nil) and (nil ~= case_16_)) then
-    local err = case_16_
+  local case_27_, case_28_ = tmux["new-window"](root, ("review:" .. branch), argv)
+  if ((case_27_ == nil) and (nil ~= case_28_)) then
+    local err = case_28_
     return notify(("codeboomer: LaunchReviewer failed: " .. err), vim.log.levels.ERROR)
-  elseif (nil ~= case_15_) then
-    local pane_id = case_15_
+  elseif (nil ~= case_27_) then
+    local pane_id = case_27_
     on_pane((tmux["pane-by-id"](pane_id) or {["pane-id"] = pane_id, ["pane-mode"] = ""}))
+    follow_in_gitsigns(root, scope)
     return notify(string.format("codeboomer: %s reviewer launched in pane %s", agent_cmd.label, pane_id), vim.log.levels.INFO)
   else
     return nil
@@ -133,13 +215,13 @@ M.launch = function(on_pane)
   elseif not branch then
     return notify("codeboomer: LaunchReviewer needs a checked-out branch", vim.log.levels.ERROR)
   else
-    local function _18_(agent_cmd)
-      local function _19_(_241)
+    local function _30_(agent_cmd)
+      local function _31_(_241)
         return spawn(root, branch, agent_cmd, _241, on_pane)
       end
-      return choose_scope(root, _19_)
+      return choose_scope(root, _31_)
     end
-    return choose_agent(agents, _18_)
+    return choose_agent(agents, _30_)
   end
 end
 return M
