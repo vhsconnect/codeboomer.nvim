@@ -179,7 +179,64 @@
                                                 (.. helpers.fakes
                                                     :/tmux-new-window-error))
                               (launch)
-                              (eq [] (bases))))))
+                              (eq [] (bases))))
+                        (describe "on a PR"
+                                  (fn []
+                                    (fn review-pr [pr]
+                                      (helpers.fake-gh-json :pr-list.json [pr])
+                                      (helpers.fake-gh-text (.. :pr-diff-
+                                                                pr.number :.txt)
+                                                            fixtures.pr-diff)
+                                      (helpers.fake-gh-jsonl (.. :pulls-
+                                                                 pr.number
+                                                                 :-comments.jsonl)
+                                                             [])
+                                      (helpers.fzf-pick scope-prompt
+                                                        "GitHub PR")
+                                      (launch))
+
+                                    (fn commit-change [message]
+                                      (helpers.write-to-file files.main
+                                                             [message])
+                                      (helpers.git :commit :-q :-am message)
+                                      (vim.trim (helpers.git :rev-parse :HEAD)))
+
+                                    (local pr-on-trunk
+                                           (vim.tbl_extend :force fixtures.pr
+                                                           {:baseRefName :trunk}))
+                                    (it "moves the base to where the branch left the PR's base"
+                                        (fn []
+                                          (let [fork (vim.trim (helpers.git :rev-parse
+                                                                            :HEAD))]
+                                            (helpers.git :branch :trunk)
+                                            (commit-change :widget)
+                                            (review-pr pr-on-trunk)
+                                            (helpers.expectf #(do
+                                                                (eq [{:base fork
+                                                                      :global true}]
+                                                                    (bases))
+                                                                nil))
+                                            (eq [files.main]
+                                                (. (quickfix) :files)))))
+                                    (it "prefers the remote base over a stale local one"
+                                        (fn []
+                                          (helpers.git :branch :trunk)
+                                          (let [fetched (commit-change :widget)]
+                                            (helpers.git :update-ref
+                                                         :refs/remotes/origin/trunk
+                                                         fetched)
+                                            (commit-change :gadget)
+                                            (review-pr pr-on-trunk)
+                                            (helpers.expectf #(do
+                                                                (eq [{:base fetched
+                                                                      :global true}]
+                                                                    (bases))
+                                                                nil)))))
+                                    (it "warns and leaves gitsigns alone when the base can't be resolved"
+                                        (fn []
+                                          (review-pr fixtures.pr)
+                                          (helpers.expectf #(assert (notified? "no diff base")))
+                                          (eq [] (bases))))))))
             (it "tethers the new window as the pane"
                 (fn []
                   (launch)
