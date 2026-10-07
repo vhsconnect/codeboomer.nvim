@@ -201,7 +201,7 @@ local function post_review(slug, pr_number, sha, entries)
     end
     ids = tbl_26_
   end
-  local payload = {body = string.format("codeboomer review \226\128\148 %d annotation(s)", #entries), comments = comments}
+  local payload = {body = "I've made some comments on your PR", comments = comments}
   if (sha ~= "?") then
     payload.commit_id = sha
   else

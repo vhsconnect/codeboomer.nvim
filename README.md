@@ -23,7 +23,8 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 -- lazy.nvim
 {
   "vhsconnect/codeboomer.nvim",
-  dependencies = { "ibhagwan/fzf-lua" },
+  lazy = false, -- setup() registers the startup hook that opens the comments pane
+  dependencies = { "ibhagwan/fzf-lua", "kkharji/sqlite.lua" },
   config = function()
     require("codeboomer").setup({
       -- Optional: customize keybindings (set to false to disable)
@@ -35,6 +36,11 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
   end,
 }
 ```
+
+`sqlite.lua` needs the system `libsqlite3` library. Keep the plugin
+loaded at startup (`lazy = false`): deferring it behind `keys`, `cmd` or
+`event` means the comments pane can't open when Neovim launches on a
+file whose branch session has threads.
 
 ## Configuration
 

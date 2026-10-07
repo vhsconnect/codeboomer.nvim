@@ -168,9 +168,7 @@
                 (when (= :file e.item.subject_type) e))
         comments (icollect [_ e (ipairs lines)] e.item)
         ids (icollect [_ e (ipairs lines)] e.id)
-        payload {:body (string.format "codeboomer review — %d annotation(s)"
-                                      (length entries))
-                 : comments}]
+        payload {:body "I've made some comments on your PR" : comments}]
     (when (not= sha "?") (set payload.commit_id sha))
     (system [:gh
              :api
