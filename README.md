@@ -329,6 +329,7 @@ HEAD has none.
 |-----|--------|
 | `r` | Reply on the **review half** — the half that ships. Only exists once the thread is promoted (`p`) or pulled from GitHub; unpromoted threads refuse with a pointer to `p`, so nothing reaches the posting outbox by accident |
 | `a` | Reply to the **agent** — the local conversation half (created on demand for pulled threads). Your side of any discussion with the agent; never ships |
+| `z` | **Execute** — post `execute` to the agent on the thread's local conversation half (same target as `a`, no input). It rides the next `FlushWithDirective` like any other unsent reply, telling the agent to go ahead |
 | `p` | **Promote** — open the compose input prefilled with the thread's opening comment (the annotation, or the agent's finding for a thread the agent opened) and create the review half with the final text. A *virgin* thread (one user comment, nothing from the agent) promotes as-is with no input. Refuses when the branch's session is not bound to a PR (run `Review` first), and when the range falls outside the PR diff |
 | `e` | Edit the promoted comment in place (the oldest still-unposted one) through the same prefilled input |
 | `q` | Resolve the thread — resolved threads are treated as soft-deleted: both halves of the pair leave the pane and both outboxes; the pane hands the screen to whatever covers the cursor, else the next thread, right away |

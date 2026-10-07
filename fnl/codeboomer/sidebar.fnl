@@ -13,10 +13,11 @@
 (local flash-ns (vim.api.nvim_create_namespace :codeboomer-review-flash))
 (local flash-ms 2000)
 (local pane-width 40)
-(local pane-keys-footer [(.. "── keys " (string.rep "─" (- pane-width 8)))
-                         "r reply · a agent · d delete"
-                         "p promote · e edit · f refresh"
-                         "q resolve · n/N thread"])
+(local pane-keys-footer
+       [(.. "── keys " (string.rep "─" (- pane-width 8)))
+        "r reply · a agent · d delete"
+        "p promote · e edit · f refresh"
+        "q resolve · n/N thread · z execute"])
 
 (local rest-ms 100)
 (local db-refresh-ms 5000)
@@ -241,7 +242,11 @@
                                                                                "\n"))
                                           (refresh-pane)))}))))))
 
-(fn pane-agent-reply []
+(local execute-body :execute)
+
+;; the thread's local conversation half — created on demand for
+;; pulled threads; k receives it, failures notify
+(fn with-agent-half [k]
   (let [t (pane-thread-at (?. (vim.api.nvim_win_get_cursor pane-win) 1))]
     (if (not t)
         (vim.notify "codeboomer: no thread block under the pane cursor"
@@ -253,14 +258,25 @@
           (if (not target)
               (vim.notify "codeboomer: could not open the conversation"
                           vim.log.levels.ERROR)
-              (input.open {:title (string.format " Reply to the agent on thread #%d> "
-                                                 (or t.id 0))
-                           :on-submit (fn [lines]
-                                        (when (review.user-reply (or target.id
-                                                                     0)
-                                                                 (table.concat lines
-                                                                               "\n"))
-                                          (refresh-pane)))}))))))
+              (k t target))))))
+
+(fn pane-agent-reply []
+  (let [compose (fn [t target]
+                  (let [submit (fn [lines]
+                                 (when (review.user-reply (or target.id 0)
+                                                          (table.concat lines
+                                                                        "\n"))
+                                   (refresh-pane)))]
+                    (input.open {:title (string.format " Reply to the agent on thread #%d> "
+                                                       (or t.id 0))
+                                 :on-submit submit})))]
+    (with-agent-half compose)))
+
+;; queue the agent's go-ahead for the next flush
+(fn pane-execute []
+  (with-agent-half (fn [_ target]
+                     (when (review.user-reply (or target.id 0) execute-body)
+                       (refresh-pane)))))
 
 (fn virgin-body [t]
   (let [cs (review.conversation-comments (or t.id 0))]
@@ -416,6 +432,9 @@
     (vim.keymap.set :n :a pane-agent-reply
                     {:buffer buf
                      :desc "codeboomer: reply to the agent on this thread"})
+    (vim.keymap.set :n :z pane-execute
+                    {:buffer buf
+                     :desc "codeboomer: tell the agent to execute on this thread"})
     (vim.keymap.set :n :p pane-promote
                     {:buffer buf
                      :desc "codeboomer: promote this thread to the PR review"})

@@ -64,6 +64,21 @@
                            (helpers.setup-codeboomer)
                            (api.nvim_command "runtime plugin/codeboomer.lua")
                            (codeboomer.setup {})))
+            (it "queues execute on the thread for the next flush"
+                (fn []
+                  (annotate-lines files.main 10 12 "why a loop here?")
+                  (let [sid (. (review.session-for) :id)
+                        thread (thread-on sid files.main)]
+                    (review.agent-reply thread.id "I can batch the writes")
+                    (review.mark-annotations :sent
+                                             (icollect [_ p (ipairs (review.pending-for-flush sid))]
+                                               p.comment.id))
+                    (helpers.edit files.main)
+                    (rest (api.nvim_get_current_win) 10)
+                    (press-in-pane (api.nvim_get_current_tabpage) :z)
+                    (eq [:execute]
+                        (icollect [_ p (ipairs (review.pending-for-flush sid))]
+                          p.comment.body)))))
             (it "deletes the reset session with its threads and comments"
                 (fn []
                   (annotate-lines files.main 10 12 "why a loop here?")
