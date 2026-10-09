@@ -309,25 +309,44 @@
 ;; comment of mine come home stamps its gh id onto the local row
 ;; (draft-review comments only learn their ids after GitHub
 ;; submission — matched by path+body+line), a reply joins its
-;; thread, anything else seeds one. Returns how many rows were new.
-;; The first item that fails stops the import with an error naming
-;; it; the items before it stay imported
+;; thread, anything else seeds one. A known or come-home comment that
+;; GitHub reports outdated flags its thread without moving it.
+;; Returns how many rows were new. The first item that fails stops
+;; the import with an error naming it; the items before it stay
+;; imported
 (fn M.import-items [session-id items]
-  (let [import-item (fn [item]
-                      (let [parent (when item.in_reply_to_id
+  (let [flag-if-outdated (fn [item thread-id]
+                           (when (review.gh-outdated? item)
+                             (review.mark-gh-outdated thread-id)))
+        import-item (fn [item]
+                      (let [known (review.comment-by-gh item.id)
+                            parent (when item.in_reply_to_id
                                      (review.thread-id-for-gh item.in_reply_to_id))
-                            mine (when (not item.in_reply_to_id)
+                            mine (when (and (not known)
+                                            (not item.in_reply_to_id))
                                    (review.match-posted-comment session-id
                                                                 item))]
-                        (if mine
-                            (review.stamp-gh-comment mine.id item.id)
-                            (if parent
-                                (review.import-comment parent item)
-                                (review.import-thread session-id item)))))]
+                        (if known
+                            (do
+                              (flag-if-outdated item known.thread_id)
+                              false)
+                            mine
+                            (do
+                              (review.stamp-gh-comment mine.id item.id)
+                              (flag-if-outdated item mine.thread_id)
+                              true)
+                            parent
+                            (do
+                              (review.import-comment parent item)
+                              true)
+                            (do
+                              (review.import-thread session-id item)
+                              true))))]
     (var n 0)
     (each [_ item (ipairs (or items []))]
-      (when (and item.id (not (review.comment-by-gh item.id)))
+      (when item.id
         (case (pcall import-item item)
+          (true true) (set n (+ n 1))
           (false err) (error (string.format "comment %s (%s:%s) failed: %s"
                                             (tostring item.id)
                                             (or item.path "?")
@@ -335,43 +354,68 @@
                                                           item.original_line
                                                           :file))
                                             err)
-                             0))
-        (set n (+ n 1))))
+                             0))))
     n))
 
 ;; refresh a PR-bound session with the PR's current inline comments —
 ;; the sidebar reloads via CodeboomerImported. sid is the branch
 ;; session to import into (Review passes the one it just
 ;; bound; PullReview resolves it); the session must be bound to this
-;; PR, which is what makes "Review ran first" true
+;; PR, which is what makes "Review ran first" true. GitHub's lines are
+;; lines of the PR's head commit, so the pull refuses unless HEAD is
+;; exactly that commit — anything else would place them on the wrong
+;; lines of the files you have
 (fn M.pull-comments [pr-number sid]
   (let [slug (github-slug)
-        session (when sid (review.session-by-id sid))]
+        session (when sid (review.session-by-id sid))
+        fetch-comments (fn []
+                         (system [:gh
+                                  :api
+                                  (string.format "repos/%s/pulls/%s/comments"
+                                                 slug pr-number)
+                                  :--paginate
+                                  :--jq
+                                  ".[]"] {:text true}
+                                 (fn [obj]
+                                   (if (= obj.code 0)
+                                       (let [(ok result) (pcall M.import-items
+                                                                session.id
+                                                                (M.parse-jsonl obj.stdout))]
+                                         (vim.api.nvim_exec_autocmds :User
+                                                                     {:pattern :CodeboomerImported})
+                                         (if ok
+                                             (notify (string.format "codeboomer: pulled %d new comment(s)"
+                                                                    result)
+                                                     vim.log.levels.INFO)
+                                             (notify (.. "codeboomer: pull stopped, "
+                                                         result)
+                                                     vim.log.levels.ERROR)))
+                                       (notify (string.format "codeboomer: gh api failed (exit %d)
+%s" obj.code (gh-error obj)) vim.log.levels.ERROR)))))
+        on-pr-head (fn [obj]
+                     (let [(ok pr) (pcall vim.json.decode (or obj.stdout ""))
+                           pr-head (when (and (= obj.code 0) ok
+                                              (= :table (type pr)))
+                                     pr.headRefOid)
+                           head (git.head-sha)]
+                       (if (not pr-head)
+                           (notify (string.format "codeboomer: couldn't read PR #%d's head commit
+%s" pr-number (gh-error obj)) vim.log.levels.ERROR)
+                           (not= pr-head head)
+                           (notify (string.format "codeboomer: not pulling — HEAD %s is not PR #%d's head %s; GitHub's lines refer to %s, check it out first"
+                                                  (string.sub (or head "?") 1 7)
+                                                  pr-number
+                                                  (string.sub pr-head 1 7)
+                                                  (string.sub pr-head 1 7))
+                                   vim.log.levels.ERROR)
+                           (fetch-comments))))]
     (if (not slug)
         (notify "codeboomer: no GitHub remote in this repository"
                 vim.log.levels.ERROR)
         (or (not session) (not= session.pr_number pr-number))
         (notify "codeboomer: this branch's session is not bound to the PR — :Codeboomer Review it first"
                 vim.log.levels.WARN)
-        (system [:gh
-                 :api
-                 (string.format "repos/%s/pulls/%s/comments" slug pr-number)
-                 :--paginate
-                 :--jq
-                 ".[]"] {:text true}
-                (fn [obj]
-                  (if (= obj.code 0)
-                      (let [(ok result) (pcall M.import-items session.id
-                                               (M.parse-jsonl obj.stdout))]
-                        (vim.api.nvim_exec_autocmds :User
-                                                    {:pattern :CodeboomerImported})
-                        (if ok
-                            (notify (string.format "codeboomer: pulled %d new comment(s)"
-                                                   result)
-                                    vim.log.levels.INFO)
-                            (notify (.. "codeboomer: pull stopped, " result)
-                                    vim.log.levels.ERROR)))
-                      (notify (string.format "codeboomer: gh api failed (exit %d)
-%s" obj.code (gh-error obj)) vim.log.levels.ERROR)))))))
+        (system [:gh :pr :view (tostring pr-number) :--json :headRefOid]
+                {:text true} on-pr-head))))
 
 M

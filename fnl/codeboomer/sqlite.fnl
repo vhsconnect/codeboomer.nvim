@@ -47,6 +47,15 @@
                     :reference :comment_thread.id
                     :on_delete :null}
         :gh_outdated :integer
+        ;; GitHub's line on the PR head at import; nil when it was
+        ;; already outdated then
+        :gh_line :integer
+        ;; GitHub's line at gh_original_commit — the pair never
+        ;; changes, so it stays a valid reference through rebases
+        :gh_original_line :integer
+        :gh_original_commit {:type :integer
+                             :reference :git_commit.id
+                             :on_delete :null}
         :created_by {:type :integer :reference :user.id :on_delete :cascade}
         :created_at {:type :integer :default created-at-default}})
 

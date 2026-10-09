@@ -26,6 +26,10 @@
 (fn all-sessions []
   (sql "select * from session"))
 
+(fn at-head [pr]
+  (vim.tbl_extend :force pr
+                  {:headRefOid (vim.trim (helpers.git :rev-parse :HEAD))}))
+
 (fn fake-pr [pr comments]
   (helpers.fake-gh-json (.. :pr-view- pr.number :.json) pr)
   (helpers.fake-gh-text (.. :pr-diff- pr.number :.txt) fixtures.pr-diff)
@@ -169,7 +173,7 @@
             (describe :Review
                       (fn []
                         (before_each (fn []
-                                       (fake-pr fixtures.pr
+                                       (fake-pr (at-head fixtures.pr)
                                                 [fixtures.pulled-item])))
                         (it "binds the branch session to a PR whose head is the checked-out branch"
                             (fn []
@@ -180,7 +184,7 @@
                                        (helpers.fake-log :gh.log))))
                         (it "stops the pull at a comment that fails to import, naming it"
                             (fn []
-                              (fake-pr fixtures.pr
+                              (fake-pr (at-head fixtures.pr)
                                        [fixtures.pulled-item
                                         fixtures.pathless-item])
                               (review-pr fixtures.pr.number)
@@ -189,6 +193,17 @@
                               (helpers.neq nil
                                            (thread-on-line (review.ensure-session)
                                                            40))))
+                        (it "refuses to pull while HEAD is not the PR's head commit"
+                            (fn []
+                              (fake-pr (vim.tbl_extend :force fixtures.pr
+                                                       {:headRefOid "f485d97670cc2e67485b09fe14fb38b16bce8434"})
+                                       [fixtures.pulled-item])
+                              (review-pr fixtures.pr.number)
+                              (wait-notified error-level
+                                             "not pulling — HEAD %x+ is not PR #42's head f485d97")
+                              (eq [] (review.threads-for-session (review.ensure-session)))
+                              (assert.is_nil (string.find (helpers.fake-log :gh.log)
+                                                          "/comments" 1 true))))
                         (it "refuses a PR whose head is another branch"
                             (fn []
                               (fake-pr fixtures.other-branch-pr [])
@@ -229,10 +244,7 @@
                                                         (bound-pr)))))
                                     (it "binds when the branch sits on the PR's head commit"
                                         (fn []
-                                          (fake-pr (vim.tbl_extend :force
-                                                                   fixtures.other-branch-pr
-                                                                   {:headRefOid (vim.trim (helpers.git :rev-parse
-                                                                                                       :HEAD))})
+                                          (fake-pr (at-head fixtures.other-branch-pr)
                                                    [])
                                           (review-pr fixtures.other-branch-pr.number)
                                           (expectf #(eq fixtures.other-branch-pr.number
@@ -247,7 +259,7 @@
                             (fn []
                               (review-pr fixtures.pr.number)
                               (wait-notified info-level "pulled 1 new comment")
-                              (fake-pr fixtures.same-branch-pr [])
+                              (fake-pr (at-head fixtures.same-branch-pr) [])
                               (review-pr fixtures.same-branch-pr.number)
                               (wait-notified error-level :ResetSession)
                               (eq fixtures.pr.number (bound-pr))))
@@ -265,7 +277,7 @@
             (describe "a detached HEAD"
                       (fn []
                         (before_each (fn []
-                                       (fake-pr fixtures.pr [])
+                                       (fake-pr (at-head fixtures.pr) [])
                                        (helpers.git :checkout :-q :--detach)
                                        (api.nvim_command :edit!)))
                         (it "gets no session"
@@ -292,7 +304,7 @@
                                     (find-pane tab)))
 
                         (before_each (fn []
-                                       (fake-pr fixtures.pr [])
+                                       (fake-pr (at-head fixtures.pr) [])
                                        (review-pr fixtures.pr.number)
                                        (wait-notified info-level
                                                       "pulled 0 new comment")
@@ -332,11 +344,11 @@
                         (it "is named after the schema version"
                             (fn []
                               (review.ensure-session)
-                              (eq (.. helpers.data-home :/nvim/codeboomer-db-v1)
+                              (eq (.. helpers.data-home :/nvim/codeboomer-db-v2)
                                   (exec-lua "return require('codeboomer.singleton')['db-path']()"))
                               (eq 1
                                   (helpers.fn.filereadable (.. helpers.data-home
-                                                               :/nvim/codeboomer-db-v1)))))
+                                                               :/nvim/codeboomer-db-v2)))))
                         (it "leaves an earlier version's file untouched"
                             (fn []
                               (let [legacy (.. helpers.data-home

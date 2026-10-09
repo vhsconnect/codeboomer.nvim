@@ -196,12 +196,42 @@
                                                                      :path files.readme
                                                                      :body "whole-file note"})
                                        :id))))))
-            (it "imports an outdated comment whose line is null"
-                (fn []
-                  (let [[item] (github.parse-jsonl fixtures.outdated-item-jsonl)]
-                    (eq nil item.line)
-                    (eq 1 (github.import-items sid [item]))
-                    (eq 7 (. (threads-on files.readme) 1 :line_start)))))
+            (describe "a pulled line comment"
+                      (fn []
+                        (it "anchors at its current range when GitHub still places it"
+                            (fn []
+                              (github.import-items sid [fixtures.ranged-item])
+                              (let [t (. (threads-on files.main) 1)]
+                                (eq [38 40] [t.line_start t.line_end])
+                                (eq :head0001 (review.commit-sha t.anchor_commit))
+                                (eq nil t.gh_outdated)
+                                (eq [40 32 :orig0001]
+                                    [t.gh_line
+                                     t.gh_original_line
+                                     (review.commit-sha t.gh_original_commit)]))))
+                        (it "anchors an outdated one at its original range and commit"
+                            (fn []
+                              (let [[item] (github.parse-jsonl fixtures.outdated-item-jsonl)]
+                                (eq 1 (github.import-items sid [item]))
+                                (let [t (. (threads-on files.readme) 1)]
+                                  (eq [6 7] [t.line_start t.line_end])
+                                  (eq :orig0001
+                                      (review.commit-sha t.anchor_commit))
+                                  (eq 1 t.gh_outdated)
+                                  (eq nil t.gh_line)
+                                  (eq 7 t.gh_original_line)))))
+                        (it "is flagged, not moved, when a re-pull finds it outdated"
+                            (fn []
+                              (github.import-items sid [fixtures.ranged-item])
+                              (let [outdated (doto (vim.deepcopy fixtures.ranged-item)
+                                               (tset :line nil)
+                                               (tset :start_line nil))]
+                                (eq 0 (github.import-items sid [outdated])))
+                              (let [t (. (threads-on files.main) 1)]
+                                (eq 1 t.gh_outdated)
+                                (eq [38 40] [t.line_start t.line_end])
+                                (eq :head0001
+                                    (review.commit-sha t.anchor_commit)))))))
             (it "refuses threads outside the diff hunks"
                 (fn []
                   (let [thread {:file_path files.readme

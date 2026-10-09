@@ -376,8 +376,18 @@ M["parse-jsonl"] = function(out)
   return tbl_26_
 end
 M["import-items"] = function(session_id, items)
+  local flag_if_outdated
+  local function _52_(item, thread_id)
+    if review["gh-outdated?"](item) then
+      return review["mark-gh-outdated"](thread_id)
+    else
+      return nil
+    end
+  end
+  flag_if_outdated = _52_
   local import_item
-  local function _52_(item)
+  local function _54_(item)
+    local known = review["comment-by-gh"](item.id)
     local parent
     if item.in_reply_to_id then
       parent = review["thread-id-for-gh"](item.in_reply_to_id)
@@ -385,34 +395,38 @@ M["import-items"] = function(session_id, items)
       parent = nil
     end
     local mine
-    if not item.in_reply_to_id then
+    if (not known and not item.in_reply_to_id) then
       mine = review["match-posted-comment"](session_id, item)
     else
       mine = nil
     end
-    if mine then
-      return review["stamp-gh-comment"](mine.id, item.id)
+    if known then
+      flag_if_outdated(item, known.thread_id)
+      return false
+    elseif mine then
+      review["stamp-gh-comment"](mine.id, item.id)
+      flag_if_outdated(item, mine.thread_id)
+      return true
+    elseif parent then
+      review["import-comment"](parent, item)
+      return true
     else
-      if parent then
-        return review["import-comment"](parent, item)
-      else
-        return review["import-thread"](session_id, item)
-      end
+      review["import-thread"](session_id, item)
+      return true
     end
   end
-  import_item = _52_
+  import_item = _54_
   local n = 0
   for _, item in ipairs((items or {})) do
-    if (item.id and not review["comment-by-gh"](item.id)) then
-      do
-        local case_57_, case_58_ = pcall(import_item, item)
-        if ((case_57_ == false) and (nil ~= case_58_)) then
-          local err = case_58_
-          error(string.format("comment %s (%s:%s) failed: %s", tostring(item.id), (item.path or "?"), tostring((item.line or item.original_line or "file")), err), 0)
-        else
-        end
+    if item.id then
+      local case_58_, case_59_ = pcall(import_item, item)
+      if ((case_58_ == true) and (case_59_ == true)) then
+        n = (n + 1)
+      elseif ((case_58_ == false) and (nil ~= case_59_)) then
+        local err = case_59_
+        error(string.format("comment %s (%s:%s) failed: %s", tostring(item.id), (item.path or "?"), tostring((item.line or item.original_line or "file")), err), 0)
+      else
       end
-      n = (n + 1)
     else
     end
   end
@@ -426,12 +440,9 @@ M["pull-comments"] = function(pr_number, sid)
   else
     session = nil
   end
-  if not slug then
-    return notify("codeboomer: no GitHub remote in this repository", vim.log.levels.ERROR)
-  elseif (not session or (session.pr_number ~= pr_number)) then
-    return notify("codeboomer: this branch's session is not bound to the PR \226\128\148 :Codeboomer Review it first", vim.log.levels.WARN)
-  else
-    local function _62_(obj)
+  local fetch_comments
+  local function _63_()
+    local function _64_(obj)
       if (obj.code == 0) then
         local ok, result = pcall(M["import-items"], session.id, M["parse-jsonl"](obj.stdout))
         vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerImported"})
@@ -444,7 +455,34 @@ M["pull-comments"] = function(pr_number, sid)
         return notify(string.format("codeboomer: gh api failed (exit %d)\n%s", obj.code, gh_error(obj)), vim.log.levels.ERROR)
       end
     end
-    return system({"gh", "api", string.format("repos/%s/pulls/%s/comments", slug, pr_number), "--paginate", "--jq", ".[]"}, {text = true}, _62_)
+    return system({"gh", "api", string.format("repos/%s/pulls/%s/comments", slug, pr_number), "--paginate", "--jq", ".[]"}, {text = true}, _64_)
+  end
+  fetch_comments = _63_
+  local on_pr_head
+  local function _67_(obj)
+    local ok, pr = pcall(vim.json.decode, (obj.stdout or ""))
+    local pr_head
+    if ((obj.code == 0) and ok and ("table" == type(pr))) then
+      pr_head = pr.headRefOid
+    else
+      pr_head = nil
+    end
+    local head = git["head-sha"]()
+    if not pr_head then
+      return notify(string.format("codeboomer: couldn't read PR #%d's head commit\n%s", pr_number, gh_error(obj)), vim.log.levels.ERROR)
+    elseif (pr_head ~= head) then
+      return notify(string.format("codeboomer: not pulling \226\128\148 HEAD %s is not PR #%d's head %s; GitHub's lines refer to %s, check it out first", string.sub((head or "?"), 1, 7), pr_number, string.sub(pr_head, 1, 7), string.sub(pr_head, 1, 7)), vim.log.levels.ERROR)
+    else
+      return fetch_comments()
+    end
+  end
+  on_pr_head = _67_
+  if not slug then
+    return notify("codeboomer: no GitHub remote in this repository", vim.log.levels.ERROR)
+  elseif (not session or (session.pr_number ~= pr_number)) then
+    return notify("codeboomer: this branch's session is not bound to the PR \226\128\148 :Codeboomer Review it first", vim.log.levels.WARN)
+  else
+    return system({"gh", "pr", "view", tostring(pr_number), "--json", "headRefOid"}, {text = true}, on_pr_head)
   end
 end
 return M

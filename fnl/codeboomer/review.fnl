@@ -185,27 +185,45 @@
     (if (?. entry? 1 :id) (?. entry? 1 :id)
         (db sqlite.user :insert {:name (or login :unknown) : email}))))
 
-;; one pulled PR comment that seeds a thread — subject_type "file" is
-;; a whole-file comment (no lines, never outdated); for line threads
-;; position null means outdated (the PR moved past its line), anchor
-;; best-effort at original_line and flag the thread
+;; a line comment GitHub can no longer place on the PR head (the PR
+;; moved past its lines) comes with line null — position stays set,
+;; so it cannot tell. File comments have no lines and never outdate
+(fn M.gh-outdated? [item]
+  (and (not= :file item.subject_type) (= nil item.line)))
+
+;; one pulled PR comment that seeds a thread. A current one anchors at
+;; its line on commit_id; an outdated one at original_line on
+;; original_commit_id — the only pair still true for it — and is
+;; flagged, never moved
 (fn M.import-thread [session-id item]
   (let [repo-id (with-repo)
         login (?. item :user :login)
         file? (= :file item.subject_type)
-        line (when (not file?) (or item.line item.original_line 1))
-        commit-id (with-commit repo-id item.commit_id)
+        outdated? (M.gh-outdated? item)
+        line-end (when (not file?)
+                   (or (if outdated? item.original_line item.line) 1))
+        line-start (when line-end
+                     (or (if outdated? item.original_start_line
+                             item.start_line)
+                         line-end))
+        commit-id (with-commit repo-id
+                               (if outdated? item.original_commit_id
+                                   item.commit_id))
+        original-commit-id (when item.original_commit_id
+                             (with-commit repo-id item.original_commit_id))
         thread-id (db sqlite.thread :insert
                       {:session_id session-id
                        :file_path item.path
-                       :line_start line
-                       :line_end line
+                       :line_start line-start
+                       :line_end line-end
                        :anchor_commit commit-id
                        :status :open
                        :type (if file? :file :line)
                        :kind :review
-                       :gh_outdated (when (and (not file?) (not item.position))
-                                      1)
+                       :gh_outdated (when outdated? 1)
+                       :gh_line item.line
+                       :gh_original_line item.original_line
+                       :gh_original_commit original-commit-id
                        :created_by (M.with-gh-user login)})]
     (db sqlite.comments :insert
         {:thread_id thread-id
@@ -435,6 +453,12 @@
 (fn M.stamp-gh-comment [comment-id gh-id]
   (db sqlite.comments :update
       {:set {:gh_comment_id (tostring gh-id)} :where {:id (or comment-id 0)}}))
+
+;; a thread GitHub stopped placing on the PR head: only the flag
+;; changes, its lines and anchor stay where they were imported
+(fn M.mark-gh-outdated [thread-id]
+  (db sqlite.thread :update
+      {:set {:gh_outdated 1} :where {:id (or thread-id 0)}}))
 
 ;; the agent's answer joins the CONVERSATION half: a :review target
 ;; (a pulled thread the agent was asked about) diverts to its local

@@ -950,6 +950,9 @@ M["with-gh-user"] = function(login)
     end
   end
 end
+M["gh-outdated?"] = function(item)
+  return (("file" ~= item.subject_type) and (nil == item.line))
+end
 M["import-thread"] = function(session_id, item)
   local repo_id = with_repo()
   local login
@@ -966,36 +969,69 @@ M["import-thread"] = function(session_id, item)
     login = t_178_
   end
   local file_3f = ("file" == item.subject_type)
-  local line
+  local outdated_3f = M["gh-outdated?"](item)
+  local line_end
   if not file_3f then
-    line = (item.line or item.original_line or 1)
+    local _181_
+    if outdated_3f then
+      _181_ = item.original_line
+    else
+      _181_ = item.line
+    end
+    line_end = (_181_ or 1)
   else
-    line = nil
+    line_end = nil
   end
-  local commit_id = with_commit(repo_id, item.commit_id)
+  local line_start
+  if line_end then
+    local _184_
+    if outdated_3f then
+      _184_ = item.original_start_line
+    else
+      _184_ = item.start_line
+    end
+    line_start = (_184_ or line_end)
+  else
+    line_start = nil
+  end
+  local commit_id
+  local function _187_()
+    if outdated_3f then
+      return item.original_commit_id
+    else
+      return item.commit_id
+    end
+  end
+  commit_id = with_commit(repo_id, _187_())
+  local original_commit_id
+  if item.original_commit_id then
+    original_commit_id = with_commit(repo_id, item.original_commit_id)
+  else
+    original_commit_id = nil
+  end
   local thread_id
   do
     local db_mod_4_auto = require("codeboomer.singleton")
     local t_5_auto = sqlite.thread(db_mod_4_auto["get-db"]())
     local ok_6_auto, result_7_auto
-    local function _182_()
-      local _183_
+    local function _189_()
+      local _190_
       if file_3f then
-        _183_ = "file"
+        _190_ = "file"
       else
-        _183_ = "line"
+        _190_ = "line"
       end
-      local _185_
-      if (not file_3f and not item.position) then
-        _185_ = 1
+      local _192_
+      if outdated_3f then
+        _192_ = 1
       else
-        _185_ = nil
+        _192_ = nil
       end
-      return t_5_auto:insert({session_id = session_id, file_path = item.path, line_start = line, line_end = line, anchor_commit = commit_id, status = "open", type = _183_, kind = "review", gh_outdated = _185_, created_by = M["with-gh-user"](login)})
+      return t_5_auto:insert({session_id = session_id, file_path = item.path, line_start = line_start, line_end = line_end, anchor_commit = commit_id, status = "open", type = _190_, kind = "review", gh_outdated = _192_, gh_line = item.line, gh_original_line = item.original_line, gh_original_commit = original_commit_id, created_by = M["with-gh-user"](login)})
     end
-    ok_6_auto, result_7_auto = pcall(_182_)
-    local tgt_187_ = require("codeboomer.config")
-    if (tgt_187_)["debug?"](tgt_187_) then
+    ok_6_auto, result_7_auto = pcall(_189_)
+    local tgt_194_ = require("codeboomer.config")
+    if (tgt_194_)["debug?"](tgt_194_) then
       local vim_1_auto = _G.vim
       local st_2_auto = require("codeboomer.state")
       do
@@ -1006,12 +1042,12 @@ M["import-thread"] = function(session_id, item)
         end
       end
       st_2_auto.queries["sqlite.thread"] = (1 + (st_2_auto.queries["sqlite.thread"] or 0))
-      local function _189_()
+      local function _196_()
         vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.thread"]) .. " " .. "sqlite.thread"), vim_1_auto.log.levels.INFO)
         st_2_auto.queries["sqlite.thread"] = nil
         return nil
       end
-      st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _189_)
+      st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _196_)
     else
     end
     if ok_6_auto then
@@ -1025,12 +1061,12 @@ M["import-thread"] = function(session_id, item)
     local db_mod_4_auto = require("codeboomer.singleton")
     local t_5_auto = sqlite.comments(db_mod_4_auto["get-db"]())
     local ok_6_auto, result_7_auto
-    local function _192_()
+    local function _199_()
       return t_5_auto:insert({thread_id = thread_id, author_id = M["with-gh-user"](login), body = sql_literal(item.body), source = "github", commit_id = commit_id, gh_comment_id = tostring(item.id)})
     end
-    ok_6_auto, result_7_auto = pcall(_192_)
-    local tgt_193_ = require("codeboomer.config")
-    if (tgt_193_)["debug?"](tgt_193_) then
+    ok_6_auto, result_7_auto = pcall(_199_)
+    local tgt_200_ = require("codeboomer.config")
+    if (tgt_200_)["debug?"](tgt_200_) then
       local vim_1_auto = _G.vim
       local st_2_auto = require("codeboomer.state")
       do
@@ -1041,12 +1077,12 @@ M["import-thread"] = function(session_id, item)
         end
       end
       st_2_auto.queries["sqlite.comments"] = (1 + (st_2_auto.queries["sqlite.comments"] or 0))
-      local function _195_()
+      local function _202_()
         vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.comments"]) .. " " .. "sqlite.comments"), vim_1_auto.log.levels.INFO)
         st_2_auto.queries["sqlite.comments"] = nil
         return nil
       end
-      st_2_auto.timers["sqlite.comments"] = vim_1_auto.fn.timer_start(1000, _195_)
+      st_2_auto.timers["sqlite.comments"] = vim_1_auto.fn.timer_start(1000, _202_)
     else
     end
     if ok_6_auto then
@@ -1061,24 +1097,24 @@ M["import-comment"] = function(thread_id, item)
   local db_mod_4_auto = require("codeboomer.singleton")
   local t_5_auto = sqlite.comments(db_mod_4_auto["get-db"]())
   local ok_6_auto, result_7_auto
-  local function _198_()
-    local function _200_()
-      local t_199_ = item
-      if (nil ~= t_199_) then
-        t_199_ = t_199_.user
+  local function _205_()
+    local function _207_()
+      local t_206_ = item
+      if (nil ~= t_206_) then
+        t_206_ = t_206_.user
       else
       end
-      if (nil ~= t_199_) then
-        t_199_ = t_199_.login
+      if (nil ~= t_206_) then
+        t_206_ = t_206_.login
       else
       end
-      return t_199_
+      return t_206_
     end
-    return t_5_auto:insert({thread_id = thread_id, author_id = M["with-gh-user"](_200_()), body = sql_literal(item.body), source = "github", commit_id = with_commit(with_repo(), item.commit_id), gh_comment_id = tostring(item.id)})
+    return t_5_auto:insert({thread_id = thread_id, author_id = M["with-gh-user"](_207_()), body = sql_literal(item.body), source = "github", commit_id = with_commit(with_repo(), item.commit_id), gh_comment_id = tostring(item.id)})
   end
-  ok_6_auto, result_7_auto = pcall(_198_)
-  local tgt_203_ = require("codeboomer.config")
-  if (tgt_203_)["debug?"](tgt_203_) then
+  ok_6_auto, result_7_auto = pcall(_205_)
+  local tgt_210_ = require("codeboomer.config")
+  if (tgt_210_)["debug?"](tgt_210_) then
     local vim_1_auto = _G.vim
     local st_2_auto = require("codeboomer.state")
     do
@@ -1089,12 +1125,12 @@ M["import-comment"] = function(thread_id, item)
       end
     end
     st_2_auto.queries["sqlite.comments"] = (1 + (st_2_auto.queries["sqlite.comments"] or 0))
-    local function _205_()
+    local function _212_()
       vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.comments"]) .. " " .. "sqlite.comments"), vim_1_auto.log.levels.INFO)
       st_2_auto.queries["sqlite.comments"] = nil
       return nil
     end
-    st_2_auto.timers["sqlite.comments"] = vim_1_auto.fn.timer_start(1000, _205_)
+    st_2_auto.timers["sqlite.comments"] = vim_1_auto.fn.timer_start(1000, _212_)
   else
   end
   if ok_6_auto then
@@ -1130,17 +1166,17 @@ local function by_created(a, b)
   end
 end
 local function thread_by_id(id)
-  local t_210_
+  local t_217_
   do
     local db_mod_4_auto = require("codeboomer.singleton")
     local t_5_auto = sqlite.thread(db_mod_4_auto["get-db"]())
     local ok_6_auto, result_7_auto
-    local function _211_()
+    local function _218_()
       return t_5_auto:get({where = {id = (id or 0)}})
     end
-    ok_6_auto, result_7_auto = pcall(_211_)
-    local tgt_212_ = require("codeboomer.config")
-    if (tgt_212_)["debug?"](tgt_212_) then
+    ok_6_auto, result_7_auto = pcall(_218_)
+    local tgt_219_ = require("codeboomer.config")
+    if (tgt_219_)["debug?"](tgt_219_) then
       local vim_1_auto = _G.vim
       local st_2_auto = require("codeboomer.state")
       do
@@ -1151,50 +1187,50 @@ local function thread_by_id(id)
         end
       end
       st_2_auto.queries["sqlite.thread"] = (1 + (st_2_auto.queries["sqlite.thread"] or 0))
-      local function _214_()
+      local function _221_()
         vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.thread"]) .. " " .. "sqlite.thread"), vim_1_auto.log.levels.INFO)
         st_2_auto.queries["sqlite.thread"] = nil
         return nil
       end
-      st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _214_)
+      st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _221_)
     else
     end
     if ok_6_auto then
-      t_210_ = result_7_auto
+      t_217_ = result_7_auto
     else
       db_mod_4_auto["reset-db"]()
-      t_210_ = error(result_7_auto, 0)
+      t_217_ = error(result_7_auto, 0)
     end
   end
-  if (nil ~= t_210_) then
-    t_210_ = t_210_[1]
+  if (nil ~= t_217_) then
+    t_217_ = t_217_[1]
   else
   end
-  return t_210_
+  return t_217_
 end
 local function root_of(t)
-  local _218_
+  local _225_
   if t.parent_id then
-    _218_ = thread_by_id(t.parent_id)
+    _225_ = thread_by_id(t.parent_id)
   else
-    _218_ = nil
+    _225_ = nil
   end
-  return (_218_ or t)
+  return (_225_ or t)
 end
 local function twin_of(t)
   local root = root_of(t)
   if ((root.id or 0) == (t.id or 0)) then
-    local t_220_
+    local t_227_
     do
       local db_mod_4_auto = require("codeboomer.singleton")
       local t_5_auto = sqlite.thread(db_mod_4_auto["get-db"]())
       local ok_6_auto, result_7_auto
-      local function _221_()
+      local function _228_()
         return t_5_auto:get({where = {parent_id = (t.id or 0)}})
       end
-      ok_6_auto, result_7_auto = pcall(_221_)
-      local tgt_222_ = require("codeboomer.config")
-      if (tgt_222_)["debug?"](tgt_222_) then
+      ok_6_auto, result_7_auto = pcall(_228_)
+      local tgt_229_ = require("codeboomer.config")
+      if (tgt_229_)["debug?"](tgt_229_) then
         local vim_1_auto = _G.vim
         local st_2_auto = require("codeboomer.state")
         do
@@ -1205,26 +1241,26 @@ local function twin_of(t)
           end
         end
         st_2_auto.queries["sqlite.thread"] = (1 + (st_2_auto.queries["sqlite.thread"] or 0))
-        local function _224_()
+        local function _231_()
           vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.thread"]) .. " " .. "sqlite.thread"), vim_1_auto.log.levels.INFO)
           st_2_auto.queries["sqlite.thread"] = nil
           return nil
         end
-        st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _224_)
+        st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _231_)
       else
       end
       if ok_6_auto then
-        t_220_ = result_7_auto
+        t_227_ = result_7_auto
       else
         db_mod_4_auto["reset-db"]()
-        t_220_ = error(result_7_auto, 0)
+        t_227_ = error(result_7_auto, 0)
       end
     end
-    if (nil ~= t_220_) then
-      t_220_ = t_220_[1]
+    if (nil ~= t_227_) then
+      t_227_ = t_227_[1]
     else
     end
-    return t_220_
+    return t_227_
   else
     return root
   end
@@ -1245,14 +1281,14 @@ M["conversation-comments"] = function(thread_id)
     local root = root_of(t)
     local twin = twin_of(t)
     local rows
-    local function _230_()
+    local function _237_()
       if (twin and ((twin.id or 0) ~= (root.id or 0))) then
         return M["comments-for"](twin.id)
       else
         return {}
       end
     end
-    rows = vim.list_extend(M["comments-for"]((root.id or 0)), _230_())
+    rows = vim.list_extend(M["comments-for"]((root.id or 0)), _237_())
     table.sort(rows, by_created)
     return rows
   end
@@ -1271,20 +1307,20 @@ M["ensure-local-twin"] = function(thread_id)
         local db_mod_4_auto = require("codeboomer.singleton")
         local t_5_auto = sqlite.thread(db_mod_4_auto["get-db"]())
         local ok_6_auto, result_7_auto
-        local function _232_()
-          local function _234_()
-            local t_233_ = session_repo(t.session_id)
-            if (nil ~= t_233_) then
-              t_233_ = t_233_.path
+        local function _239_()
+          local function _241_()
+            local t_240_ = session_repo(t.session_id)
+            if (nil ~= t_240_) then
+              t_240_ = t_240_.path
             else
             end
-            return t_233_
+            return t_240_
           end
-          return t_5_auto:insert({session_id = t.session_id, file_path = t.file_path, line_start = t.line_start, line_end = t.line_end, code_snapshot = sql_literal(t.code_snapshot), anchor_commit = t.anchor_commit, status = "open", type = (t.type or "line"), kind = "local", parent_id = t.id, created_by = with_user(_234_())})
+          return t_5_auto:insert({session_id = t.session_id, file_path = t.file_path, line_start = t.line_start, line_end = t.line_end, code_snapshot = sql_literal(t.code_snapshot), anchor_commit = t.anchor_commit, status = "open", type = (t.type or "line"), kind = "local", parent_id = t.id, created_by = with_user(_241_())})
         end
-        ok_6_auto, result_7_auto = pcall(_232_)
-        local tgt_236_ = require("codeboomer.config")
-        if (tgt_236_)["debug?"](tgt_236_) then
+        ok_6_auto, result_7_auto = pcall(_239_)
+        local tgt_243_ = require("codeboomer.config")
+        if (tgt_243_)["debug?"](tgt_243_) then
           local vim_1_auto = _G.vim
           local st_2_auto = require("codeboomer.state")
           do
@@ -1295,12 +1331,12 @@ M["ensure-local-twin"] = function(thread_id)
             end
           end
           st_2_auto.queries["sqlite.thread"] = (1 + (st_2_auto.queries["sqlite.thread"] or 0))
-          local function _238_()
+          local function _245_()
             vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.thread"]) .. " " .. "sqlite.thread"), vim_1_auto.log.levels.INFO)
             st_2_auto.queries["sqlite.thread"] = nil
             return nil
           end
-          st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _238_)
+          st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _245_)
         else
         end
         if ok_6_auto then
@@ -1403,11 +1439,11 @@ end
 M.promote = function(thread_id, body, _3fsession_id, _3fanchor_sha)
   local t = thread_by_id(thread_id)
   local refuse
-  local function _251_(msg, level)
+  local function _258_(msg, level)
     vim.notify(msg, level)
     return nil
   end
-  refuse = _251_
+  refuse = _258_
   if not t then
     return refuse(("codeboomer: no thread #" .. tostring((thread_id or 0))), vim.log.levels.ERROR)
   elseif ("review" == (t.kind or "local")) then
@@ -1421,37 +1457,37 @@ M.promote = function(thread_id, body, _3fsession_id, _3fanchor_sha)
   else
     local repo = session_repo(t.session_id)
     local me
-    local function _253_()
-      local t_252_ = repo
-      if (nil ~= t_252_) then
-        t_252_ = t_252_.path
+    local function _260_()
+      local t_259_ = repo
+      if (nil ~= t_259_) then
+        t_259_ = t_259_.path
       else
       end
-      return t_252_
+      return t_259_
     end
-    me = with_user(_253_())
+    me = with_user(_260_())
     local commit_id
-    local _256_
+    local _263_
     do
-      local t_255_ = repo
-      if (nil ~= t_255_) then
-        t_255_ = t_255_.id
+      local t_262_ = repo
+      if (nil ~= t_262_) then
+        t_262_ = t_262_.id
       else
       end
-      _256_ = t_255_
+      _263_ = t_262_
     end
-    commit_id = with_commit(_256_, (_3fanchor_sha or M["commit-sha"](t.anchor_commit)))
+    commit_id = with_commit(_263_, (_3fanchor_sha or M["commit-sha"](t.anchor_commit)))
     local twin_id
     do
       local db_mod_4_auto = require("codeboomer.singleton")
       local t_5_auto = sqlite.thread(db_mod_4_auto["get-db"]())
       local ok_6_auto, result_7_auto
-      local function _258_()
+      local function _265_()
         return t_5_auto:insert({session_id = (_3fsession_id or t.session_id), file_path = t.file_path, line_start = t.line_start, line_end = t.line_end, code_snapshot = sql_literal(t.code_snapshot), anchor_commit = commit_id, status = "open", type = (t.type or "line"), kind = "review", parent_id = t.id, created_by = me})
       end
-      ok_6_auto, result_7_auto = pcall(_258_)
-      local tgt_259_ = require("codeboomer.config")
-      if (tgt_259_)["debug?"](tgt_259_) then
+      ok_6_auto, result_7_auto = pcall(_265_)
+      local tgt_266_ = require("codeboomer.config")
+      if (tgt_266_)["debug?"](tgt_266_) then
         local vim_1_auto = _G.vim
         local st_2_auto = require("codeboomer.state")
         do
@@ -1462,12 +1498,12 @@ M.promote = function(thread_id, body, _3fsession_id, _3fanchor_sha)
           end
         end
         st_2_auto.queries["sqlite.thread"] = (1 + (st_2_auto.queries["sqlite.thread"] or 0))
-        local function _261_()
+        local function _268_()
           vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.thread"]) .. " " .. "sqlite.thread"), vim_1_auto.log.levels.INFO)
           st_2_auto.queries["sqlite.thread"] = nil
           return nil
         end
-        st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _261_)
+        st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _268_)
       else
       end
       if ok_6_auto then
@@ -1481,12 +1517,12 @@ M.promote = function(thread_id, body, _3fsession_id, _3fanchor_sha)
       local db_mod_4_auto = require("codeboomer.singleton")
       local t_5_auto = sqlite.comments(db_mod_4_auto["get-db"]())
       local ok_6_auto, result_7_auto
-      local function _264_()
+      local function _271_()
         return t_5_auto:insert({thread_id = twin_id, author_id = me, body = sql_literal(body), source = "user", commit_id = commit_id})
       end
-      ok_6_auto, result_7_auto = pcall(_264_)
-      local tgt_265_ = require("codeboomer.config")
-      if (tgt_265_)["debug?"](tgt_265_) then
+      ok_6_auto, result_7_auto = pcall(_271_)
+      local tgt_272_ = require("codeboomer.config")
+      if (tgt_272_)["debug?"](tgt_272_) then
         local vim_1_auto = _G.vim
         local st_2_auto = require("codeboomer.state")
         do
@@ -1497,12 +1533,12 @@ M.promote = function(thread_id, body, _3fsession_id, _3fanchor_sha)
           end
         end
         st_2_auto.queries["sqlite.comments"] = (1 + (st_2_auto.queries["sqlite.comments"] or 0))
-        local function _267_()
+        local function _274_()
           vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.comments"]) .. " " .. "sqlite.comments"), vim_1_auto.log.levels.INFO)
           st_2_auto.queries["sqlite.comments"] = nil
           return nil
         end
-        st_2_auto.timers["sqlite.comments"] = vim_1_auto.fn.timer_start(1000, _267_)
+        st_2_auto.timers["sqlite.comments"] = vim_1_auto.fn.timer_start(1000, _274_)
       else
       end
       if ok_6_auto then
@@ -1518,12 +1554,12 @@ M["update-comment-body"] = function(comment_id, body)
   local db_mod_4_auto = require("codeboomer.singleton")
   local t_5_auto = sqlite.comments(db_mod_4_auto["get-db"]())
   local ok_6_auto, result_7_auto
-  local function _271_()
+  local function _278_()
     return t_5_auto:update({set = {body = sql_literal(body)}, where = {id = (comment_id or 0)}})
   end
-  ok_6_auto, result_7_auto = pcall(_271_)
-  local tgt_272_ = require("codeboomer.config")
-  if (tgt_272_)["debug?"](tgt_272_) then
+  ok_6_auto, result_7_auto = pcall(_278_)
+  local tgt_279_ = require("codeboomer.config")
+  if (tgt_279_)["debug?"](tgt_279_) then
     local vim_1_auto = _G.vim
     local st_2_auto = require("codeboomer.state")
     do
@@ -1534,12 +1570,12 @@ M["update-comment-body"] = function(comment_id, body)
       end
     end
     st_2_auto.queries["sqlite.comments"] = (1 + (st_2_auto.queries["sqlite.comments"] or 0))
-    local function _274_()
+    local function _281_()
       vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.comments"]) .. " " .. "sqlite.comments"), vim_1_auto.log.levels.INFO)
       st_2_auto.queries["sqlite.comments"] = nil
       return nil
     end
-    st_2_auto.timers["sqlite.comments"] = vim_1_auto.fn.timer_start(1000, _274_)
+    st_2_auto.timers["sqlite.comments"] = vim_1_auto.fn.timer_start(1000, _281_)
   else
   end
   if ok_6_auto then
@@ -1553,12 +1589,12 @@ M["stamp-gh-comment"] = function(comment_id, gh_id)
   local db_mod_4_auto = require("codeboomer.singleton")
   local t_5_auto = sqlite.comments(db_mod_4_auto["get-db"]())
   local ok_6_auto, result_7_auto
-  local function _277_()
+  local function _284_()
     return t_5_auto:update({set = {gh_comment_id = tostring(gh_id)}, where = {id = (comment_id or 0)}})
   end
-  ok_6_auto, result_7_auto = pcall(_277_)
-  local tgt_278_ = require("codeboomer.config")
-  if (tgt_278_)["debug?"](tgt_278_) then
+  ok_6_auto, result_7_auto = pcall(_284_)
+  local tgt_285_ = require("codeboomer.config")
+  if (tgt_285_)["debug?"](tgt_285_) then
     local vim_1_auto = _G.vim
     local st_2_auto = require("codeboomer.state")
     do
@@ -1569,12 +1605,47 @@ M["stamp-gh-comment"] = function(comment_id, gh_id)
       end
     end
     st_2_auto.queries["sqlite.comments"] = (1 + (st_2_auto.queries["sqlite.comments"] or 0))
-    local function _280_()
+    local function _287_()
       vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.comments"]) .. " " .. "sqlite.comments"), vim_1_auto.log.levels.INFO)
       st_2_auto.queries["sqlite.comments"] = nil
       return nil
     end
-    st_2_auto.timers["sqlite.comments"] = vim_1_auto.fn.timer_start(1000, _280_)
+    st_2_auto.timers["sqlite.comments"] = vim_1_auto.fn.timer_start(1000, _287_)
+  else
+  end
+  if ok_6_auto then
+    return result_7_auto
+  else
+    db_mod_4_auto["reset-db"]()
+    return error(result_7_auto, 0)
+  end
+end
+M["mark-gh-outdated"] = function(thread_id)
+  local db_mod_4_auto = require("codeboomer.singleton")
+  local t_5_auto = sqlite.thread(db_mod_4_auto["get-db"]())
+  local ok_6_auto, result_7_auto
+  local function _290_()
+    return t_5_auto:update({set = {gh_outdated = 1}, where = {id = (thread_id or 0)}})
+  end
+  ok_6_auto, result_7_auto = pcall(_290_)
+  local tgt_291_ = require("codeboomer.config")
+  if (tgt_291_)["debug?"](tgt_291_) then
+    local vim_1_auto = _G.vim
+    local st_2_auto = require("codeboomer.state")
+    do
+      local old_timer_3_auto = st_2_auto.timers["sqlite.thread"]
+      if old_timer_3_auto then
+        vim_1_auto.fn.timer_stop(old_timer_3_auto)
+      else
+      end
+    end
+    st_2_auto.queries["sqlite.thread"] = (1 + (st_2_auto.queries["sqlite.thread"] or 0))
+    local function _293_()
+      vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.thread"]) .. " " .. "sqlite.thread"), vim_1_auto.log.levels.INFO)
+      st_2_auto.queries["sqlite.thread"] = nil
+      return nil
+    end
+    st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _293_)
   else
   end
   if ok_6_auto then
@@ -1586,17 +1657,17 @@ M["stamp-gh-comment"] = function(comment_id, gh_id)
 end
 M["agent-reply"] = function(thread_id, body)
   local rows
-  local _283_
+  local _296_
   do
     local db_mod_4_auto = require("codeboomer.singleton")
     local t_5_auto = sqlite.thread(db_mod_4_auto["get-db"]())
     local ok_6_auto, result_7_auto
-    local function _284_()
+    local function _297_()
       return t_5_auto:get({where = {id = thread_id}})
     end
-    ok_6_auto, result_7_auto = pcall(_284_)
-    local tgt_285_ = require("codeboomer.config")
-    if (tgt_285_)["debug?"](tgt_285_) then
+    ok_6_auto, result_7_auto = pcall(_297_)
+    local tgt_298_ = require("codeboomer.config")
+    if (tgt_298_)["debug?"](tgt_298_) then
       local vim_1_auto = _G.vim
       local st_2_auto = require("codeboomer.state")
       do
@@ -1607,22 +1678,22 @@ M["agent-reply"] = function(thread_id, body)
         end
       end
       st_2_auto.queries["sqlite.thread"] = (1 + (st_2_auto.queries["sqlite.thread"] or 0))
-      local function _287_()
+      local function _300_()
         vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.thread"]) .. " " .. "sqlite.thread"), vim_1_auto.log.levels.INFO)
         st_2_auto.queries["sqlite.thread"] = nil
         return nil
       end
-      st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _287_)
+      st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _300_)
     else
     end
     if ok_6_auto then
-      _283_ = result_7_auto
+      _296_ = result_7_auto
     else
       db_mod_4_auto["reset-db"]()
-      _283_ = error(result_7_auto, 0)
+      _296_ = error(result_7_auto, 0)
     end
   end
-  rows = (_283_ or {})
+  rows = (_296_ or {})
   local thread = rows[1]
   if (not thread or (thread.status == "resolved")) then
     vim.notify(("codeboomer: no active thread #" .. tostring(thread_id)), vim.log.levels.ERROR)
@@ -1641,12 +1712,12 @@ M["agent-reply"] = function(thread_id, body)
       local db_mod_4_auto = require("codeboomer.singleton")
       local t_5_auto = sqlite.comments(db_mod_4_auto["get-db"]())
       local ok_6_auto, result_7_auto
-      local function _291_()
+      local function _304_()
         return t_5_auto:insert({thread_id = target.id, author_id = with_agent_user(), body = sql_literal(body), source = "agent", commit_id = target.anchor_commit})
       end
-      ok_6_auto, result_7_auto = pcall(_291_)
-      local tgt_292_ = require("codeboomer.config")
-      if (tgt_292_)["debug?"](tgt_292_) then
+      ok_6_auto, result_7_auto = pcall(_304_)
+      local tgt_305_ = require("codeboomer.config")
+      if (tgt_305_)["debug?"](tgt_305_) then
         local vim_1_auto = _G.vim
         local st_2_auto = require("codeboomer.state")
         do
@@ -1657,12 +1728,12 @@ M["agent-reply"] = function(thread_id, body)
           end
         end
         st_2_auto.queries["sqlite.comments"] = (1 + (st_2_auto.queries["sqlite.comments"] or 0))
-        local function _294_()
+        local function _307_()
           vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.comments"]) .. " " .. "sqlite.comments"), vim_1_auto.log.levels.INFO)
           st_2_auto.queries["sqlite.comments"] = nil
           return nil
         end
-        st_2_auto.timers["sqlite.comments"] = vim_1_auto.fn.timer_start(1000, _294_)
+        st_2_auto.timers["sqlite.comments"] = vim_1_auto.fn.timer_start(1000, _307_)
       else
       end
       if ok_6_auto then
@@ -1678,17 +1749,17 @@ M["agent-reply"] = function(thread_id, body)
 end
 M["user-reply"] = function(thread_id, body)
   local rows
-  local _299_
+  local _312_
   do
     local db_mod_4_auto = require("codeboomer.singleton")
     local t_5_auto = sqlite.thread(db_mod_4_auto["get-db"]())
     local ok_6_auto, result_7_auto
-    local function _300_()
+    local function _313_()
       return t_5_auto:get({where = {id = thread_id}})
     end
-    ok_6_auto, result_7_auto = pcall(_300_)
-    local tgt_301_ = require("codeboomer.config")
-    if (tgt_301_)["debug?"](tgt_301_) then
+    ok_6_auto, result_7_auto = pcall(_313_)
+    local tgt_314_ = require("codeboomer.config")
+    if (tgt_314_)["debug?"](tgt_314_) then
       local vim_1_auto = _G.vim
       local st_2_auto = require("codeboomer.state")
       do
@@ -1699,22 +1770,22 @@ M["user-reply"] = function(thread_id, body)
         end
       end
       st_2_auto.queries["sqlite.thread"] = (1 + (st_2_auto.queries["sqlite.thread"] or 0))
-      local function _303_()
+      local function _316_()
         vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.thread"]) .. " " .. "sqlite.thread"), vim_1_auto.log.levels.INFO)
         st_2_auto.queries["sqlite.thread"] = nil
         return nil
       end
-      st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _303_)
+      st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _316_)
     else
     end
     if ok_6_auto then
-      _299_ = result_7_auto
+      _312_ = result_7_auto
     else
       db_mod_4_auto["reset-db"]()
-      _299_ = error(result_7_auto, 0)
+      _312_ = error(result_7_auto, 0)
     end
   end
-  rows = (_299_ or {})
+  rows = (_312_ or {})
   local thread = rows[1]
   if (not thread or (thread.status == "resolved")) then
     vim.notify(("codeboomer: no active thread #" .. tostring(thread_id)), vim.log.levels.ERROR)
@@ -1726,20 +1797,20 @@ M["user-reply"] = function(thread_id, body)
     local db_mod_4_auto = require("codeboomer.singleton")
     local t_5_auto = sqlite.comments(db_mod_4_auto["get-db"]())
     local ok_6_auto, result_7_auto
-    local function _306_()
-      local function _308_()
-        local t_307_ = session_repo(thread.session_id)
-        if (nil ~= t_307_) then
-          t_307_ = t_307_.path
+    local function _319_()
+      local function _321_()
+        local t_320_ = session_repo(thread.session_id)
+        if (nil ~= t_320_) then
+          t_320_ = t_320_.path
         else
         end
-        return t_307_
+        return t_320_
       end
-      return t_5_auto:insert({thread_id = thread_id, author_id = with_user(_308_()), body = sql_literal(body), source = "user", commit_id = thread.anchor_commit})
+      return t_5_auto:insert({thread_id = thread_id, author_id = with_user(_321_()), body = sql_literal(body), source = "user", commit_id = thread.anchor_commit})
     end
-    ok_6_auto, result_7_auto = pcall(_306_)
-    local tgt_310_ = require("codeboomer.config")
-    if (tgt_310_)["debug?"](tgt_310_) then
+    ok_6_auto, result_7_auto = pcall(_319_)
+    local tgt_323_ = require("codeboomer.config")
+    if (tgt_323_)["debug?"](tgt_323_) then
       local vim_1_auto = _G.vim
       local st_2_auto = require("codeboomer.state")
       do
@@ -1750,12 +1821,12 @@ M["user-reply"] = function(thread_id, body)
         end
       end
       st_2_auto.queries["sqlite.comments"] = (1 + (st_2_auto.queries["sqlite.comments"] or 0))
-      local function _312_()
+      local function _325_()
         vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.comments"]) .. " " .. "sqlite.comments"), vim_1_auto.log.levels.INFO)
         st_2_auto.queries["sqlite.comments"] = nil
         return nil
       end
-      st_2_auto.timers["sqlite.comments"] = vim_1_auto.fn.timer_start(1000, _312_)
+      st_2_auto.timers["sqlite.comments"] = vim_1_auto.fn.timer_start(1000, _325_)
     else
     end
     if ok_6_auto then
@@ -1772,12 +1843,12 @@ M["resolve-thread"] = function(thread_id)
     local db_mod_4_auto = require("codeboomer.singleton")
     local t_5_auto = sqlite.thread(db_mod_4_auto["get-db"]())
     local ok_6_auto, result_7_auto
-    local function _316_()
+    local function _329_()
       return t_5_auto:update({set = {status = "resolved"}, where = {id = thread_id}})
     end
-    ok_6_auto, result_7_auto = pcall(_316_)
-    local tgt_317_ = require("codeboomer.config")
-    if (tgt_317_)["debug?"](tgt_317_) then
+    ok_6_auto, result_7_auto = pcall(_329_)
+    local tgt_330_ = require("codeboomer.config")
+    if (tgt_330_)["debug?"](tgt_330_) then
       local vim_1_auto = _G.vim
       local st_2_auto = require("codeboomer.state")
       do
@@ -1788,12 +1859,12 @@ M["resolve-thread"] = function(thread_id)
         end
       end
       st_2_auto.queries["sqlite.thread"] = (1 + (st_2_auto.queries["sqlite.thread"] or 0))
-      local function _319_()
+      local function _332_()
         vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.thread"]) .. " " .. "sqlite.thread"), vim_1_auto.log.levels.INFO)
         st_2_auto.queries["sqlite.thread"] = nil
         return nil
       end
-      st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _319_)
+      st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _332_)
     else
     end
     if ok_6_auto then
@@ -1812,12 +1883,12 @@ M["resolve-thread"] = function(thread_id)
     local db_mod_4_auto = require("codeboomer.singleton")
     local t_5_auto = sqlite.thread(db_mod_4_auto["get-db"]())
     local ok_6_auto, result_7_auto
-    local function _323_()
+    local function _336_()
       return t_5_auto:update({set = {status = "resolved"}, where = {id = twin.id}})
     end
-    ok_6_auto, result_7_auto = pcall(_323_)
-    local tgt_324_ = require("codeboomer.config")
-    if (tgt_324_)["debug?"](tgt_324_) then
+    ok_6_auto, result_7_auto = pcall(_336_)
+    local tgt_337_ = require("codeboomer.config")
+    if (tgt_337_)["debug?"](tgt_337_) then
       local vim_1_auto = _G.vim
       local st_2_auto = require("codeboomer.state")
       do
@@ -1828,12 +1899,12 @@ M["resolve-thread"] = function(thread_id)
         end
       end
       st_2_auto.queries["sqlite.thread"] = (1 + (st_2_auto.queries["sqlite.thread"] or 0))
-      local function _326_()
+      local function _339_()
         vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.thread"]) .. " " .. "sqlite.thread"), vim_1_auto.log.levels.INFO)
         st_2_auto.queries["sqlite.thread"] = nil
         return nil
       end
-      st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _326_)
+      st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _339_)
     else
     end
     if ok_6_auto then
@@ -1847,17 +1918,17 @@ M["resolve-thread"] = function(thread_id)
   end
 end
 M["commit-sha"] = function(commit_id)
-  local t_330_
+  local t_343_
   do
     local db_mod_4_auto = require("codeboomer.singleton")
     local t_5_auto = sqlite.commit(db_mod_4_auto["get-db"]())
     local ok_6_auto, result_7_auto
-    local function _331_()
+    local function _344_()
       return t_5_auto:get({where = {id = commit_id}})
     end
-    ok_6_auto, result_7_auto = pcall(_331_)
-    local tgt_332_ = require("codeboomer.config")
-    if (tgt_332_)["debug?"](tgt_332_) then
+    ok_6_auto, result_7_auto = pcall(_344_)
+    local tgt_345_ = require("codeboomer.config")
+    if (tgt_345_)["debug?"](tgt_345_) then
       local vim_1_auto = _G.vim
       local st_2_auto = require("codeboomer.state")
       do
@@ -1868,54 +1939,54 @@ M["commit-sha"] = function(commit_id)
         end
       end
       st_2_auto.queries["sqlite.commit"] = (1 + (st_2_auto.queries["sqlite.commit"] or 0))
-      local function _334_()
+      local function _347_()
         vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.commit"]) .. " " .. "sqlite.commit"), vim_1_auto.log.levels.INFO)
         st_2_auto.queries["sqlite.commit"] = nil
         return nil
       end
-      st_2_auto.timers["sqlite.commit"] = vim_1_auto.fn.timer_start(1000, _334_)
+      st_2_auto.timers["sqlite.commit"] = vim_1_auto.fn.timer_start(1000, _347_)
     else
     end
     if ok_6_auto then
-      t_330_ = result_7_auto
+      t_343_ = result_7_auto
     else
       db_mod_4_auto["reset-db"]()
-      t_330_ = error(result_7_auto, 0)
+      t_343_ = error(result_7_auto, 0)
     end
   end
-  if (nil ~= t_330_) then
-    t_330_ = t_330_[1]
+  if (nil ~= t_343_) then
+    t_343_ = t_343_[1]
   else
   end
-  if (nil ~= t_330_) then
-    t_330_ = t_330_.hash
+  if (nil ~= t_343_) then
+    t_343_ = t_343_.hash
   else
   end
-  return t_330_
+  return t_343_
 end
 local function mine_unflagged_3f(c, me, flag)
   return (((c.author_id or 0) == me) and ((c.source or "user") == "user") and (0 == (c[flag] or 0)) and ("" ~= (c.body or "")))
 end
 M["unposted-user-comments"] = function(thread_id)
   local me
-  local function _340_()
-    local t_339_
-    local function _342_()
-      local t_341_ = thread_by_id(thread_id)
-      if (nil ~= t_341_) then
-        t_341_ = t_341_.session_id
+  local function _353_()
+    local t_352_
+    local function _355_()
+      local t_354_ = thread_by_id(thread_id)
+      if (nil ~= t_354_) then
+        t_354_ = t_354_.session_id
       else
       end
-      return t_341_
+      return t_354_
     end
-    t_339_ = session_repo(_342_())
-    if (nil ~= t_339_) then
-      t_339_ = t_339_.path
+    t_352_ = session_repo(_355_())
+    if (nil ~= t_352_) then
+      t_352_ = t_352_.path
     else
     end
-    return t_339_
+    return t_352_
   end
-  me = with_user(_340_())
+  me = with_user(_353_())
   local tbl_26_ = {}
   local i_27_ = 0
   for _, c in ipairs(M["comments-for"]((thread_id or 0))) do
@@ -1938,15 +2009,15 @@ M["pending-for-flush"] = function(session_id)
     return {}
   else
     local me
-    local function _348_()
-      local t_347_ = session_repo(session_id)
-      if (nil ~= t_347_) then
-        t_347_ = t_347_.path
+    local function _361_()
+      local t_360_ = session_repo(session_id)
+      if (nil ~= t_360_) then
+        t_360_ = t_360_.path
       else
       end
-      return t_347_
+      return t_360_
     end
-    me = with_user(_348_())
+    me = with_user(_361_())
     local out = {}
     for _, t in ipairs(M["threads-for-session"](session_id)) do
       for _0, c in ipairs(M["conversation-comments"]((t.id or 0))) do
@@ -1964,15 +2035,15 @@ M["pending-for-post"] = function(session_id)
     return {}
   else
     local me
-    local function _353_()
-      local t_352_ = session_repo(session_id)
-      if (nil ~= t_352_) then
-        t_352_ = t_352_.path
+    local function _366_()
+      local t_365_ = session_repo(session_id)
+      if (nil ~= t_365_) then
+        t_365_ = t_365_.path
       else
       end
-      return t_352_
+      return t_365_
     end
-    me = with_user(_353_())
+    me = with_user(_366_())
     local out = {}
     for _, t in ipairs(M["review-rows-for-session"](session_id)) do
       for _0, c in ipairs(M["comments-for"]((t.id or 0))) do
@@ -1989,18 +2060,18 @@ M["mark-annotations"] = function(flag, ids)
   if vim.tbl_contains({"sent", "posted"}, flag) then
     local db_mod_8_auto = require("codeboomer.singleton")
     local ok_9_auto, result_10_auto
-    local function _357_()
-      local function _358_(d)
+    local function _370_()
+      local function _371_(d)
         for _, id in ipairs(ids) do
           d:execute(string.format("update comment set %s = 1 where id = %d", tostring(flag), (id or 0)))
         end
         return nil
       end
-      return db_mod_8_auto["get-db"]():with_open(_358_)
+      return db_mod_8_auto["get-db"]():with_open(_371_)
     end
-    ok_9_auto, result_10_auto = pcall(_357_)
-    local tgt_359_ = require("codeboomer.config")
-    if (tgt_359_)["debug?"](tgt_359_) then
+    ok_9_auto, result_10_auto = pcall(_370_)
+    local tgt_372_ = require("codeboomer.config")
+    if (tgt_372_)["debug?"](tgt_372_) then
       local vim_11_auto = _G.vim
       vim_11_auto.notify("opening connection to sqlite", vim_11_auto.log.levels.INFO)
     else
@@ -2018,17 +2089,17 @@ end
 M["delete-comment"] = function(comment_id)
   local c
   do
-    local t_363_
+    local t_376_
     do
       local db_mod_4_auto = require("codeboomer.singleton")
       local t_5_auto = sqlite.comments(db_mod_4_auto["get-db"]())
       local ok_6_auto, result_7_auto
-      local function _364_()
+      local function _377_()
         return t_5_auto:get({where = {id = (comment_id or 0)}})
       end
-      ok_6_auto, result_7_auto = pcall(_364_)
-      local tgt_365_ = require("codeboomer.config")
-      if (tgt_365_)["debug?"](tgt_365_) then
+      ok_6_auto, result_7_auto = pcall(_377_)
+      local tgt_378_ = require("codeboomer.config")
+      if (tgt_378_)["debug?"](tgt_378_) then
         local vim_1_auto = _G.vim
         local st_2_auto = require("codeboomer.state")
         do
@@ -2039,40 +2110,40 @@ M["delete-comment"] = function(comment_id)
           end
         end
         st_2_auto.queries["sqlite.comments"] = (1 + (st_2_auto.queries["sqlite.comments"] or 0))
-        local function _367_()
+        local function _380_()
           vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.comments"]) .. " " .. "sqlite.comments"), vim_1_auto.log.levels.INFO)
           st_2_auto.queries["sqlite.comments"] = nil
           return nil
         end
-        st_2_auto.timers["sqlite.comments"] = vim_1_auto.fn.timer_start(1000, _367_)
+        st_2_auto.timers["sqlite.comments"] = vim_1_auto.fn.timer_start(1000, _380_)
       else
       end
       if ok_6_auto then
-        t_363_ = result_7_auto
+        t_376_ = result_7_auto
       else
         db_mod_4_auto["reset-db"]()
-        t_363_ = error(result_7_auto, 0)
+        t_376_ = error(result_7_auto, 0)
       end
     end
-    if (nil ~= t_363_) then
-      t_363_ = t_363_[1]
+    if (nil ~= t_376_) then
+      t_376_ = t_376_[1]
     else
     end
-    c = t_363_
+    c = t_376_
   end
   if (c and ("user" == (c.source or "user")) and (0 == (c.sent or 0)) and (0 == (c.posted or 0)) and not c.gh_comment_id) then
     do
       local db_mod_8_auto = require("codeboomer.singleton")
       local ok_9_auto, result_10_auto
-      local function _371_()
-        local function _372_(d)
+      local function _384_()
+        local function _385_(d)
           return d:execute(string.format("delete from comment where id = %d", (c.id or 0)))
         end
-        return db_mod_8_auto["get-db"]():with_open(_372_)
+        return db_mod_8_auto["get-db"]():with_open(_385_)
       end
-      ok_9_auto, result_10_auto = pcall(_371_)
-      local tgt_373_ = require("codeboomer.config")
-      if (tgt_373_)["debug?"](tgt_373_) then
+      ok_9_auto, result_10_auto = pcall(_384_)
+      local tgt_386_ = require("codeboomer.config")
+      if (tgt_386_)["debug?"](tgt_386_) then
         local vim_11_auto = _G.vim
         vim_11_auto.notify("opening connection to sqlite", vim_11_auto.log.levels.INFO)
       else
@@ -2103,17 +2174,17 @@ M["threads-for-session"] = function(session_id)
     return {}
   else
     local rows
-    local _378_
+    local _391_
     do
       local db_mod_4_auto = require("codeboomer.singleton")
       local t_5_auto = sqlite.thread(db_mod_4_auto["get-db"]())
       local ok_6_auto, result_7_auto
-      local function _379_()
+      local function _392_()
         return t_5_auto:get({where = {session_id = session_id}})
       end
-      ok_6_auto, result_7_auto = pcall(_379_)
-      local tgt_380_ = require("codeboomer.config")
-      if (tgt_380_)["debug?"](tgt_380_) then
+      ok_6_auto, result_7_auto = pcall(_392_)
+      local tgt_393_ = require("codeboomer.config")
+      if (tgt_393_)["debug?"](tgt_393_) then
         local vim_1_auto = _G.vim
         local st_2_auto = require("codeboomer.state")
         do
@@ -2124,22 +2195,22 @@ M["threads-for-session"] = function(session_id)
           end
         end
         st_2_auto.queries["sqlite.thread"] = (1 + (st_2_auto.queries["sqlite.thread"] or 0))
-        local function _382_()
+        local function _395_()
           vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.thread"]) .. " " .. "sqlite.thread"), vim_1_auto.log.levels.INFO)
           st_2_auto.queries["sqlite.thread"] = nil
           return nil
         end
-        st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _382_)
+        st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _395_)
       else
       end
       if ok_6_auto then
-        _378_ = result_7_auto
+        _391_ = result_7_auto
       else
         db_mod_4_auto["reset-db"]()
-        _378_ = error(result_7_auto, 0)
+        _391_ = error(result_7_auto, 0)
       end
     end
-    rows = unresolved_rows((_378_ or {}))
+    rows = unresolved_rows((_391_ or {}))
     local seen = {}
     local roots = {}
     for _, row in ipairs(rows) do
@@ -2159,17 +2230,17 @@ M["review-rows-for-session"] = function(session_id)
     return {}
   else
     local rows
-    local _387_
+    local _400_
     do
       local db_mod_4_auto = require("codeboomer.singleton")
       local t_5_auto = sqlite.thread(db_mod_4_auto["get-db"]())
       local ok_6_auto, result_7_auto
-      local function _388_()
+      local function _401_()
         return t_5_auto:get({where = {session_id = session_id, kind = "review"}})
       end
-      ok_6_auto, result_7_auto = pcall(_388_)
-      local tgt_389_ = require("codeboomer.config")
-      if (tgt_389_)["debug?"](tgt_389_) then
+      ok_6_auto, result_7_auto = pcall(_401_)
+      local tgt_402_ = require("codeboomer.config")
+      if (tgt_402_)["debug?"](tgt_402_) then
         local vim_1_auto = _G.vim
         local st_2_auto = require("codeboomer.state")
         do
@@ -2180,39 +2251,39 @@ M["review-rows-for-session"] = function(session_id)
           end
         end
         st_2_auto.queries["sqlite.thread"] = (1 + (st_2_auto.queries["sqlite.thread"] or 0))
-        local function _391_()
+        local function _404_()
           vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.thread"]) .. " " .. "sqlite.thread"), vim_1_auto.log.levels.INFO)
           st_2_auto.queries["sqlite.thread"] = nil
           return nil
         end
-        st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _391_)
+        st_2_auto.timers["sqlite.thread"] = vim_1_auto.fn.timer_start(1000, _404_)
       else
       end
       if ok_6_auto then
-        _387_ = result_7_auto
+        _400_ = result_7_auto
       else
         db_mod_4_auto["reset-db"]()
-        _387_ = error(result_7_auto, 0)
+        _400_ = error(result_7_auto, 0)
       end
     end
-    rows = unresolved_rows((_387_ or {}))
+    rows = unresolved_rows((_400_ or {}))
     table.sort(rows, by_file_then_line)
     return rows
   end
 end
 M["comments-for"] = function(thread_id)
   local rows
-  local _395_
+  local _408_
   do
     local db_mod_4_auto = require("codeboomer.singleton")
     local t_5_auto = sqlite.comments(db_mod_4_auto["get-db"]())
     local ok_6_auto, result_7_auto
-    local function _396_()
+    local function _409_()
       return t_5_auto:get({where = {thread_id = thread_id}})
     end
-    ok_6_auto, result_7_auto = pcall(_396_)
-    local tgt_397_ = require("codeboomer.config")
-    if (tgt_397_)["debug?"](tgt_397_) then
+    ok_6_auto, result_7_auto = pcall(_409_)
+    local tgt_410_ = require("codeboomer.config")
+    if (tgt_410_)["debug?"](tgt_410_) then
       local vim_1_auto = _G.vim
       local st_2_auto = require("codeboomer.state")
       do
@@ -2223,37 +2294,37 @@ M["comments-for"] = function(thread_id)
         end
       end
       st_2_auto.queries["sqlite.comments"] = (1 + (st_2_auto.queries["sqlite.comments"] or 0))
-      local function _399_()
+      local function _412_()
         vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.comments"]) .. " " .. "sqlite.comments"), vim_1_auto.log.levels.INFO)
         st_2_auto.queries["sqlite.comments"] = nil
         return nil
       end
-      st_2_auto.timers["sqlite.comments"] = vim_1_auto.fn.timer_start(1000, _399_)
+      st_2_auto.timers["sqlite.comments"] = vim_1_auto.fn.timer_start(1000, _412_)
     else
     end
     if ok_6_auto then
-      _395_ = result_7_auto
+      _408_ = result_7_auto
     else
       db_mod_4_auto["reset-db"]()
-      _395_ = error(result_7_auto, 0)
+      _408_ = error(result_7_auto, 0)
     end
   end
-  rows = (_395_ or {})
+  rows = (_408_ or {})
   table.sort(rows, by_created)
   return rows
 end
 M["comment-author"] = function(c)
-  local t_402_
+  local t_415_
   do
     local db_mod_4_auto = require("codeboomer.singleton")
     local t_5_auto = sqlite.user(db_mod_4_auto["get-db"]())
     local ok_6_auto, result_7_auto
-    local function _403_()
+    local function _416_()
       return t_5_auto:get({where = {id = (c.author_id or 0)}})
     end
-    ok_6_auto, result_7_auto = pcall(_403_)
-    local tgt_404_ = require("codeboomer.config")
-    if (tgt_404_)["debug?"](tgt_404_) then
+    ok_6_auto, result_7_auto = pcall(_416_)
+    local tgt_417_ = require("codeboomer.config")
+    if (tgt_417_)["debug?"](tgt_417_) then
       local vim_1_auto = _G.vim
       local st_2_auto = require("codeboomer.state")
       do
@@ -2264,26 +2335,26 @@ M["comment-author"] = function(c)
         end
       end
       st_2_auto.queries["sqlite.user"] = (1 + (st_2_auto.queries["sqlite.user"] or 0))
-      local function _406_()
+      local function _419_()
         vim_1_auto.notify(("querying " .. tostring(st_2_auto.queries["sqlite.user"]) .. " " .. "sqlite.user"), vim_1_auto.log.levels.INFO)
         st_2_auto.queries["sqlite.user"] = nil
         return nil
       end
-      st_2_auto.timers["sqlite.user"] = vim_1_auto.fn.timer_start(1000, _406_)
+      st_2_auto.timers["sqlite.user"] = vim_1_auto.fn.timer_start(1000, _419_)
     else
     end
     if ok_6_auto then
-      t_402_ = result_7_auto
+      t_415_ = result_7_auto
     else
       db_mod_4_auto["reset-db"]()
-      t_402_ = error(result_7_auto, 0)
+      t_415_ = error(result_7_auto, 0)
     end
   end
-  if (nil ~= t_402_) then
-    t_402_ = t_402_[1]
+  if (nil ~= t_415_) then
+    t_415_ = t_415_[1]
   else
   end
-  return t_402_
+  return t_415_
 end
 M["match-posted-comment"] = function(session_id, item)
   local line = (item.original_line or item.line)
@@ -2317,15 +2388,15 @@ M["delete-session"] = function(session_id)
   local threads = string.format("select id from comment_thread where session_id = %d", (session_id or 0))
   local db_mod_8_auto = require("codeboomer.singleton")
   local ok_9_auto, result_10_auto
-  local function _413_()
-    local function _414_(d)
+  local function _426_()
+    local function _427_(d)
       return d:execute(string.format("begin;\n                                               delete from comment where thread_id in (%s);\n                                               update comment_thread set parent_id = null\n                                                 where parent_id in (%s) and session_id != %d;\n                                               delete from comment_thread where session_id = %d;\n                                               delete from session where id = %d;\n                                               commit;", threads, threads, (session_id or 0), (session_id or 0), (session_id or 0)))
     end
-    return db_mod_8_auto["get-db"]():with_open(_414_)
+    return db_mod_8_auto["get-db"]():with_open(_427_)
   end
-  ok_9_auto, result_10_auto = pcall(_413_)
-  local tgt_415_ = require("codeboomer.config")
-  if (tgt_415_)["debug?"](tgt_415_) then
+  ok_9_auto, result_10_auto = pcall(_426_)
+  local tgt_428_ = require("codeboomer.config")
+  if (tgt_428_)["debug?"](tgt_428_) then
     local vim_11_auto = _G.vim
     vim_11_auto.notify("opening connection to sqlite", vim_11_auto.log.levels.INFO)
   else

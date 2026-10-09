@@ -5,7 +5,7 @@
 ;; the schema version, part of the database's file name. Any schema
 ;; change bumps it: there are no migrations, a new version starts an
 ;; empty file and earlier files stay on disk untouched
-(local db-version 1)
+(local db-version 2)
 
 (fn db-path []
   (string.format "%s/codeboomer-db-v%d" (vim.fn.stdpath :data) db-version))

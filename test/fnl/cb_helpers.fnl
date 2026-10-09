@@ -23,7 +23,18 @@
                                :body "reviewer note"
                                :user {:login :somebody}
                                :commit_id :abc123}
-                 :outdated-item-jsonl "{\"id\":4183907862,\"path\":\"README.md\",\"line\":null,\"original_line\":7,\"position\":1,\"subject_type\":\"line\",\"body\":\"outdated note\",\"user\":{\"login\":\"somebody\"}}"
+                 :outdated-item-jsonl "{\"id\":4183907862,\"path\":\"README.md\",\"line\":null,\"start_line\":null,\"original_line\":7,\"original_start_line\":6,\"position\":1,\"subject_type\":\"line\",\"commit_id\":\"head0001\",\"original_commit_id\":\"orig0001\",\"body\":\"outdated note\",\"user\":{\"login\":\"somebody\"}}"
+                 :ranged-item {:id 558
+                               :path :main.txt
+                               :start_line 38
+                               :line 40
+                               :original_start_line 30
+                               :original_line 32
+                               :subject_type :line
+                               :commit_id :head0001
+                               :original_commit_id :orig0001
+                               :body "range note"
+                               :user {:login :somebody}}
                  :pathless-item {:id 557
                                  :line 41
                                  :body "lost note"

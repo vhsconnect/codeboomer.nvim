@@ -1,7 +1,7 @@
 -- [nfnl] fnl/codeboomer/singleton.fnl
 vim = vim
 local db = nil
-local db_version = 1
+local db_version = 2
 local function db_path()
   return string.format("%s/codeboomer-db-v%d", vim.fn.stdpath("data"), db_version)
 end

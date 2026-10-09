@@ -407,10 +407,17 @@ the outbox: local conversation halves are unreachable from this walk.
 
 Imports the PR's current inline comments into the branch's PR-bound
 session as threads (warns when the session is not bound — run
-`Review` first) — idempotent by GitHub comment id (re-pulls add only what's
-new), replies joined to their threads, and comments GitHub marks
-outdated anchored best-effort at their original line with an
-`outdated` flag in the thread header. Whole-file PR comments
+`Review` first) and refuses unless `HEAD` is exactly the PR's head
+commit (`gh pr view --json headRefOid`), since GitHub's line numbers
+refer to that commit — idempotent by GitHub comment id (re-pulls add only what's
+new), replies joined to their threads. A comment GitHub can no longer
+place on the PR head (`line` null — the PR moved past its lines)
+anchors at its original line range on its original commit, the pair
+that stays true through rebases, with an `outdated` flag in the thread
+header. A thread that goes outdated after it was imported gets the
+flag on the next pull but keeps its lines. Each pulled thread also
+records GitHub's line and original line/commit. The pull stops at the
+first comment that fails to import and names it. Whole-file PR comments
 (`subject_type = file`) import as `type = file` threads — no lines,
 never flagged outdated. A comment that is one of your
 own posted ones (`PostReview` + submitted draft) comes home by
