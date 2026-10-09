@@ -178,6 +178,17 @@
                               (eq fixtures.pr.number (bound-pr))
                               (matches "pr view 42 %-%-json [%w,]*headRefName"
                                        (helpers.fake-log :gh.log))))
+                        (it "stops the pull at a comment that fails to import, naming it"
+                            (fn []
+                              (fake-pr fixtures.pr
+                                       [fixtures.pulled-item
+                                        fixtures.pathless-item])
+                              (review-pr fixtures.pr.number)
+                              (wait-notified error-level
+                                             "pull stopped, comment 557 %(%?:41%) failed")
+                              (helpers.neq nil
+                                           (thread-on-line (review.ensure-session)
+                                                           40))))
                         (it "refuses a PR whose head is another branch"
                             (fn []
                               (fake-pr fixtures.other-branch-pr [])
@@ -332,7 +343,24 @@
                                                :/nvim/codeboomer)]
                                 (helpers.fn.writefile [:legacy] legacy)
                                 (review.ensure-session)
-                                (eq [:legacy] (helpers.fn.readfile legacy)))))))
+                                (eq [:legacy] (helpers.fn.readfile legacy)))))
+                        (it "takes writes again after a batch fails to bind midway"
+                            (fn []
+                              (review.ensure-session)
+                              (eq [false true]
+                                  (exec-lua (fn []
+                                              (let [singleton (require :codeboomer.singleton)
+                                                    sqlite (require :codeboomer.sqlite)
+                                                    insert #(: (sqlite.user (singleton.get-db))
+                                                               :insert $1)
+                                                    unbindable (pcall insert
+                                                                      [{:email "before@example.com"}
+                                                                       {:email #nil}])]
+                                                (singleton.reset-db)
+                                                [unbindable
+                                                 (pick-values 1
+                                                   (pcall insert
+                                                          {:email "after@example.com"}))]))))))))
             (describe "the session schema"
                       (fn []
                         (it "has no unused commit columns"

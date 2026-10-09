@@ -23,6 +23,11 @@
                                :body "reviewer note"
                                :user {:login :somebody}
                                :commit_id :abc123}
+                 :outdated-item-jsonl "{\"id\":4183907862,\"path\":\"README.md\",\"line\":null,\"original_line\":7,\"position\":1,\"subject_type\":\"line\",\"body\":\"outdated note\",\"user\":{\"login\":\"somebody\"}}"
+                 :pathless-item {:id 557
+                                 :line 41
+                                 :body "lost note"
+                                 :user {:login :somebody}}
                  :come-home-item {:id 987
                                   :path :README.md
                                   :line 5

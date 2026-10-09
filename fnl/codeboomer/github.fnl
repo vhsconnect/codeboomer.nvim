@@ -295,10 +295,13 @@
 ;; ── pull ──────────────────────────────────────────────────────────
 
 ;; gh api --paginate --jq '.[]' emits one JSON object per line —
-;; decode each, drop what isn't an object
-(fn parse-jsonl [out]
+;; decode each, drop what isn't an object. JSON nulls (an outdated
+;; comment's line) must decode to nil, not the truthy vim.NIL, which
+;; sqlite.lua cannot bind
+(fn M.parse-jsonl [out]
   (icollect [line (string.gmatch (or out "") "[^\r\n]+")]
-    (let [(ok item) (pcall vim.json.decode line)]
+    (let [(ok item) (pcall vim.json.decode line
+                           {:luanil {:object true :array true}})]
       (when (and ok (= :table (type item)))
         item))))
 
@@ -306,22 +309,35 @@
 ;; comment of mine come home stamps its gh id onto the local row
 ;; (draft-review comments only learn their ids after GitHub
 ;; submission — matched by path+body+line), a reply joins its
-;; thread, anything else seeds one. Returns how many rows were new
+;; thread, anything else seeds one. Returns how many rows were new.
+;; The first item that fails stops the import with an error naming
+;; it; the items before it stay imported
 (fn M.import-items [session-id items]
-  (var n 0)
-  (each [_ item (ipairs (or items []))]
-    (when (and item.id (not (review.comment-by-gh item.id)))
-      (let [parent (when item.in_reply_to_id
-                     (review.thread-id-for-gh item.in_reply_to_id))
-            mine (when (not item.in_reply_to_id)
-                   (review.match-posted-comment session-id item))]
-        (if mine
-            (review.stamp-gh-comment mine.id item.id)
-            (if parent
-                (review.import-comment parent item)
-                (review.import-thread session-id item)))
-        (set n (+ n 1)))))
-  n)
+  (let [import-item (fn [item]
+                      (let [parent (when item.in_reply_to_id
+                                     (review.thread-id-for-gh item.in_reply_to_id))
+                            mine (when (not item.in_reply_to_id)
+                                   (review.match-posted-comment session-id
+                                                                item))]
+                        (if mine
+                            (review.stamp-gh-comment mine.id item.id)
+                            (if parent
+                                (review.import-comment parent item)
+                                (review.import-thread session-id item)))))]
+    (var n 0)
+    (each [_ item (ipairs (or items []))]
+      (when (and item.id (not (review.comment-by-gh item.id)))
+        (case (pcall import-item item)
+          (false err) (error (string.format "comment %s (%s:%s) failed: %s"
+                                            (tostring item.id)
+                                            (or item.path "?")
+                                            (tostring (or item.line
+                                                          item.original_line
+                                                          :file))
+                                            err)
+                             0))
+        (set n (+ n 1))))
+    n))
 
 ;; refresh a PR-bound session with the PR's current inline comments —
 ;; the sidebar reloads via CodeboomerImported. sid is the branch
@@ -345,13 +361,16 @@
                  ".[]"] {:text true}
                 (fn [obj]
                   (if (= obj.code 0)
-                      (let [n (M.import-items session.id
-                                              (parse-jsonl obj.stdout))]
+                      (let [(ok result) (pcall M.import-items session.id
+                                               (M.parse-jsonl obj.stdout))]
                         (vim.api.nvim_exec_autocmds :User
                                                     {:pattern :CodeboomerImported})
-                        (notify (string.format "codeboomer: pulled %d new comment(s)"
-                                               n)
-                                vim.log.levels.INFO))
+                        (if ok
+                            (notify (string.format "codeboomer: pulled %d new comment(s)"
+                                                   result)
+                                    vim.log.levels.INFO)
+                            (notify (.. "codeboomer: pull stopped, " result)
+                                    vim.log.levels.ERROR)))
                       (notify (string.format "codeboomer: gh api failed (exit %d)
 %s" obj.code (gh-error obj)) vim.log.levels.ERROR)))))))
 

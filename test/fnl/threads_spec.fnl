@@ -196,6 +196,12 @@
                                                                      :path files.readme
                                                                      :body "whole-file note"})
                                        :id))))))
+            (it "imports an outdated comment whose line is null"
+                (fn []
+                  (let [[item] (github.parse-jsonl fixtures.outdated-item-jsonl)]
+                    (eq nil item.line)
+                    (eq 1 (github.import-items sid [item]))
+                    (eq 7 (. (threads-on files.readme) 1 :line_start)))))
             (it "refuses threads outside the diff hunks"
                 (fn []
                   (let [thread {:file_path files.readme

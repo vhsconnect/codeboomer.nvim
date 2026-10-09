@@ -354,13 +354,13 @@ M["post-threads"] = function(_3fopts)
     return post_checked(session, sid, slug, opts.ranges)
   end
 end
-local function parse_jsonl(out)
+M["parse-jsonl"] = function(out)
   local tbl_26_ = {}
   local i_27_ = 0
   for line in string.gmatch((out or ""), "[^\r\n]+") do
     local val_28_
     do
-      local ok, item = pcall(vim.json.decode, line)
+      local ok, item = pcall(vim.json.decode, line, {luanil = {object = true, array = true}})
       if (ok and ("table" == type(item))) then
         val_28_ = item
       else
@@ -376,28 +376,40 @@ local function parse_jsonl(out)
   return tbl_26_
 end
 M["import-items"] = function(session_id, items)
+  local import_item
+  local function _52_(item)
+    local parent
+    if item.in_reply_to_id then
+      parent = review["thread-id-for-gh"](item.in_reply_to_id)
+    else
+      parent = nil
+    end
+    local mine
+    if not item.in_reply_to_id then
+      mine = review["match-posted-comment"](session_id, item)
+    else
+      mine = nil
+    end
+    if mine then
+      return review["stamp-gh-comment"](mine.id, item.id)
+    else
+      if parent then
+        return review["import-comment"](parent, item)
+      else
+        return review["import-thread"](session_id, item)
+      end
+    end
+  end
+  import_item = _52_
   local n = 0
   for _, item in ipairs((items or {})) do
     if (item.id and not review["comment-by-gh"](item.id)) then
-      local parent
-      if item.in_reply_to_id then
-        parent = review["thread-id-for-gh"](item.in_reply_to_id)
-      else
-        parent = nil
-      end
-      local mine
-      if not item.in_reply_to_id then
-        mine = review["match-posted-comment"](session_id, item)
-      else
-        mine = nil
-      end
-      if mine then
-        review["stamp-gh-comment"](mine.id, item.id)
-      else
-        if parent then
-          review["import-comment"](parent, item)
+      do
+        local case_57_, case_58_ = pcall(import_item, item)
+        if ((case_57_ == false) and (nil ~= case_58_)) then
+          local err = case_58_
+          error(string.format("comment %s (%s:%s) failed: %s", tostring(item.id), (item.path or "?"), tostring((item.line or item.original_line or "file")), err), 0)
         else
-          review["import-thread"](session_id, item)
         end
       end
       n = (n + 1)
@@ -419,16 +431,20 @@ M["pull-comments"] = function(pr_number, sid)
   elseif (not session or (session.pr_number ~= pr_number)) then
     return notify("codeboomer: this branch's session is not bound to the PR \226\128\148 :Codeboomer Review it first", vim.log.levels.WARN)
   else
-    local function _58_(obj)
+    local function _62_(obj)
       if (obj.code == 0) then
-        local n = M["import-items"](session.id, parse_jsonl(obj.stdout))
+        local ok, result = pcall(M["import-items"], session.id, M["parse-jsonl"](obj.stdout))
         vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerImported"})
-        return notify(string.format("codeboomer: pulled %d new comment(s)", n), vim.log.levels.INFO)
+        if ok then
+          return notify(string.format("codeboomer: pulled %d new comment(s)", result), vim.log.levels.INFO)
+        else
+          return notify(("codeboomer: pull stopped, " .. result), vim.log.levels.ERROR)
+        end
       else
         return notify(string.format("codeboomer: gh api failed (exit %d)\n%s", obj.code, gh_error(obj)), vim.log.levels.ERROR)
       end
     end
-    return system({"gh", "api", string.format("repos/%s/pulls/%s/comments", slug, pr_number), "--paginate", "--jq", ".[]"}, {text = true}, _58_)
+    return system({"gh", "api", string.format("repos/%s/pulls/%s/comments", slug, pr_number), "--paginate", "--jq", ".[]"}, {text = true}, _62_)
   end
 end
 return M

@@ -23,21 +23,27 @@ local function ensure_schema()
     return nil
   end
 end
+local function release_statements(conn)
+  local clib = require("sqlite.defs")
+  local stmt = clib.next_stmt(conn, nil)
+  while (nil ~= stmt) do
+    clib.finalize(stmt)
+    stmt = clib.next_stmt(conn, nil)
+  end
+  if (0 == clib.get_autocommit(conn)) then
+    return clib.exec_stmt(conn, "ROLLBACK")
+  else
+    return nil
+  end
+end
 local function force_close()
   if db then
-    local function _3_()
-      if db:isopen() then
+    if db:isopen() then
+      pcall(release_statements, db.conn)
+      local function _4_()
         return db:close()
-      else
-        return nil
       end
-    end
-    pcall(_3_)
-    if (db and db:isopen()) then
-      local function _5_()
-        return require("sqlite.defs").close_v2(db.conn)
-      end
-      pcall(_5_)
+      pcall(_4_)
     else
     end
     db = nil
@@ -65,8 +71,8 @@ local function reset_db()
   return force_close()
 end
 M = {["get-db"] = get_db, ["close-db"] = close_db, ["reset-db"] = reset_db, ["db-path"] = db_path}
-local function _9_()
+local function _8_()
   return M["close-db"]()
 end
-vim.api.nvim_create_autocmd("VimLeavePre", {callback = _9_})
+vim.api.nvim_create_autocmd("VimLeavePre", {callback = _8_})
 return M

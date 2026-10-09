@@ -33,21 +33,26 @@
                     (d:execute "create unique index if not exists session_branch
                     on session (repo_id, branch)")))))
 
-;; a failed bind (an unbindable column value) aborts sqlite.lua's
-;; insert loop between parse and finalize, leaving statements
-;; unfinalized; sqlite3_close then refuses the close forever, the
-;; connection's closed flag is stuck false and every later call
-;; reuses the same wedged handle (its with_open paths fail outright).
-;; sqlite3_close_v2 is the api built for exactly this: it accepts the
-;; close and the engine frees the handle once the last statement
-;; finalizes, instead of leaking the connection for the process
-;; lifetime
+;; sqlite.lua's insert is not exception safe: a throwing bind (an
+;; unbindable column value) skips both the statement's finalize and
+;; the COMMIT of its BEGIN, leaving a live statement and an open write
+;; transaction on the connection — and sqlite3_close refuses a
+;; connection with live statements. This is the cleanup its missing
+;; finally block would have run
+(fn release-statements [conn]
+  (let [clib (require :sqlite.defs)]
+    (var stmt (clib.next_stmt conn nil))
+    (while (not= nil stmt)
+      (clib.finalize stmt)
+      (set stmt (clib.next_stmt conn nil)))
+    (when (= 0 (clib.get_autocommit conn))
+      (clib.exec_stmt conn :ROLLBACK))))
+
 (fn force-close []
   (when db
-    (pcall (fn [] (when (db:isopen) (db:close))))
-    (when (and db (db:isopen))
-      (pcall (fn []
-               ((. (require :sqlite.defs) :close_v2) db.conn))))
+    (when (db:isopen)
+      (pcall release-statements db.conn)
+      (pcall #(db:close)))
     (set db nil)))
 
 (local M {:get-db (fn get-db []
