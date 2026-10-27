@@ -55,12 +55,29 @@
                                 (review.user-comment sid files.main 40 40 :code
                                                      "flush me"))
                               (helpers.fzf-pick "Pick a Directive> "
-                                                "Review - execute")
+                                                "Review - change")
                               (codeboomer.FlushWithDirective)
                               (expectf #(assert (logged? :tmux-paste.txt
-                                                         "Make the changes directly")))
+                                                         "Make the changes my comments ask for directly")))
+                              (assert.is_false (logged? :tmux-paste.txt
+                                                        "are a go-ahead"))
                               (eq ["Pick a Pane> " "Pick a Directive> "]
-                                  (helpers.fzf-prompts))))))
+                                  (helpers.fzf-prompts))))
+                        (it "lets an execute override a converse-only directive"
+                            (fn []
+                              (let [sid (review.ensure-session)
+                                    thread-id (review.user-comment sid
+                                                                   files.main 40
+                                                                   40 :code
+                                                                   "flush me")]
+                                (review.user-reply thread-id :execute))
+                              (helpers.fzf-pick "Pick a Directive> "
+                                                "Review - converse only")
+                              (codeboomer.FlushWithDirective)
+                              (expectf #(assert (logged? :tmux-paste.txt
+                                                         "Do not make any code changes.")))
+                              (assert (logged? :tmux-paste.txt
+                                               "Threads where I wrote `execute` after your last reply in them are a go-ahead"))))))
             (describe :AskOneOff
                       (fn []
                         (it "opens the input for the picked command"

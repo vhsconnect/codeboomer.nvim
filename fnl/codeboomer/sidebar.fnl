@@ -1,9 +1,11 @@
 (global vim vim)
 
 (local review (require :codeboomer.review))
+(local agent (require :codeboomer.agent))
 (local input (require :codeboomer.input))
 (local git (require :codeboomer.git))
 (local github (require :codeboomer.github))
+(local version (require :codeboomer.version))
 
 (local M {})
 
@@ -242,8 +244,6 @@
                                                                                "\n"))
                                           (refresh-pane)))}))))))
 
-(local execute-body :execute)
-
 ;; the thread's local conversation half — created on demand for
 ;; pulled threads; k receives it, failures notify
 (fn with-agent-half [k]
@@ -275,7 +275,8 @@
 ;; queue the agent's go-ahead for the next flush
 (fn pane-execute []
   (with-agent-half (fn [_ target]
-                     (when (review.user-reply (or target.id 0) execute-body)
+                     (when (review.user-reply (or target.id 0)
+                                              agent.execute-body)
                        (refresh-pane)))))
 
 (fn virgin-body [t]
@@ -311,14 +312,13 @@
                           vim.log.levels.ERROR)
               (let [as-is (virgin-body t)]
                 (if as-is
-                    (do
-                      ;; promote nil-refuses with the specific reason on
-                      ;; its own notify — only claim success when it landed
-                      (when (review.promote (or t.id 0) as-is ctx.session-id)
-                        (refresh-pane)
-                        (vim.notify (string.format "codeboomer: thread #%d promoted"
-                                                   (or t.id 0))
-                                    vim.log.levels.INFO)))
+                    ;; promote nil-refuses with the specific reason on
+                    ;; its own notify — only claim success when it landed
+                    (when (review.promote (or t.id 0) as-is ctx.session-id)
+                      (refresh-pane)
+                      (vim.notify (string.format "codeboomer: thread #%d promoted"
+                                                 (or t.id 0))
+                                  vim.log.levels.INFO))
                     (input.open {:title (string.format " Promote thread #%d> "
                                                        (or t.id 0))
                                  :prefill (or (root-body t) "")
@@ -427,6 +427,7 @@
     (set wo.relativenumber false)
     (set wo.signcolumn :no)
     (set wo.winfixwidth true)
+    (set wo.statusline (.. "%=codeboomer v" version))
     (vim.keymap.set :n :r pane-reply
                     {:buffer buf :desc "codeboomer: reply on this thread"})
     (vim.keymap.set :n :a pane-agent-reply

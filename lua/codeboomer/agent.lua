@@ -7,6 +7,10 @@ local shim_path = (vim.fn.stdpath("data") .. "/codeboomer-agent")
 M["reply-instructions"] = function()
   return ("Reply to each thread above. Keep your responses in the thread short and consice and use the harnass to provide detail. Answer in the thread with: " .. shim_path .. " reply <thread-id> <text>\n")
 end
+M["execute-body"] = "execute"
+M["execute-instructions"] = function()
+  return ("Threads where I wrote `" .. M["execute-body"] .. "` after your last reply in them are a go-ahead: make the changes they ask for, even where the directive above says not to." .. "\n")
+end
 M["review-prompt"] = function(scope)
   return (scope .. " Post your findings with " .. shim_path .. " \226\128\148 run it with `help` first." .. " Keep each comment to one or two sentences; put the detailed reasoning in your own output here." .. " Don't switch branches while reviewing.")
 end

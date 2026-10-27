@@ -87,16 +87,19 @@ require("codeboomer").setup({
 ### Prompting
 
 `<leader>cd` (`:Codeboomer FlushWithDirective`) picks a directive from a
-fzf-lua menu — by default the two built-ins, `Review - converse` and
-`Review - execute`. Pass your own list under `prompting.directives` in
-`setup()` to add to or override it:
+fzf-lua menu — by default the three built-ins: `Review - converse only`
+(discuss, no code changes), `Review - converse + change` (answer each thread,
+then make the changes) and `Review - change` (make the changes without
+discussing them first). Both change directives leave room for pushback.
+Pass your own list under `prompting.directives` in `setup()` to add to or
+override it:
 
 ```lua
 require("codeboomer").setup({
   prompting = {
     directives = {
       -- a label matching a built-in overrides it in place
-      { label = "Review - converse", text = "Reply point by point, then wait." },
+      { label = "Review - converse only", text = "Reply point by point, then wait." },
       -- new labels are appended after the built-ins
       { label = "Explain", text = "Explain the selected code. No changes." },
     },
@@ -107,6 +110,11 @@ require("codeboomer").setup({
 Each entry needs a `label` (shown in the fzf menu) and a `text` (the message
 sent along with any accumulated annotations). Omitting `prompting.directives`
 keeps the built-ins as-is.
+
+A thread's `execute` (`z` in the comments pane) outranks the directive: when a
+flush carries one, a fixed line after the directive tells the agent to make the
+changes on every thread where `execute` follows its last reply, whichever
+directive was picked, including custom ones.
 
 `prompting.one_off_commands` defines the one-off commands `<leader>cc`
 (`:Codeboomer AskOneOff`) can run: a list of entries, each with a `label`
@@ -314,6 +322,8 @@ HEAD has none.
   threads without leaving the pane. The thread renders as one block,
   its header tinted in the thread's color, every comment labeled
   `[source] name`, with a dimmed keymap footer under the block.
+  The pane's statusline shows the plugin version in its bottom-right
+  corner (kept in `fnl/codeboomer/version.fnl`).
   Moving off every range — or into a threadless file — keeps the
   current thread on screen: pane and cursor are not strictly tied.
   `:q` closes the pane and the next rest, threaded file enter or
@@ -329,7 +339,7 @@ HEAD has none.
 |-----|--------|
 | `r` | Reply on the **review half** — the half that ships. Only exists once the thread is promoted (`p`) or pulled from GitHub; unpromoted threads refuse with a pointer to `p`, so nothing reaches the posting outbox by accident |
 | `a` | Reply to the **agent** — the local conversation half (created on demand for pulled threads). Your side of any discussion with the agent; never ships |
-| `z` | **Execute** — post `execute` to the agent on the thread's local conversation half (same target as `a`, no input). It rides the next `FlushWithDirective` like any other unsent reply, telling the agent to go ahead |
+| `z` | **Execute** — post `execute` to the agent on the thread's local conversation half (same target as `a`, no input). It rides the next `FlushWithDirective` like any other unsent reply, telling the agent to go ahead on that thread even under `Review - converse only` |
 | `p` | **Promote** — open the compose input prefilled with the thread's opening comment (the annotation, or the agent's finding for a thread the agent opened) and create the review half with the final text. A *virgin* thread (one user comment, nothing from the agent) promotes as-is with no input. Refuses when the branch's session is not bound to a PR (run `Review` first), and when the range falls outside the PR diff |
 | `e` | Edit the promoted comment in place (the oldest still-unposted one) through the same prefilled input |
 | `q` | Resolve the thread — resolved threads are treated as soft-deleted: both halves of the pair leave the pane and both outboxes; the pane hands the screen to whatever covers the cursor, else the next thread, right away |

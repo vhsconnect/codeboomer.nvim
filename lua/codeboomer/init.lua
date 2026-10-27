@@ -419,8 +419,23 @@ local function flush_pending(directive_text)
       messages = tbl_26_
     end
     local annotations = concat_list_with_format(messages, "==Section Start==", "====", "==Section End==")
-    send_keys_to_selected_pane((annotations .. agent["reply-instructions"]() .. directive_text .. "\n"))
-    local function _74_()
+    local execute_3f
+    do
+      local hit = false
+      for _, a in ipairs(pending) do
+        if hit then break end
+        hit = (a.comment.body == agent["execute-body"])
+      end
+      execute_3f = hit
+    end
+    local _74_
+    if execute_3f then
+      _74_ = agent["execute-instructions"]()
+    else
+      _74_ = ""
+    end
+    send_keys_to_selected_pane((annotations .. agent["reply-instructions"]() .. directive_text .. "\n" .. _74_))
+    local function _76_()
       local tbl_26_ = {}
       local i_27_ = 0
       for _, a in ipairs(pending) do
@@ -433,30 +448,30 @@ local function flush_pending(directive_text)
       end
       return tbl_26_
     end
-    return review["mark-annotations"]("sent", _74_())
+    return review["mark-annotations"]("sent", _76_())
   end
 end
-local function _77_()
+local function _79_()
   if state.pane then
-    local function _78_(_241)
+    local function _80_(_241)
       return _241.label
     end
-    local function _79_(_241)
+    local function _81_(_241)
       return flush_pending(_241.text)
     end
-    return picker.choose("Pick a Directive> ", directives.list(), _78_, _79_)
+    return picker.choose("Pick a Directive> ", directives.list(), _80_, _81_)
   else
-    local function _80_()
-      local function _81_(_241)
+    local function _82_()
+      local function _83_(_241)
         return _241.label
       end
-      local function _82_(_241)
+      local function _84_(_241)
         return flush_pending(_241.text)
       end
-      return picker.choose("Pick a Directive> ", directives.list(), _81_, _82_)
+      return picker.choose("Pick a Directive> ", directives.list(), _83_, _84_)
     end
-    return choose_pane(tmux["list-panes"](), _80_)
+    return choose_pane(tmux["list-panes"](), _82_)
   end
 end
-M.FlushWithDirective = _77_
+M.FlushWithDirective = _79_
 return M

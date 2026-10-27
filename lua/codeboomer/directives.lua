@@ -2,7 +2,8 @@
 vim = vim
 local M = {}
 local pushback_reasons = {"introducing bugs", "impacting readability", "impacting preformance heavily", "introducing security vulenerabilities", "result in data loss/inconsistency", "contradict original instruction"}
-local default_directives = {{label = "Review - converse", text = "Review my comments. Address each point and give me feedback before making any code changes."}, {label = "Review - execute", text = ("Review my comments. Make the changes directly unless comment merits pushback. Valid Pushback reasons include " .. table.concat(pushback_reasons, ", "))}}
+local pushback_clause = ("unless a comment merits pushback. Valid pushback reasons include " .. table.concat(pushback_reasons, ", "))
+local default_directives = {{label = "Review - converse only", text = "Review my comments. Address each point and give me feedback. Do not make any code changes."}, {label = "Review - converse + change", text = ("Review my comments. Address each point in its thread, then make the changes " .. pushback_clause)}, {label = "Review - change", text = ("Make the changes my comments ask for directly, without discussing them first, " .. pushback_clause)}}
 M.defaults = function()
   local tbl_26_ = {}
   local i_27_ = 0

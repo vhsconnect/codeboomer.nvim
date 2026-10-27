@@ -313,10 +313,15 @@
                            (thread-message t))
                 annotations (concat-list-with-format messages
                                                      "==Section Start==" "===="
-                                                     "==Section End==")]
+                                                     "==Section End==")
+                execute? (accumulate [hit false _ a (ipairs pending) &until hit]
+                           (= a.comment.body agent.execute-body))]
             (send-keys-to-selected-pane (.. annotations
                                             (agent.reply-instructions)
-                                            directive-text "\n"))
+                                            directive-text "\n"
+                                            (if execute?
+                                                (agent.execute-instructions)
+                                                "")))
             (review.mark-annotations :sent
                                      (icollect [_ a (ipairs pending)]
                                        a.comment.id)))))))

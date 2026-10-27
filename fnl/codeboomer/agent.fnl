@@ -25,6 +25,16 @@
   (.. "Reply to each thread above. Keep your responses in the thread short and consice and use the harnass to provide detail. Answer in the thread with: "
       shim-path " reply <thread-id> <text>\n"))
 
+;; the body the comments pane's `z` queues on a thread
+(set M.execute-body :execute)
+
+;; appended after the directive whenever a flush carries an execute, so
+;; the go-ahead wins over a directive that forbids changes
+(fn M.execute-instructions []
+  (.. "Threads where I wrote `" M.execute-body
+      "` after your last reply in them are a go-ahead: make the changes they ask for, even where the directive above says not to."
+      "\n"))
+
 ;; the launch prompt — short on purpose: {scope} says what to review,
 ;; the shim's own help carries the API, the agent's own output carries
 ;; the detail

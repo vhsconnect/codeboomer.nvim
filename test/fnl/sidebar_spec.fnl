@@ -307,6 +307,11 @@
                                                            &until hit]
                                                 (not= nil
                                                       (l:match "^── keys "))))))
+                        (it "right-aligns the version in the pane's statusline"
+                            (fn []
+                              (eq "%=codeboomer v0.0.1"
+                                  (api.nvim_get_option_value :statusline
+                                                             {:win (find-pane tab1)}))))
                         (it "steps through threads with n and wraps forever"
                             (fn []
                               (matches "3%-3" (. (press-in-pane :n) 1))

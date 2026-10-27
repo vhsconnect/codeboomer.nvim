@@ -10,12 +10,19 @@
         "result in data loss/inconsistency"
         "contradict original instruction"])
 
+(local pushback-clause
+       (.. "unless a comment merits pushback. Valid pushback reasons include "
+           (table.concat pushback-reasons ", ")))
+
 (local default-directives
-       [{:label "Review - converse"
-         :text "Review my comments. Address each point and give me feedback before making any code changes."}
-        {:label "Review - execute"
-         :text (.. "Review my comments. Make the changes directly unless comment merits pushback. Valid Pushback reasons include "
-                   (table.concat pushback-reasons ", "))}])
+       [{:label "Review - converse only"
+         :text "Review my comments. Address each point and give me feedback. Do not make any code changes."}
+        {:label "Review - converse + change"
+         :text (.. "Review my comments. Address each point in its thread, then make the changes "
+                   pushback-clause)}
+        {:label "Review - change"
+         :text (.. "Make the changes my comments ask for directly, without discussing them first, "
+                   pushback-clause)}])
 
 (fn M.defaults []
   "Return a fresh copy of the built-in directives"

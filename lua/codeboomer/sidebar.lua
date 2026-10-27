@@ -1,9 +1,11 @@
 -- [nfnl] fnl/codeboomer/sidebar.fnl
 vim = vim
 local review = require("codeboomer.review")
+local agent = require("codeboomer.agent")
 local input = require("codeboomer.input")
 local git = require("codeboomer.git")
 local github = require("codeboomer.github")
+local version = require("codeboomer.version")
 local M = {}
 local augroup_name = "codeboomer-review-pane"
 local pane_buf_name = "codeboomer://review-comments"
@@ -411,7 +413,6 @@ local function pane_reply()
     end
   end
 end
-local execute_body = "execute"
 local function with_agent_half(k)
   local t
   local function _60_()
@@ -458,7 +459,7 @@ local function pane_agent_reply()
 end
 local function pane_execute()
   local function _68_(_, target)
-    if review["user-reply"]((target.id or 0), execute_body) then
+    if review["user-reply"]((target.id or 0), agent["execute-body"]) then
       return refresh_pane()
     else
       return nil
@@ -674,6 +675,7 @@ local function open_pane()
     wo.relativenumber = false
     wo.signcolumn = "no"
     wo.winfixwidth = true
+    wo.statusline = ("%=codeboomer v" .. version)
     vim.keymap.set("n", "r", pane_reply, {buffer = buf, desc = "codeboomer: reply on this thread"})
     vim.keymap.set("n", "a", pane_agent_reply, {buffer = buf, desc = "codeboomer: reply to the agent on this thread"})
     vim.keymap.set("n", "z", pane_execute, {buffer = buf, desc = "codeboomer: tell the agent to execute on this thread"})
