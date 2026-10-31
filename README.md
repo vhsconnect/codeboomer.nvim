@@ -62,6 +62,7 @@ require("codeboomer").setup({
     launch_reviewer = "<leader>cA",
     launch_process = "<leader>cT",
     pane_toggle = "<leader>ct",
+    sidebar_toggle = "<leader>cb",
     reset_session = "<leader>cS",
     review = "<leader>cR",
     post_review = "<leader>cP",
@@ -109,6 +110,7 @@ The plugin sets up no default keybindings; configure them like this:
 | Normal | `<leader>cA` | `LaunchReviewer` — launch a review agent in a terminal buffer and select it as the pane |
 | Normal | `<leader>cT` | `LaunchProcess` — launch a configured process in a terminal buffer and select it as the pane |
 | Normal | `<leader>ct` | `TogglePane` — collapse the selected pane's terminal out of the layout, or bring it back (the process keeps running) |
+| Normal | `<leader>cb` | `ToggleSidebar` — collapse the comments pane (and its auto-open) away, or bring it back |
 | Normal | `<leader>cS` | `ResetSession` — reset this branch's review session |
 | Normal | `<leader>cR` | `Review` — pick a PR to review on the current checkout |
 | Normal | `<leader>cP` | `PostReview` — push the promoted threads to the PR |
@@ -130,6 +132,7 @@ require("codeboomer").setup({
     launch_reviewer = "<leader>cA",
     launch_process = "<leader>cT",
     pane_toggle = "<leader>ct",
+    sidebar_toggle = "<leader>cb",
     reset_session = "<leader>cS",
     review = "<leader>cR",
     post_review = "<leader>cP",
@@ -335,6 +338,20 @@ running while collapsed: the pane stays selected, the send commands
 still reach it and the picker still lists it. Toggling back in lands
 the cursor in the terminal. Tmux panes have nothing to toggle here —
 their windows belong to tmux.
+
+### `:Codeboomer ToggleSidebar`
+
+Collapses the review comments pane away — and keeps it away: the
+pane's auto-open (opening a repo whose session has threads, resting
+the cursor on a commented range, entering a file with threads, agent
+posts) all stay quiet until you toggle it back. Bring it back with the
+same command (`<leader>cb`), which re-opens it on the current thread.
+
+The lighter way to part with the pane is closing its window (`:q` or
+`<C-w> c`) — then it follows the cursor again as soon as it rests on a
+thread, as before. When
+there is nothing to show (the branch's session has no threads), the
+toggle says so instead of opening nothing.
 
 ### `:Codeboomer LaunchReviewer`
 

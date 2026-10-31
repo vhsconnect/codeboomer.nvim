@@ -45,6 +45,9 @@
         :pane_toggle [:n
                       "<cmd>Codeboomer TogglePane<cr>"
                       "codeboomer: collapse or bring back the pane's terminal"]
+        :sidebar_toggle [:n
+                         "<cmd>Codeboomer ToggleSidebar<cr>"
+                         "codeboomer: collapse or bring back the comments pane"]
         :annotate [[:n :x]
                    ":Codeboomer Annotate<cr>"
                    "codeboomer: annotate selection or whole file"]})

@@ -397,4 +397,37 @@
                               (press-in-pane :q)
                               (settle)
                               (assert.is_not_nil (find-pane tab1))
-                              (eq [""] (pane-lines))))))))
+                              (eq [""] (pane-lines))))))
+            (describe :toggling
+                      (fn []
+                        (it "collapses the pane and keeps it away while the cursor rests in threads"
+                            (fn []
+                              (rest code-win 3)
+                              (assert.is_not_nil (find-pane tab1))
+                              (eq :hidden (sidebar.toggle))
+                              (assert.is_nil (find-pane tab1))
+                              ;; resting inside a commented range reopens a
+                              ;; merely-closed pane — a dismissal wins
+                              (rest code-win 3)
+                              (assert.is_nil (find-pane tab1))
+                              ;; so does entering a file with threads
+                              (open-file files.main)
+                              (rest code-win 1)
+                              (assert.is_nil (find-pane tab1))))
+                        (it "brings the pane back on the next toggle"
+                            (fn []
+                              (rest code-win 3)
+                              (eq :hidden (sidebar.toggle))
+                              (eq :shown (sidebar.toggle))
+                              (assert.is_not_nil (find-pane tab1))))
+                        (it "reports when the session has nothing to show"
+                            (fn []
+                              (review.delete-session sid)
+                              (let [(_ err) (sidebar.toggle)]
+                                (assert (err:find "no comments" 1 true)))))
+                        (it "clears a dismissal through M.open"
+                            (fn []
+                              (rest code-win 3)
+                              (eq :hidden (sidebar.toggle))
+                              (sidebar.open)
+                              (assert.is_not_nil (find-pane tab1))))))))

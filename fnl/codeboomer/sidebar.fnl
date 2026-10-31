@@ -25,6 +25,12 @@
 (local db-refresh-ms 5000)
 
 (var pane-win nil)
+;; the toggle's word: while true the pane stays out of the layout no
+;; matter what the cursor, the session or the agent events would
+;; reopen — only a toggle back (or M.open, e.g. opening a review)
+;; clears it. Closing the window by hand is the lighter hide: the
+;; pane follows the cursor again right away
+(var dismissed false)
 (var threads-by-path {})
 (var all-threads [])
 (var timer-id nil)
@@ -461,15 +467,16 @@
 ;; anywhere else (a terminal tab, a plugin window) an open pane just
 ;; re-renders where it is
 (fn show-pane [path threads]
-  (let [here (source-win? (vim.api.nvim_get_current_win))]
-    (when (and here (pane-valid?)
-               (not= (vim.api.nvim_win_get_tabpage pane-win)
-                     (vim.api.nvim_get_current_tabpage)))
-      (hide-pane))
-    (when (and here (not (pane-valid?)))
-      (open-pane)))
-  (when (pane-valid?)
-    (render-pane path threads)))
+  (when (not dismissed)
+    (let [here (source-win? (vim.api.nvim_get_current_win))]
+      (when (and here (pane-valid?)
+                 (not= (vim.api.nvim_win_get_tabpage pane-win)
+                       (vim.api.nvim_get_current_tabpage)))
+        (hide-pane))
+      (when (and here (not (pane-valid?)))
+        (open-pane)))
+    (when (pane-valid?)
+      (render-pane path threads))))
 
 (fn show-current []
   (if current-thread
@@ -661,9 +668,30 @@
                                 :callback #(M.reload-threads)}))
 
 (set M.open (fn []
+              ;; an explicit open outranks a dismissal — opening a review
+              ;; wants its pane back
+              (set dismissed false)
               (M.reload-threads)
               (open-on-session)
               (check-now)))
+
+;; :Codeboomer ToggleSidebar — collapse the comments pane away — and
+;; the auto-open that follows the cursor, the session and the agent
+;; posts stays away with it — or bring it back on demand. Returns
+;; :hidden or :shown, or nil and why (nothing to show)
+(set M.toggle
+     (fn []
+       (if (pane-valid?)
+           (do
+             (set dismissed true)
+             (hide-pane)
+             :hidden)
+           (do
+             (set dismissed false)
+             (M.open)
+             (if (pane-valid?) :shown
+                 (values nil
+                         "no comments to show — this window's branch session has no threads"))))))
 
 (attach-autocmds)
 

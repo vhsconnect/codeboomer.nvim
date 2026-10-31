@@ -43,6 +43,10 @@ subcommands.TogglePane = function()
     require("codeboomer").TogglePane()
 end
 
+subcommands.ToggleSidebar = function()
+    require("codeboomer").ToggleSidebar()
+end
+
 subcommands.SendPrompt = function(opts)
     require("codeboomer").SendPrompt(opts)
 end

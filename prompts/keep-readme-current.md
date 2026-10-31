@@ -56,7 +56,8 @@ fix drift:
   must match the `keymaps` table in `config.fnl` (every action it
   defines — currently `send_prompt`, `send_last_prompt`,
   `send_selection`, `ask_one_off`, `flush_with_directive`, `pane`,
-  `launch_reviewer`, `launch_process`, `pane_toggle`, `reset_session`, `review`,
+  `launch_reviewer`, `launch_process`, `pane_toggle`, `sidebar_toggle`,
+  `reset_session`, `review`,
   `post_review`, `pull_review`, `annotate`) and the real rhs of each
   mapping. The example snippet must nest options under
   `keybindings = { ... }` with exactly these key names. Document

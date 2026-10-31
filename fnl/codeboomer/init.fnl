@@ -224,6 +224,19 @@
              (schedule-notify "codeboomer: the selected pane is a tmux pane — its window is tmux's to toggle"
                               vim.log.levels.WARN)))))
 
+;; :Codeboomer ToggleSidebar — collapse the comments pane away — and
+;; its auto-open with it — or bring it back
+(set M.ToggleSidebar
+     (fn []
+       (let [(res err) (sidebar.toggle)]
+         (if res
+             (schedule-notify (if (= :hidden res)
+                                  "codeboomer: comments pane collapsed — ToggleSidebar brings it back"
+                                  "codeboomer: comments pane back")
+                              vim.log.levels.INFO)
+             (schedule-notify (.. "codeboomer: " (or err "toggle failed"))
+                              vim.log.levels.WARN)))))
+
 ;; :Codeboomer LaunchProcess — start a configured long-lived process
 ;; (the harness, a repl, a watcher) in a terminal buffer of its own and
 ;; tether it as the pane: the process is an nvim job, so later sends
