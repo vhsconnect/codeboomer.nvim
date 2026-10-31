@@ -203,12 +203,10 @@
         line-end (when (not file?)
                    (or (if outdated? item.original_line item.line) 1))
         line-start (when line-end
-                     (or (if outdated? item.original_start_line
-                             item.start_line)
+                     (or (if outdated? item.original_start_line item.start_line)
                          line-end))
         commit-id (with-commit repo-id
-                               (if outdated? item.original_commit_id
-                                   item.commit_id))
+                    (if outdated? item.original_commit_id item.commit_id))
         original-commit-id (when item.original_commit_id
                              (with-commit repo-id item.original_commit_id))
         thread-id (db sqlite.thread :insert

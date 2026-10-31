@@ -203,7 +203,8 @@
                               (github.import-items sid [fixtures.ranged-item])
                               (let [t (. (threads-on files.main) 1)]
                                 (eq [38 40] [t.line_start t.line_end])
-                                (eq :head0001 (review.commit-sha t.anchor_commit))
+                                (eq :head0001
+                                    (review.commit-sha t.anchor_commit))
                                 (eq nil t.gh_outdated)
                                 (eq [40 32 :orig0001]
                                     [t.gh_line

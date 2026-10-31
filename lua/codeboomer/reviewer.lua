@@ -1,11 +1,13 @@
 -- [nfnl] fnl/codeboomer/reviewer.fnl
 vim = vim
 local agent = require("codeboomer.agent")
+local config = require("codeboomer.config")
 local git = require("codeboomer.git")
 local picker = require("codeboomer.picker")
 local review_agents = require("codeboomer.review-agents")
 local review_mode = require("codeboomer.review-mode")
 local tmux = require("codeboomer.tmux")
+local channel = require("codeboomer.channel")
 local M = {}
 local commit_pick_limit = 100
 local empty_tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
@@ -188,20 +190,56 @@ local function follow_in_gitsigns(root, scope)
     return nil
   end
 end
-local function spawn(root, branch, agent_cmd, scope, on_pane)
+local function spawn_channel(root, branch, agent_cmd, scope, on_pane)
   local prompt = agent["review-prompt"](scope_text(branch, scope))
   local argv = vim.list_extend(vim.list_slice(agent_cmd.argv), {prompt})
-  local case_27_, case_28_ = tmux["new-window"](root, ("review:" .. branch), argv)
-  if ((case_27_ == nil) and (nil ~= case_28_)) then
-    local err = case_28_
+  local pane, err = channel.spawn(root, ("review:" .. branch), argv)
+  if not pane then
+    return notify(("codeboomer: LaunchReviewer failed: " .. (err or "spawn failed")), vim.log.levels.ERROR)
+  else
+    on_pane(pane)
+    follow_in_gitsigns(root, scope)
+    return notify(string.format("codeboomer: %s reviewer launched in terminal buffer %s", agent_cmd.label, pane["pane-id"]), vim.log.levels.INFO)
+  end
+end
+local function spawn_tmux(root, branch, agent_cmd, scope, on_pane)
+  local prompt = agent["review-prompt"](scope_text(branch, scope))
+  local argv = vim.list_extend(vim.list_slice(agent_cmd.argv), {prompt})
+  local case_28_, case_29_ = tmux["new-window"](root, ("review:" .. branch), argv)
+  if ((case_28_ == nil) and (nil ~= case_29_)) then
+    local err = case_29_
     return notify(("codeboomer: LaunchReviewer failed: " .. err), vim.log.levels.ERROR)
-  elseif (nil ~= case_27_) then
-    local pane_id = case_27_
-    on_pane((tmux["pane-by-id"](pane_id) or {["pane-id"] = pane_id, ["pane-mode"] = ""}))
+  elseif (nil ~= case_28_) then
+    local pane_id = case_28_
+    on_pane((tmux["pane-by-id"](pane_id) or {driver = "tmux", ["pane-id"] = pane_id, ["pane-mode"] = ""}))
     follow_in_gitsigns(root, scope)
     return notify(string.format("codeboomer: %s reviewer launched in pane %s", agent_cmd.label, pane_id), vim.log.levels.INFO)
   else
     return nil
+  end
+end
+local function spawn(root, branch, agent_cmd, scope, on_pane)
+  local _32_
+  do
+    local t_31_ = config
+    if (nil ~= t_31_) then
+      t_31_ = t_31_.config
+    else
+    end
+    if (nil ~= t_31_) then
+      t_31_ = t_31_.spawning
+    else
+    end
+    if (nil ~= t_31_) then
+      t_31_ = t_31_.backend
+    else
+    end
+    _32_ = t_31_
+  end
+  if ("tmux" == _32_) then
+    return spawn_tmux(root, branch, agent_cmd, scope, on_pane)
+  else
+    return spawn_channel(root, branch, agent_cmd, scope, on_pane)
   end
 end
 M.launch = function(on_pane)
@@ -215,13 +253,13 @@ M.launch = function(on_pane)
   elseif not branch then
     return notify("codeboomer: LaunchReviewer needs a checked-out branch", vim.log.levels.ERROR)
   else
-    local function _30_(agent_cmd)
-      local function _31_(_241)
+    local function _37_(agent_cmd)
+      local function _38_(_241)
         return spawn(root, branch, agent_cmd, _241, on_pane)
       end
-      return choose_scope(root, _31_)
+      return choose_scope(root, _38_)
     end
-    return choose_agent(agents, _30_)
+    return choose_agent(agents, _37_)
   end
 end
 return M

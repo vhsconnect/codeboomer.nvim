@@ -960,7 +960,7 @@ local function attach_autocmds()
   local function _147_()
     return M["reload-threads"]()
   end
-  return vim.api.nvim_create_autocmd("User", {group = augroup_name, pattern = {"CodeboomerAnnotated", "CodeboomerSessionReset", "CodeboomerImported"}, callback = _147_})
+  return vim.api.nvim_create_autocmd("User", {group = augroup_name, pattern = {"CodeboomerAnnotated", "CodeboomerSessionReset", "CodeboomerImported", "CodeboomerAgentPosted"}, callback = _147_})
 end
 local function _148_()
   M["reload-threads"]()

@@ -35,6 +35,14 @@ subcommands.LaunchReviewer = function()
     require("codeboomer").LaunchReviewer()
 end
 
+subcommands.LaunchProcess = function()
+    require("codeboomer").LaunchProcess()
+end
+
+subcommands.TogglePane = function()
+    require("codeboomer").TogglePane()
+end
+
 subcommands.SendPrompt = function(opts)
     require("codeboomer").SendPrompt(opts)
 end

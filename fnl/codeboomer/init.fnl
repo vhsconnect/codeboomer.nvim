@@ -12,6 +12,7 @@
 (local one-offs (require :codeboomer.one-offs))
 (local git (require :codeboomer.git))
 (local tmux (require :codeboomer.tmux))
+(local channel (require :codeboomer.channel))
 (local picker (require :codeboomer.picker))
 (local reviewer (require :codeboomer.reviewer))
 
@@ -19,10 +20,18 @@
 
 (local M {})
 
+;; every target the picker can tether: tmux panes from any session
+;; plus the terminal buffers running inside this nvim
+(fn all-panes []
+  (vim.list_extend (tmux.list-panes) (channel.list-panes)))
+
+(fn all-last-lines []
+  (vim.tbl_extend :force (tmux.last-lines) (channel.last-lines)))
+
 (macro with-pan [body]
   `(if state.pane
        ,body
-       (choose-pane (tmux.list-panes) (fn [] ,body))))
+       (choose-pane (all-panes) (fn [] ,body))))
 
 (fn schedule-notify [msg level]
   (vim.schedule #(vim.notify msg level)))
@@ -59,7 +68,11 @@
         path)))
 
 (fn send-keys-to-selected-pane [text]
-  (tmux.send state.pane text))
+  ;; the pane record knows its driver — terminal buffers write
+  ;; straight to the channel, tmux panes shell out as before
+  (case (?. state.pane :driver)
+    :channel (channel.send state.pane text)
+    _ (tmux.send state.pane text)))
 
 (local last-line-max-length 80)
 
@@ -77,7 +90,7 @@
                    (shorten-path p.pane-current-path) mode short-line)))
 
 (fn choose-pane [panes ?then]
-  (let [last-lines (tmux.last-lines)
+  (let [last-lines (all-last-lines)
         on-pick (fn [pane]
                   (set state.pane pane)
                   (schedule-notify (string.format "codeboomer: pane %s (%s:%s.%s) selected"
@@ -88,7 +101,7 @@
                   (when ?then (?then)))]
     (picker.choose "Pick a Pane> " panes
                    #(pane-display $1 (. last-lines $1.pane-id)) on-pick
-                   {:preview tmux.preview-command
+                   {:preview channel.preview-command
                     ;; hide the pane-id from the visible entries — fzf
                     ;; extracts {1} from the original (untransformed) line,
                     ;; so the preview still receives it
@@ -186,7 +199,64 @@
                        (table.concat conversation "\n\n")))))
 
 (set M.SetPane (fn []
-                 (choose-pane (tmux.list-panes))))
+                 (choose-pane (all-panes))))
+
+;; :Codeboomer TogglePane — collapse the selected pane's terminal back
+;; out of the layout, or bring it back in its right-hand split; the
+;; job runs on either way and the pane stays selected. Tmux panes are
+;; tmux's to manage
+(set M.TogglePane
+     (fn []
+       (if (not state.pane)
+           (schedule-notify "codeboomer: no pane selected — pick one with SetPane first"
+                            vim.log.levels.WARN)
+           (case state.pane.driver
+             :channel (let [(res err) (channel.toggle state.pane)]
+                        (if res
+                            (schedule-notify (if (= :hidden res)
+                                                 "codeboomer: terminal collapsed — the process keeps running"
+                                                 "codeboomer: terminal back on the side")
+                                             vim.log.levels.INFO)
+                            (schedule-notify (.. "codeboomer: "
+                                                 (or err "toggle failed"))
+                                             vim.log.levels.WARN)))
+             _
+             (schedule-notify "codeboomer: the selected pane is a tmux pane — its window is tmux's to toggle"
+                              vim.log.levels.WARN)))))
+
+;; :Codeboomer LaunchProcess — start a configured long-lived process
+;; (the harness, a repl, a watcher) in a terminal buffer of its own and
+;; tether it as the pane: the process is an nvim job, so later sends
+;; are chansend and the codeboomer-agent shim posts back through
+;; $NVIM into this session — the channel driver's whole point
+(fn launch-process [entry]
+  (let [cwd (or (git.work-root) (vim.fn.getcwd))
+        (pane err) (channel.spawn cwd entry.label entry.argv)]
+    (if pane
+        (do
+          (set state.pane pane)
+          (schedule-notify (string.format "codeboomer: %s started in terminal buffer %s — it is the pane now"
+                                          entry.label pane.pane-id)
+                           vim.log.levels.INFO))
+        (schedule-notify (.. "codeboomer: LaunchProcess failed: "
+                             (or err "unknown error"))
+                         vim.log.levels.ERROR))))
+
+(fn process-display [p]
+  (string.format "%-16s %s" p.label (table.concat p.argv " ")))
+
+(set M.LaunchProcess
+     (fn []
+       (let [processes (or (?. config :config :prompting :launch_processes) [])]
+         (if (= 0 (length processes))
+             (schedule-notify "codeboomer: prompting.launch_processes not set — call setup() first"
+                              vim.log.levels.ERROR)
+             ;; a single configured process runs directly — the picker
+             ;; only appears when there is an actual choice to make
+             (if (= 1 (length processes))
+                 (launch-process (. processes 1))
+                 (picker.choose "Pick a Process> " processes process-display
+                                launch-process))))))
 
 ;; the picked agent's window becomes the pane — later flushes reach it
 (set M.LaunchReviewer

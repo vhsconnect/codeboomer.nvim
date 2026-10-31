@@ -30,6 +30,8 @@ bring the README back in sync with the code — not to rewrite it.
 | File | What it defines |
 |------|-----------------|
 | `fnl/codeboomer/init.fnl` | public API (`M.*` functions), the `:Codeboomer` workflows, tmux interaction, message composition, annotation format, one-off query runtime behavior |
+| `fnl/codeboomer/channel.fnl` | the terminal-buffer driver: spawning (`LaunchProcess`/`LaunchReviewer`'s default backend), `chansend` sends with bracketed paste, listing terminal buffers as panes (`nN` ids), the hybrid fzf preview, the pane-record shape shared with the tmux driver |
+| `fnl/codeboomer/agent.fnl` | the `codeboomer-agent` shim: its generated content (including the `$NVIM` RPC fast path), the rpc/help contract, verbs |
 | `fnl/codeboomer/config.fnl` | `setup()` semantics, the `keymaps` table (action → mode/rhs/desc), built-in defaults (e.g. `default-one-off-command`), how opts are merged/folded |
 | `fnl/codeboomer/directives.fnl` | built-in directive constants (`pushback-reasons`, `default-directives`), runtime lookup behavior |
 | `fnl/codeboomer/input.fnl` | the floating input UI and its options (e.g. `submit-on-enter`) |
@@ -51,11 +53,14 @@ fix drift:
 - **Installation** — the lazy.nvim snippet must use the current `setup()`
   option shape.
 - **Configuration → Keybindings** — the Mode/Binding/Description table
-  must match the `keymaps` table in `config.fnl` (all six actions:
-  `send_prompt`, `send_selection`, `ask_one_off`, `pane`, `annotate`,
-  `flush_with_directive`) and the real rhs of each mapping. The example
-  snippet must nest options under `keybindings = { ... }` with exactly
-  these key names. Document `false`-to-disable.
+  must match the `keymaps` table in `config.fnl` (every action it
+  defines — currently `send_prompt`, `send_last_prompt`,
+  `send_selection`, `ask_one_off`, `flush_with_directive`, `pane`,
+  `launch_reviewer`, `launch_process`, `pane_toggle`, `reset_session`, `review`,
+  `post_review`, `pull_review`, `annotate`) and the real rhs of each
+  mapping. The example snippet must nest options under
+  `keybindings = { ... }` with exactly these key names. Document
+  `false`-to-disable.
 - **Configuration → Prompting** —
   - `prompting.directives`: entry shape (`label`, `text`), built-in
     labels and their exact texts (copy verbatim from
@@ -94,9 +99,14 @@ fix drift:
   `keybindings`/`prompting`, correct key spellings), (b) every
   `setup()` call site in the file matches a documented, still-valid
   option, and (c) the README's Development section description of the
-  launcher matches what the file actually does. If the file sets an
-  override (e.g. `one_off_commands`), the README example may differ,
-  but both must be individually correct. Confirm `sh -n test-codeboomer`
+  launcher matches what the file actually does. The README's
+  Configuration section opens with a complete example that mirrors the
+  launcher's `setup(...)` one-to-one — every keybinding the same, the
+  same prompting lists — so a change to either side must update the
+  other (labels, argv, option keys). If the file sets an
+  override (e.g. `one_off_commands`), the detailed per-option examples
+  may differ, but both must be individually correct. Confirm `sh -n
+  test-codeboomer`
   still passes after edits.
 - **Project structure** — regenerate the tree from a real `find . -not
   -path '*/.git/*'` run. One line per file with a short comment; the

@@ -8,11 +8,13 @@
 (global vim vim)
 
 (local agent (require :codeboomer.agent))
+(local config (require :codeboomer.config))
 (local git (require :codeboomer.git))
 (local picker (require :codeboomer.picker))
 (local review-agents (require :codeboomer.review-agents))
 (local review-mode (require :codeboomer.review-mode))
 (local tmux (require :codeboomer.tmux))
+(local channel (require :codeboomer.channel))
 
 (local M {})
 
@@ -136,7 +138,27 @@
                                                                           (changes-to-quickfix root
                                                                                                base))))))))
 
-(fn spawn [root branch agent-cmd scope on-pane]
+;; the agent in a terminal buffer of its own — an nvim job, so the
+;; shim posts through $NVIM straight into this session; on-pane
+;; receives the channel pane record once the agent is running
+(fn spawn-channel [root branch agent-cmd scope on-pane]
+  (let [prompt (agent.review-prompt (scope-text branch scope))
+        argv (vim.list_extend (vim.list_slice agent-cmd.argv) [prompt])
+        (pane err) (channel.spawn root (.. "review:" branch) argv)]
+    (if (not pane)
+        (notify (.. "codeboomer: LaunchReviewer failed: "
+                    (or err "spawn failed"))
+                vim.log.levels.ERROR)
+        (do
+          (on-pane pane)
+          (follow-in-gitsigns root scope)
+          (notify (string.format "codeboomer: %s reviewer launched in terminal buffer %s"
+                                 agent-cmd.label pane.pane-id)
+                  vim.log.levels.INFO)))))
+
+;; the old way: a background tmux window, detached from this nvim —
+;; the shim then needs its headless bridge
+(fn spawn-tmux [root branch agent-cmd scope on-pane]
   (let [prompt (agent.review-prompt (scope-text branch scope))
         argv (vim.list_extend (vim.list_slice agent-cmd.argv) [prompt])]
     (case (tmux.new-window root (.. "review:" branch) argv)
@@ -144,11 +166,18 @@
                         vim.log.levels.ERROR)
       pane-id (do
                 (on-pane (or (tmux.pane-by-id pane-id)
-                             {: pane-id :pane-mode ""}))
+                             {:driver :tmux : pane-id :pane-mode ""}))
                 (follow-in-gitsigns root scope)
                 (notify (string.format "codeboomer: %s reviewer launched in pane %s"
                                        agent-cmd.label pane-id)
                         vim.log.levels.INFO)))))
+
+;; spawning.backend picks the driver — :channel (the default, see
+;; docs/terminal-channels.md) or :tmux for the old background window
+(fn spawn [root branch agent-cmd scope on-pane]
+  (if (= :tmux (?. config :config :spawning :backend))
+      (spawn-tmux root branch agent-cmd scope on-pane)
+      (spawn-channel root branch agent-cmd scope on-pane)))
 
 ;; on-pane receives the new window's pane once the agent is running
 (fn M.launch [on-pane]

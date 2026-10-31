@@ -43,9 +43,19 @@
                         (it "previews the highlighted pane with its id hidden"
                             (fn []
                               (api.nvim_command "Codeboomer SetPane")
-                              (let [[call] (helpers.fzf-calls)]
-                                (eq "tmux capture-pane -p -t {1} -S -40"
-                                    call.preview)
+                              (let [[call] (helpers.fzf-calls)
+                                    preview call.preview]
+                                ;; one command for both drivers: the id
+                                ;; lands as {1}, n-ids read the terminal
+                                ;; buffer through the parent socket, tmux
+                                ;; ids fall through to capture-pane
+                                (assert (preview:find "p={1}" 1 true))
+                                (assert (preview:find "nvim --server \"$NVIM\" --remote-expr"
+                                                      1 true))
+                                (assert (preview:find "codeboomer.channel').preview('$p')"
+                                                      1 true))
+                                (assert (preview:find "tmux capture-pane -p -t \"$p\" -S -40"
+                                                      1 true))
                                 (eq {:--with-nth :2..} call.fzf_opts))))))
             (describe :FlushWithDirective
                       (fn []

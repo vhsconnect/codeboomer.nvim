@@ -1,11 +1,11 @@
 # codeboomer.nvim
 
-A Neovim plugin for sending text and commands to tmux panes. Useful for sending text blocks to a repl or an AI agent along with some comments or instructions. 
+A Neovim plugin for sending text and commands to tmux panes and Neovim terminal buffers. Useful for sending text blocks to a repl or an AI agent along with some comments or instructions. 
 
 ## Features
 
-- Send text from Neovim to any tmux pane
-- Fuzzy-finder interface (via fzf-lua) to select target panes, showing each pane's last output line and working directory, with a live content preview
+- Send text from Neovim to any tmux pane or Neovim terminal buffer — the pane picker lists both side by side
+- Fuzzy-finder interface (via fzf-lua) to select a target pane, showing each pane's last output line and working directory, with a live content preview
 - Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
 - Resend the last prompt (`SendLastPrompt`) without retyping it — the current selection or file is recomposed as context
 - Annotation workflow — accumulate multiple code selections for review before sending
@@ -13,7 +13,8 @@ A Neovim plugin for sending text and commands to tmux panes. Useful for sending 
 - **PR review (`Review`)** — review the PR's branch as you have it checked out, committed or not — the flow is always the same, simple annotation. `Review` picks a PR whose head is the checked-out branch, binds the branch's session to it (once — re-binding to another PR takes a `ResetSession`) and pulls its inline comments down as threads; `PostReview` pushes the threads you **promoted** (the pane's `p`) up as a pending review (a draft submitted on GitHub). No worktree is created and nothing is checked out — be on the branch you mean to review when you launch Neovim
 - **Local/review thread halves** — every annotation starts as a local conversation with the agent (annotate, `a`-replies, agent answers via the shim) — the agent may open threads too (`codeboomer-agent comment`), on the same local footing; `p` in the comments pane promotes a thread: the shipping half is born with the final wording, anchored at the thread's own commit, after two refusals — the annotation must sit inside the PR's diff, and its code snapshot must still match the anchor commit's file content (lines that moved on after annotation can't resolve on GitHub). Nothing reaches `PostReview` without that deliberate step — agent chatter and your negotiation with it are structurally unshippable
 - **Review comments pane** — a first-class side split that always shows exactly one thread, the current one: opening a repo whose branch session already has comments opens the pane straight away; resting the cursor inside a commented range shows that thread (both halves interleaved as one conversation), entering a file with threads shows its first, and `n`/`N` cycle through the session's threads in a loop — each hop landing the code window on the thread without leaving the pane; only source-file windows drive it — floats, terminals and plugin windows never open the pane or pull it into their tab; the pane keeps its thread when the cursor moves off every range or the buffer changes — window-navigate into it, where `r` replies on the review half (promoted threads and pulled ones), `a` replies to the agent, `p` promotes, `e` edits the promoted comment, `q` resolves and `n`/`N` step to the next/previous thread
-- **Review agent (`LaunchReviewer`)** — pick an agent (claude, pi, …) and what it reviews — a GitHub PR (through `Review`'s own picker), your uncommitted changes, or the commits from a picked one through `HEAD` — and it starts in a new background tmux window on the current work tree, posting its findings back as threads through the `codeboomer-agent` shim; the new window becomes the selected pane, so later flushes reach the same agent
+- **Review agent (`LaunchReviewer`)** — pick an agent (claude, pi, …) and what it reviews — a GitHub PR (through `Review`'s own picker), your uncommitted changes, or the commits from a picked one through `HEAD` — and it starts in its own terminal buffer on the current work tree (a background tmux window with `spawning.backend = "tmux"`), posting its findings back as threads through the `codeboomer-agent` shim; the new terminal becomes the selected pane, so later flushes reach the same agent
+- **Terminal channels (`LaunchProcess`)** — start any long-lived process (the harness, a repl, a watcher) in a Neovim terminal buffer and talk to it over the channel primitives: sends are `chansend` pastes to the pty, the process is an nvim job, and the `codeboomer-agent` shim posts straight back through the live session's RPC socket — evented, no second headless editor, no DB polling (design notes: `docs/terminal-channels.md`)
 - Bracketed-paste support for proper multi-line handling
 - **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane; define any number of user-named one-off commands and pick one with fzf when there is more than one
 
@@ -44,6 +45,56 @@ file whose branch session has threads.
 
 ## Configuration
 
+A complete setup, every keybinding bound and every prompting list
+filled — the same configuration the repo's own launcher,
+`./test-codeboomer`, starts Neovim with:
+
+```lua
+require("codeboomer").setup({
+  debug = false,
+  keybindings = {
+    send_prompt = "<leader>cs",
+    send_last_prompt = "<leader>cl",
+    send_selection = "<leader>cr",
+    ask_one_off = "<leader>cc",
+    flush_with_directive = "<leader>cd",
+    pane = "<leader>cp",
+    launch_reviewer = "<leader>cA",
+    launch_process = "<leader>cT",
+    pane_toggle = "<leader>ct",
+    reset_session = "<leader>cS",
+    review = "<leader>cR",
+    post_review = "<leader>cP",
+    pull_review = "<leader>cL",
+    annotate = "<leader>ca",
+  },
+  prompting = {
+    one_off_commands = {
+      { label = "claude-code (llm-agents)",
+        argv = { "nix", "run", "github:numtide/llm-agents.nix#claude-code", "--",
+                 "--model", "haiku", "--output-format", "json",
+                 "--permission-mode", "acceptEdits", "-p" } },
+    },
+    review_agents = {
+      { label = "claude",
+        argv = { "nix", "run", "github:numtide/llm-agents.nix#claude-code", "--",
+                 "--dangerously-skip-permissions" } },
+      { label = "pi",
+        argv = { "nix", "run", "github:numtide/llm-agents.nix#pi", "--" } },
+    },
+    launch_processes = {
+      { label = "pi",
+        argv = { "nix", "run", "github:numtide/llm-agents.nix#pi", "--" } },
+      { label = "claude",
+        argv = { "nix", "run", "github:numtide/llm-agents.nix#claude-code", "--",
+                 "--dangerously-skip-permissions" } },
+    },
+  },
+})
+```
+
+The sections below cover each option in detail.
+
 ### Keybindings
 
 The plugin sets up no default keybindings; configure them like this:
@@ -54,8 +105,10 @@ The plugin sets up no default keybindings; configure them like this:
 | Normal + Visual | `<leader>cl` | `SendLastPrompt` — resend the last prompt; the current selection (or file) is recomposed as context |
 | Visual | `<leader>cr` | `SendSelection` — send the selection to the pane as-is, then press Enter |
 | Normal + Visual | `<leader>cc` | `AskOneOff` — run a one-off query; the answer is shown in a notification |
-| Normal | `<leader>cp` | `SetPane` — pick a tmux pane to send messages to |
-| Normal | `<leader>cA` | `LaunchReviewer` — launch a review agent in a new tmux window and select it as the pane |
+| Normal | `<leader>cp` | `SetPane` — pick a target pane (a tmux pane or an nvim terminal buffer) to send messages to |
+| Normal | `<leader>cA` | `LaunchReviewer` — launch a review agent in a terminal buffer and select it as the pane |
+| Normal | `<leader>cT` | `LaunchProcess` — launch a configured process in a terminal buffer and select it as the pane |
+| Normal | `<leader>ct` | `TogglePane` — collapse the selected pane's terminal out of the layout, or bring it back (the process keeps running) |
 | Normal | `<leader>cS` | `ResetSession` — reset this branch's review session |
 | Normal | `<leader>cR` | `Review` — pick a PR to review on the current checkout |
 | Normal | `<leader>cP` | `PostReview` — push the promoted threads to the PR |
@@ -75,6 +128,8 @@ require("codeboomer").setup({
     flush_with_directive = "<leader>cd",
     pane = "<leader>cp",
     launch_reviewer = "<leader>cA",
+    launch_process = "<leader>cT",
+    pane_toggle = "<leader>ct",
     reset_session = "<leader>cS",
     review = "<leader>cR",
     post_review = "<leader>cP",
@@ -152,7 +207,7 @@ container wrapper, a nix flake invocation, … Output that is JSON with a
 `prompting.review_agents` lists the agents `<leader>cA`
 (`:Codeboomer LaunchReviewer`) can spawn: entries with a `label` and a
 static `argv`, the review prompt appended as the final argument. The
-argv runs directly in the new tmux window — no shell — so nothing needs
+argv runs directly — no shell — so nothing needs
 quoting. Like the one-off commands, a matching label overrides a
 built-in and new labels are appended; the built-in is
 `{ label = "claude", argv = { "claude" } }`, an interactive session that
@@ -169,6 +224,41 @@ require("codeboomer").setup({
     },
   },
 })
+```
+
+`prompting.launch_processes` lists the processes `<leader>cT`
+(`:Codeboomer LaunchProcess`) can start in a terminal buffer: entries
+with a `label` and a static `argv`, exactly the review agents' shape
+(and also matched by label when you re-declare a built-in — there are
+none by default, so the command reports the option as unset until you
+configure at least one entry). The picked process runs on the current
+work tree in a terminal buffer of its own and becomes the selected
+pane:
+
+```lua
+require("codeboomer").setup({
+  prompting = {
+    launch_processes = {
+      { label = "pi", argv = { "nix", "run", "github:numtide/llm-agents.nix#pi", "--" } },
+      { label = "claude",
+        argv = { "nix", "run", "github:numtide/llm-agents.nix#claude-code", "--",
+                 "--dangerously-skip-permissions" } },
+    },
+  },
+})
+```
+
+### Spawning
+
+Where `LaunchReviewer` starts the agent: `"channel"` (the default) — a
+Neovim terminal buffer, an nvim job, so sends are `chansend` pastes and
+the `codeboomer-agent` shim posts back through `$NVIM` straight into
+the live session — or `"tmux"` — the old background tmux window, where
+the shim falls back to its headless bridge. `LaunchProcess` is always
+channel; tmux panes remain pickable through `SetPane` either way:
+
+```lua
+require("codeboomer").setup({ spawning = { backend = "tmux" } })
 ```
 
 ### Debugging
@@ -217,7 +307,7 @@ after the agent's context moved on.
 
 ### `:Codeboomer SendSelection`
 
-Sends the visual selection to the selected pane **as-is** — no prompt, no context header. The lines are pasted with tmux bracketed paste and `Enter` is pressed.
+Sends the visual selection to the selected pane **as-is** — no prompt, no context header. The lines are pasted with bracketed paste (tmux's `paste-buffer -p` for tmux panes, the same control codes over the pty for terminal buffers) and `Enter` is pressed.
 
 - Requires a pane (picked first if none is selected)
 - Requires a visual range
@@ -228,15 +318,30 @@ Sends the visual selection to the selected pane **as-is** — no prompt, no cont
 
 ### `:Codeboomer SetPane`
 
-Opens fzf-lua to select a target tmux pane. Each entry shows the running
-command, location, working directory, mode, and last output line; a live
-preview shows the pane's recent content.
+Opens fzf-lua to select a target pane: every tmux pane (any session)
+next to every Neovim terminal buffer (session `nvim`, ids `nN` — tmux
+panes are `%N`). Each entry shows the running command, location,
+working directory, mode, and last output line; a live preview shows the
+pane's recent content — `capture-pane` for tmux panes, the terminal
+buffer itself (read through the live session's RPC socket) for channel
+panes.
+
+### `:Codeboomer TogglePane`
+
+Collapses the selected pane's terminal buffer out of the layout, or
+brings it back in its right-hand split — `<leader>ct` right after
+`LaunchProcess`/`LaunchReviewer`, or any time later. The process keeps
+running while collapsed: the pane stays selected, the send commands
+still reach it and the picker still lists it. Toggling back in lands
+the cursor in the terminal. Tmux panes have nothing to toggle here —
+their windows belong to tmux.
 
 ### `:Codeboomer LaunchReviewer`
 
-Spawns a review agent in a new background tmux window (named
-`review:<branch>`, working directory the current work tree — Neovim
-keeps the focus), after two fzf pickers:
+Spawns a review agent in a terminal buffer of its own right-hand split
+(named `review:<branch>`, working directory the current work tree —
+Neovim keeps the focus; `spawning.backend = "tmux"` restores the old
+background tmux window), after two fzf pickers:
 
 1. **Which agent** — the `prompting.review_agents` entries (skipped when
    only one is configured)
@@ -259,10 +364,14 @@ pointer to the shim (`codeboomer-agent help` documents its verbs), a
 request for one- or two-sentence comments with the detail kept in the
 agent's own output, and not to switch branches.
 
-- The new window becomes the selected pane — `FlushWithDirective` and
+- The new terminal becomes the selected pane — `FlushWithDirective` and
   the send commands reach the same agent without a `SetPane`
 - The agent's threads land in the branch's session and show up in the
-  comments pane marked `· by agent`; promote them with `p` as usual
+  comments pane marked `· by agent`; promote them with `p` as usual. A
+  channel-spawned agent's posts arrive over the live session's RPC
+  socket — the pane refreshes the moment they land; a tmux-spawned
+  agent's posts go through the shim's headless bridge and appear on the
+  pane's next refresh
 - With [gitsigns.nvim](https://github.com/lewis6991/gitsigns.nvim)
   installed, a successful launch also moves gitsigns' base (globally)
   to what the review sits on — the picked commit's parent (the empty
@@ -271,11 +380,41 @@ agent's own output, and not to switch branches.
   back to the local `<base>`) — and opens the quickfix list on the
   files changed since that base, untracked ones included. Without
   gitsigns nothing changes
-- Refuses outside a repo and on a detached HEAD; a tmux failure (e.g.
-  no server running) is reported and leaves the selected pane alone
+- Refuses outside a repo and on a detached HEAD; a failed launch (a
+  missing binary, for instance) is reported and leaves the selected pane
+  alone
 
 ```vim
 :Codeboomer LaunchReviewer
+```
+
+### `:Codeboomer LaunchProcess`
+
+Starts a configured long-lived process — the harness, a repl, a watcher
+— in a terminal buffer of its own on the current work tree and tethers
+that buffer as the selected pane, so the send commands reach it. The
+process is a channel pane: an nvim job, whose terminal buffer the
+picker lists (`nN`) and previews like any other pane.
+
+- Entries come from `prompting.launch_processes` (see Configuration) —
+  each a `label` and a static `argv`, exec'd as-is with no shell
+- A fzf picker appears when more than one process is configured; a
+  single entry launches directly, and none configured reports the
+  option as unset
+- The buffer is named after the entry's label — the picker's handle for
+  it; a relaunch of the same label falls back to a numbered variant
+- The split never takes the cursor — the process runs beside whatever
+  you were editing; window-navigate into it and press `i` to interact
+  with it directly, or send to it from anywhere. Collapse the split
+  out of the way with `<leader>ct` (`:Codeboomer TogglePane`) once
+  you've read enough — the process keeps running and stays the pane;
+  toggle it back the same way
+- Jobs die with Neovim — the one thing a tmux pane still does better;
+  for a process that must outlive the editor, run it under tmux and pick
+  the pane with `SetPane`
+
+```vim
+:Codeboomer LaunchProcess
 ```
 
 ### `:Codeboomer Review [pr]`
@@ -486,7 +625,7 @@ Opens fzf to select a pre-defined directive, then sends it along with all unsent
 - Select from a list of pre-defined directives (see Configuration below for customizing)
 - After sending, the delivered annotations are marked `sent` in the database — they persist but are never re-sent; annotations survive restarts because the database is the only outbox
 - Each message carries one **whole thread**: the header (`regarding <file> lines X to Y (thread N)`), the annotated code, and the full conversation — every comment author-labeled (`[user] vhs: …`, `[agent] agent: …`, `[github] reviewer: …`), so a reply flushed to a pulled thread ships the GitHub reviewer's words along and a re-asked thread ships the agent's earlier answers. Several unsent comments of one thread ship as one conversation, not one copy each
-- The payload ends with a reply instruction pointing at the generated `codeboomer-agent` shim — the agent answers each thread with `codeboomer-agent reply <thread-id> <text>`, which appends an agent comment to that thread in the database (visible in the comments pane on its next reload)
+- The payload ends with a reply instruction pointing at the generated `codeboomer-agent` shim — the agent answers each thread with `codeboomer-agent reply <thread-id> <text>`, which appends an agent comment to that thread in the database. When the agent runs as a child of the live session (a channel-spawned terminal buffer, or any nvim job), the shim posts through `$NVIM` straight into that session — the comments pane refreshes the moment the thread lands; from outside (a tmux pane, another terminal) it runs a headless nvim against the same database and the pane picks the thread up on its next refresh
 - The agent can also open threads of its own: `codeboomer-agent comment <file> <line>[-<line>] <text>` starts a line-range thread (the snapshot is read from the file on disk, anchored at `HEAD`) and `codeboomer-agent file-comment <file> <text>` a whole-file one. Both are born local conversation threads like an annotation, rooted in an agent comment — the pane marks them `· by agent`, they never ship until promoted, and `p` always opens the compose input prefilled with the agent's wording so you choose what ships. The shim refuses paths outside the work tree and ranges past the end of the file
 - The shim is also self-documenting: `codeboomer-agent help` (equally `-h`, `--help`, or no arguments at all) prints its full usage, so an agent that's only been handed the path can work out how to use it without any of the above spelled out in a prompt
 
@@ -517,7 +656,7 @@ next annotation starts fresh.
 
 ### Agent review workflow
 
-1. On the branch to review, run `<leader>cA` (`:Codeboomer LaunchReviewer`), pick the agent and what it reviews (a PR, your uncommitted changes, or commits back to a picked one) — the agent starts in a new background tmux window and becomes the selected pane
+1. On the branch to review, run `<leader>cA` (`:Codeboomer LaunchReviewer`), pick the agent and what it reviews (a PR, your uncommitted changes, or commits back to a picked one) — the agent starts in its own terminal buffer and becomes the selected pane
 2. It posts findings as threads (`codeboomer-agent comment` / `file-comment`); they appear in the comments pane marked `· by agent`
 3. Discuss with `a` and `FlushWithDirective` as in the annotation workflow, resolve with `q`, and promote the keepers with `p` — the compose input opens with the agent's wording for you to rewrite
 

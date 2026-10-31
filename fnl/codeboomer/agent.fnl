@@ -174,6 +174,38 @@
                            "\nrun `codeboomer-agent help` for details"))
                 (os.exit 1 true)))))))
 
+;; the RPC half of the agent bridge: when the agent runs as a child of
+;; the nvim that owns the session (a terminal buffer the channel
+;; driver started, or any job nvim spawned), $NVIM holds that parent's
+;; socket and the shim short-circuits here — one thin-client
+;; round-trip into the live editor instead of a second headless nvim
+;; writing the DB from the outside. The arguments travel base64-
+;; encoded inside the expression — the thin client's environment never
+;; reaches the server, so the env var the headless path reads can't.
+;; Fires CodeboomerAgentPosted so the comments pane picks the thread
+;; up immediately, no cursor-move polling. An error aborts the
+;; remote-expr, and the shim falls back to the headless run, which
+;; reports the failure properly
+(fn rpc-args [?b64]
+  (if ?b64
+      (let [(ok decoded) (pcall vim.base64.decode ?b64)]
+        (if ok (vim.split decoded " " {:trimempty true}) []))
+      (vim.split (or (os.getenv :CODEBOOMER_AGENT_ARGS) "") " "
+                 {:trimempty true})))
+
+(fn M.rpc [?b64]
+  (let [args (rpc-args ?b64)
+        verb (. args 1)]
+    (if (or (not verb) (= verb :help) (= verb :-h) (= verb :--help))
+        help-text
+        (let [(ok msg) (M.run args)]
+          (if ok
+              (do
+                (vim.api.nvim_exec_autocmds :User
+                                            {:pattern :CodeboomerAgentPosted})
+                (.. "codeboomer-agent: " msg))
+              (error msg))))))
+
 ;; the shim bakes in the running nvim's environment (plugin root,
 ;; LD_LIBRARY_PATH for libsqlite3) so the agent needs nothing but the
 ;; path itself; regenerated whenever its content drifts
@@ -190,6 +222,17 @@ set -euo pipefail
 export CODEBOOMER_PATH='%s'
 export LD_LIBRARY_PATH='%s'
 export CODEBOOMER_AGENT_ARGS=\"$*\"
+# children of a live nvim carry $NVIM — its socket. Posting through it
+# is one thin-client round-trip into the editor that owns the session
+# (and its DB), instead of a second headless nvim. Any failure — a
+# dead socket, a refused post — falls back to the headless run below
+if [ -n \"${NVIM:-}\" ]; then
+  b64=$(printf '%%s' \"$*\" | base64 | tr -d '\\n')
+  if out=$(nvim --server \"$NVIM\" --remote-expr \"v:lua.require('codeboomer.agent').rpc('$b64')\" 2>/dev/null); then
+    echo \"$out\"
+    exit 0
+  fi
+fi
 exec nvim --headless -u NONE --cmd \"set rtp^=${CODEBOOMER_PATH}\" -c 'lua require(\"codeboomer.agent\").main()' -c 'qa!'
 " root ld)))))
 

@@ -656,7 +656,8 @@
                                {:group augroup-name
                                 :pattern [:CodeboomerAnnotated
                                           :CodeboomerSessionReset
-                                          :CodeboomerImported]
+                                          :CodeboomerImported
+                                          :CodeboomerAgentPosted]
                                 :callback #(M.reload-threads)}))
 
 (set M.open (fn []

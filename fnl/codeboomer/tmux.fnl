@@ -33,7 +33,8 @@
     (icollect [(session-name session-id window-index pane-index pane-id
                              pane-current-command pane-mode pane-active
                              window-active pane-current-path) result]
-      {: session-name
+      {:driver :tmux
+       : session-name
        : session-id
        : window-index
        : pane-index

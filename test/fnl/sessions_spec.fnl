@@ -196,14 +196,15 @@
                         (it "refuses to pull while HEAD is not the PR's head commit"
                             (fn []
                               (fake-pr (vim.tbl_extend :force fixtures.pr
-                                                       {:headRefOid "f485d97670cc2e67485b09fe14fb38b16bce8434"})
+                                                       {:headRefOid :f485d97670cc2e67485b09fe14fb38b16bce8434})
                                        [fixtures.pulled-item])
                               (review-pr fixtures.pr.number)
                               (wait-notified error-level
                                              "not pulling — HEAD %x+ is not PR #42's head f485d97")
-                              (eq [] (review.threads-for-session (review.ensure-session)))
+                              (eq []
+                                  (review.threads-for-session (review.ensure-session)))
                               (assert.is_nil (string.find (helpers.fake-log :gh.log)
-                                                          "/comments" 1 true))))
+                                                          :/comments 1 true))))
                         (it "refuses a PR whose head is another branch"
                             (fn []
                               (fake-pr fixtures.other-branch-pr [])
@@ -371,8 +372,8 @@
                                                 (singleton.reset-db)
                                                 [unbindable
                                                  (pick-values 1
-                                                   (pcall insert
-                                                          {:email "after@example.com"}))]))))))))
+                                                              (pcall insert
+                                                                     {:email "after@example.com"}))]))))))))
             (describe "the session schema"
                       (fn []
                         (it "has no unused commit columns"

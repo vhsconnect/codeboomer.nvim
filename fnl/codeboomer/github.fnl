@@ -324,8 +324,7 @@
                                      (review.thread-id-for-gh item.in_reply_to_id))
                             mine (when (and (not known)
                                             (not item.in_reply_to_id))
-                                   (review.match-posted-comment session-id
-                                                                item))]
+                                   (review.match-posted-comment session-id item))]
                         (if known
                             (do
                               (flag-if-outdated item known.thread_id)
@@ -353,8 +352,7 @@
                                             (tostring (or item.line
                                                           item.original_line
                                                           :file))
-                                            err)
-                             0))))
+                                            err) 0))))
     n))
 
 ;; refresh a PR-bound session with the PR's current inline comments —
@@ -375,7 +373,8 @@
                                                  slug pr-number)
                                   :--paginate
                                   :--jq
-                                  ".[]"] {:text true}
+                                  ".[]"]
+                                 {:text true}
                                  (fn [obj]
                                    (if (= obj.code 0)
                                        (let [(ok result) (pcall M.import-items
@@ -391,7 +390,9 @@
                                                          result)
                                                      vim.log.levels.ERROR)))
                                        (notify (string.format "codeboomer: gh api failed (exit %d)
-%s" obj.code (gh-error obj)) vim.log.levels.ERROR)))))
+%s" obj.code
+                                                              (gh-error obj))
+                                               vim.log.levels.ERROR)))))
         on-pr-head (fn [obj]
                      (let [(ok pr) (pcall vim.json.decode (or obj.stdout ""))
                            pr-head (when (and (= obj.code 0) ok
@@ -400,7 +401,8 @@
                            head (git.head-sha)]
                        (if (not pr-head)
                            (notify (string.format "codeboomer: couldn't read PR #%d's head commit
-%s" pr-number (gh-error obj)) vim.log.levels.ERROR)
+%s" pr-number (gh-error obj))
+                                   vim.log.levels.ERROR)
                            (not= pr-head head)
                            (notify (string.format "codeboomer: not pulling — HEAD %s is not PR #%d's head %s; GitHub's lines refer to %s, check it out first"
                                                   (string.sub (or head "?") 1 7)

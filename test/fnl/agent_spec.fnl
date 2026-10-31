@@ -134,4 +134,51 @@
                 (fn []
                   (let [(ok msg) (agent.run [:shout :hello])]
                     (assert.is_false ok)
-                    (matches "expected reply, comment or file%-comment" msg))))))
+                    (matches "expected reply, comment or file%-comment" msg))))
+            (describe :rpc
+                      (fn []
+                        (it "answers help with the usage text"
+                            (fn []
+                              (matches "usage: codeboomer%-agent" (agent.rpc))))
+                        (it "posts a comment into the live session and announces it"
+                            (fn []
+                              (helpers.exec_lua (fn []
+                                                  (set _G.agentposted false)
+                                                  (vim.api.nvim_create_autocmd :User
+                                                                               {:pattern :CodeboomerAgentPosted
+                                                                                :callback #(set _G.agentposted
+                                                                                                true)})))
+                              (let [args (.. "comment " files.main
+                                             " 5 posted over rpc")
+                                    b64 (helpers.exec_lua (fn [a]
+                                                            (vim.base64.encode a))
+                                                          args)
+                                    msg (agent.rpc b64)
+                                    thread (only-thread)
+                                    root (. (review.conversation-comments thread.id)
+                                            1)]
+                                (matches "^codeboomer%-agent: opened thread #%d+"
+                                         msg)
+                                (eq [:agent "posted over rpc"]
+                                    [root.source root.body])
+                                ;; the evented refresh — no cursor-move polling
+                                (helpers.expectf #(helpers.exec_lua "return _G.agentposted")))))
+                        (it "aborts the remote call on a refused verb, for the shim's fallback"
+                            (fn []
+                              (let [b64 (helpers.exec_lua (fn [a]
+                                                            (vim.base64.encode a))
+                                                          "reply 999 nope")]
+                                (assert.is_false (pcall agent.rpc b64)))))
+                        (it "bakes the fast path into the generated shim"
+                            (fn []
+                              ;; the shim regenerates on module load
+                              (agent.rpc)
+                              (let [file (io.open (.. helpers.data-home
+                                                      :/nvim/codeboomer-agent))
+                                    shim (file:read :*a)]
+                                (file:close)
+                                (assert (shim:find "--server \"$NVIM\"" 1 true))
+                                (assert (shim:find "codeboomer.agent').rpc('$b64')"
+                                                   1 true))
+                                ;; the headless run remains the fallback
+                                (assert (shim:find :--headless 1 true)))))))))

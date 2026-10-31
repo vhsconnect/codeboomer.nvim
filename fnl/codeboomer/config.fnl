@@ -21,7 +21,9 @@
         :flush_with_directive [:n
                                "<cmd>Codeboomer FlushWithDirective<cr>"
                                "codeboomer: flush annotations with directive to pane"]
-        :pane [:n "<cmd>Codeboomer SetPane<cr>" "codeboomer: pick a tmux pane"]
+        :pane [:n
+               "<cmd>Codeboomer SetPane<cr>"
+               "codeboomer: pick a target pane (tmux or nvim terminal)"]
         :reset_session [:n
                         "<cmd>Codeboomer ResetSession<cr>"
                         "codeboomer: reset this branch's review session"]
@@ -36,7 +38,13 @@
                       "codeboomer: pull the PR's inline comments into the session"]
         :launch_reviewer [:n
                           "<cmd>Codeboomer LaunchReviewer<cr>"
-                          "codeboomer: launch a review agent in a new tmux window"]
+                          "codeboomer: launch a review agent in a terminal buffer"]
+        :launch_process [:n
+                         "<cmd>Codeboomer LaunchProcess<cr>"
+                         "codeboomer: launch a configured process in a terminal"]
+        :pane_toggle [:n
+                      "<cmd>Codeboomer TogglePane<cr>"
+                      "codeboomer: collapse or bring back the pane's terminal"]
         :annotate [[:n :x]
                    ":Codeboomer Annotate<cr>"
                    "codeboomer: annotate selection or whole file"]})
