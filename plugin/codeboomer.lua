@@ -59,10 +59,6 @@ subcommands.SendSelection = function(opts)
     require("codeboomer").SendSelection(opts)
 end
 
-subcommands.AskOneOff = function(opts)
-    require("codeboomer").AskOneOff(opts)
-end
-
 subcommands.Annotate = function(opts)
     require("codeboomer").Annotate(opts)
 end

@@ -9,7 +9,6 @@
 (local sidebar (require :codeboomer.sidebar))
 
 (local agent (require :codeboomer.agent))
-(local one-offs (require :codeboomer.one-offs))
 (local git (require :codeboomer.git))
 (local tmux (require :codeboomer.tmux))
 (local channel (require :codeboomer.channel))
@@ -43,28 +42,6 @@
 
 (set M.setup (fn [opts]
                (config.setup opts)))
-
-(fn one-off-result [stdout]
-  ;; --output-format json wraps the answer in an object; show the .result
-  ;; field and fall back to raw output when it isn't JSON
-  (let [(ok parsed) (pcall vim.json.decode stdout)]
-    (if (and ok (= (type parsed) :table) (. parsed :result))
-        (. parsed :result)
-        stdout)))
-
-(fn run-one-off [cmd prompt]
-  (let [argv (vim.list_slice (or cmd.argv []))
-        timeout (or cmd.timeout 60000)]
-    (vim.system (vim.list_extend argv [prompt]) {:text true : timeout}
-                (fn [obj]
-                  (vim.schedule #(if (= obj.code 0)
-                                     (vim.notify (one-off-result (or obj.stdout
-                                                                     ""))
-                                                 vim.log.levels.INFO)
-                                     (vim.notify (.. "codeboomer: one-off failed (exit "
-                                                     obj.code ")\n"
-                                                     (or obj.stderr ""))
-                                                 vim.log.levels.ERROR)))))))
 
 (fn shorten-path [path]
   (let [home (os.getenv :HOME)]
@@ -114,22 +91,6 @@
                     :winopts {:preview {:wrap false
                                         :layout :vertical
                                         :vertical "down:45%:follow"}}})))
-
-(local one-off-argv-max-length 80)
-
-(fn one-off-display [c]
-  (let [argv (table.concat c.argv " ")
-        short-argv (if (> (length argv) one-off-argv-max-length)
-                       (.. (string.sub argv 1 one-off-argv-max-length) "…")
-                       argv)
-        ;; surface a non-default timeout so long-running entries stand out
-        timeout (if c.timeout
-                    (string.format " (%ds)" (math.floor (/ c.timeout 1000)))
-                    "")]
-    (string.format "%-22s %s%s" c.label short-argv timeout)))
-
-(fn choose-one-off [commands k]
-  (picker.choose "Pick a One-off> " commands one-off-display k))
 
 ;; :Codeboomer ResetSession — terminate this branch's set of comments:
 ;; delete the branch's session with its threads so the next
@@ -308,28 +269,6 @@
        (with-pan (let [context (get-visual-lines opts)]
                    (when context
                      (send-keys-to-selected-pane context.lines))))))
-
-(set M.AskOneOff (fn [opts]
-                   (let [context (get-visual-lines opts)
-                         commands (or (one-offs.list) [])
-                         ask (fn [cmd]
-                               (input.open {:title (string.format " AskOneOff: %s (Enter to send)> "
-                                                                  cmd.label)
-                                            :submit-on-enter true
-                                            :on-submit (fn [lines]
-                                                         (let [text (concat-list lines)]
-                                                           (when (not= text "")
-                                                             (run-one-off cmd
-                                                                          (compose-message context
-                                                                                           text)))))}))]
-                     (if (= 0 (length commands))
-                         (schedule-notify "codeboomer: prompting.one_off_commands not set — call setup() first"
-                                          vim.log.levels.ERROR)
-                         ;; a single configured command runs directly — the picker only
-                         ;; appears when there is an actual choice to make
-                         (if (= 1 (length commands))
-                             (ask (. commands 1))
-                             (choose-one-off commands ask))))))
 
 ;; the annotate flow itself — behind the old-side guard of M.Annotate
 ;; below. With a visual range the thread anchors to those lines; with

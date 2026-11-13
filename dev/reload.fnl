@@ -31,7 +31,6 @@
                  :keybindings {:send_prompt :<leader>cs
                                :send_last_prompt :<leader>cl
                                :send_selection :<leader>cr
-                               :ask_one_off :<leader>cc
                                :flush_with_directive :<leader>cd
                                :pane :<leader>cp
                                :reset_session :<leader>cS

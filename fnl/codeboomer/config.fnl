@@ -2,7 +2,6 @@
 
 (local M {})
 (local directives (require :codeboomer.directives))
-(local one-offs (require :codeboomer.one-offs))
 (local review-agents (require :codeboomer.review-agents))
 
 (local keymaps
@@ -15,9 +14,6 @@
         :send_selection [:x
                          ":Codeboomer SendSelection<cr>"
                          "codeboomer: send selection to pane as-is"]
-        :ask_one_off [[:n :x]
-                      ":Codeboomer AskOneOff<cr>"
-                      "codeboomer: run one-off query, reply shown here"]
         :flush_with_directive [:n
                                "<cmd>Codeboomer FlushWithDirective<cr>"
                                "codeboomer: flush annotations with directive to pane"]
@@ -54,7 +50,7 @@
 
 (fn fold-by-label [defaults entries]
   ;; entries override the built-ins by label and append new labels —
-  ;; shared by the directive, one-off command and review agent lists
+  ;; shared by the directive and review agent lists
   (let [effective (vim.list_slice defaults)
         index {}]
     (each [i entry (ipairs effective)]
@@ -73,11 +69,9 @@
 
 (fn M.setup [opts]
   (set M.config (vim.tbl_deep_extend :force (or M.config {}) (or opts {})))
-  ;; Fold the built-in prompting defaults into the config: one_off_commands
-  ;; and directives override the built-ins by label / append new labels.
+  ;; Fold the built-in prompting defaults into the config: directives
+  ;; and review agents override the built-ins by label / append new labels.
   (let [prompting (or M.config.prompting {})]
-    (set prompting.one_off_commands
-         (fold-by-label (one-offs.defaults) prompting.one_off_commands))
     (set prompting.directives
          (fold-by-label (directives.defaults) prompting.directives))
     (set prompting.review_agents

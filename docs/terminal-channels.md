@@ -10,7 +10,6 @@ session's RPC socket instead of a second headless editor.
 |---|---|---|
 | nvim → agent | `tmux.fnl`: `load-buffer` + `paste-buffer -p -r` + `send-keys Enter` | three synchronous `io.popen` shell-outs per message, quoting and buffer juggling |
 | agent → nvim | `codeboomer-agent` shim → second headless nvim (`-u NONE`, plugin loaded) → sqlite | a whole editor per post; the live session learns about it only when a `CursorMoved`/`FocusGained` fires the DB refresh |
-| one-off query | `vim.system` + stdout callback | none — this was already the right shape |
 
 ## The idea
 
@@ -26,7 +25,7 @@ twin — each of these was verified live before implementation:
 | preview / last line | `capture-pane` scraping | `nvim_buf_get_lines` — structured, full scrollback |
 | agent → nvim | shim → headless nvim → sqlite → polling | children inherit `$NVIM` (the parent's socket); `nvim --server "$NVIM" --remote-expr "v:lua.require('codeboomer.agent').rpc()"` posts into the **live** session, evented |
 
-`vim.system` (one-offs) is the same job machinery one-shot — sessions are
+`vim.system` is the same job machinery one-shot — sessions are
 just the long-lived, pty-attached form of it.
 
 ## Driver model

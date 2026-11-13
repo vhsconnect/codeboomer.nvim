@@ -44,7 +44,6 @@ require("codeboomer").setup({
     annotate = "<leader>ca",            -- add selection to the session
     flush_with_directive = "<leader>cd",-- send annotations with a directive
     pane = "<leader>cp",                -- pick a target pane
-    ask_one_off = "<leader>cc",         -- one-shot query
     launch_reviewer = "<leader>cA",     -- spawn a review agent
     launch_process = "<leader>cT",      -- spawn a process pane
     pane_toggle = "<leader>ct",         -- collapse/restore the pane split
@@ -58,13 +57,6 @@ require("codeboomer").setup({
     -- a label matching a built-in overrides it; new labels append
     directives = {
       { label = "Explain", text = "Explain the selected code. No changes." },
-    },
-    one_off_commands = {
-      { label = "claude-code (haiku)",
-        argv = { "claude", "--model", "haiku", "--output-format", "json", "-p" } },
-      { label = "Local",
-        argv = { "ollama", "run", "qwen2.5-coder" },
-        timeout = 300000 },
     },
     review_agents = {
       { label = "claude", argv = { "claude", "--dangerously-skip-permissions" } },

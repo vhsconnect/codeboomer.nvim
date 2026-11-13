@@ -26,10 +26,7 @@
                            (helpers.setup-test-repo)
                            (helpers.setup-codeboomer)
                            (api.nvim_command "runtime plugin/codeboomer.lua")
-                           (codeboomer.setup {:prompting {:one_off_commands [{:label :first
-                                                                              :argv [:one]}
-                                                                             {:label :second
-                                                                              :argv [:two]}]}})
+                           (codeboomer.setup {})
                            (helpers.edit files.main)))
             (describe :SetPane
                       (fn []
@@ -88,17 +85,6 @@
                                                          "Do not make any code changes.")))
                               (assert (logged? :tmux-paste.txt
                                                "Threads where I wrote `execute` after your last reply in them are a go-ahead"))))))
-            (describe :AskOneOff
-                      (fn []
-                        (it "opens the input for the picked command"
-                            (fn []
-                              (helpers.fzf-pick "Pick a One-off> " :second)
-                              (api.nvim_command "Codeboomer AskOneOff")
-                              (expectf #(assert (not= nil
-                                                      (: (or (float-title) "")
-                                                         :find
-                                                         "AskOneOff: second" 1
-                                                         true))))))))
             (describe :Review
                       (fn []
                         (it "binds the session to the picked PR"

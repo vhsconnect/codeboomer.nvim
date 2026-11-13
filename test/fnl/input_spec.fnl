@@ -34,13 +34,6 @@
             (before_each (fn []
                            (clear)
                            (helpers.setup-codeboomer)))
-            (it "submits every line and closes on <CR> with submit_on_enter"
-                (fn []
-                  (let [win (open-input {:title " test " :submit_on_enter true})]
-                    (set-lines win ["echo hello" "echo world"])
-                    (press win :<CR>)
-                    (eq [["echo hello" "echo world"]] (submissions))
-                    (eq false (api.nvim_win_is_valid win)))))
             (it "does not submit on <CR> by default"
                 (fn []
                   (let [win (open-input {})]
@@ -62,6 +55,6 @@
             (it "leaves no windows behind"
                 (fn []
                   (let [wins-before (length (api.nvim_list_wins))
-                        win (open-input {:submit_on_enter true})]
-                    (press win :<CR>)
+                        win (open-input {})]
+                    (api.nvim_win_close win true)
                     (eq wins-before (length (api.nvim_list_wins))))))))
