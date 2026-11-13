@@ -75,10 +75,32 @@
                                                p.comment.id))
                     (helpers.edit files.main)
                     (rest (api.nvim_get_current_win) 10)
-                    (press-in-pane (api.nvim_get_current_tabpage) :z)
+                    (press-in-pane (api.nvim_get_current_tabpage) :x)
                     (eq [:execute]
                         (icollect [_ p (ipairs (review.pending-for-flush sid))]
                           p.comment.body)))))
+            (it "fix now ships the thread with the fix directive right away"
+                (fn []
+                  (annotate-lines files.main 10 12 "why a loop here?")
+                  (let [sid (. (review.session-for) :id)
+                        thread (thread-on sid files.main)]
+                    (review.agent-reply thread.id "I can batch the writes")
+                    (review.mark-annotations :sent
+                                             (icollect [_ p (ipairs (review.pending-for-flush sid))]
+                                               p.comment.id))
+                    (helpers.edit files.main)
+                    (rest (api.nvim_get_current_win) 10)
+                    (helpers.fzf-pick "Pick a Pane> " "%2")
+                    (api.nvim_command "Codeboomer SetPane")
+                    (press-in-pane (api.nvim_get_current_tabpage) :z)
+                    (wait-notified "sent with the fix directive")
+                    ;; the go-ahead went out with the thread — nothing
+                    ;; is left unsent, and both texts hit the pane
+                    (eq [] (icollect [_ p (ipairs (review.pending-for-flush sid))]
+                             p.comment.body))
+                    (let [paste (helpers.fake-log :tmux-paste.txt)]
+                      (assert (not= nil (paste:find "right away" 1 true)))
+                      (assert (not= nil (paste:find "are a go-ahead" 1 true)))))))
             (it "deletes the reset session with its threads and comments"
                 (fn []
                   (annotate-lines files.main 10 12 "why a loop here?")

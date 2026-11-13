@@ -10,3 +10,4 @@ todo
 .nvimlog
 /test/lua/
 .direnv/
+.nrepl-port

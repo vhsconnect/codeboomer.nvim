@@ -35,6 +35,12 @@
       "` after your last reply in them are a go-ahead: make the changes they ask for, even where the directive above says not to."
       "\n"))
 
+;; the directive the sidebar's `z` (fix now) ships its thread with —
+;; changes right away, no directive picker, no flush round-trip
+(fn M.fix-directive []
+  (.. "Fix this thread's request right away: make the changes directly, "
+      "without discussing them first, and keep the change minimal."))
+
 ;; the launch prompt — short on purpose: {scope} says what to review,
 ;; the shim's own help carries the API, the agent's own output carries
 ;; the detail

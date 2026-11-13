@@ -11,6 +11,9 @@ M["execute-body"] = "execute"
 M["execute-instructions"] = function()
   return ("Threads where I wrote `" .. M["execute-body"] .. "` after your last reply in them are a go-ahead: make the changes they ask for, even where the directive above says not to." .. "\n")
 end
+M["fix-directive"] = function()
+  return ("Fix this thread's request right away: make the changes directly, " .. "without discussing them first, and keep the change minimal.")
+end
 M["review-prompt"] = function(scope)
   return (scope .. " Post your findings with " .. shim_path .. " \226\128\148 run it with `help` first." .. " Keep each comment to one or two sentences; put the detailed reasoning in your own output here." .. " Don't switch branches while reviewing.")
 end

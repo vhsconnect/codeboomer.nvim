@@ -16,7 +16,12 @@
 (local picker (require :codeboomer.picker))
 (local reviewer (require :codeboomer.reviewer))
 
-(local state {:pane nil :last-input nil})
+;; a global, not module state: survives hot-reload (which kills
+;; module-locals) and is readable without require. the or keeps a
+;; reload from clobbering the surviving record
+(global codeboomer (or codeboomer {}))
+
+(local state {:last-input nil})
 
 (local M {})
 
@@ -29,7 +34,7 @@
   (vim.tbl_extend :force (tmux.last-lines) (channel.last-lines)))
 
 (macro with-pan [body]
-  `(if state.pane
+  `(if codeboomer.pane
        ,body
        (choose-pane (all-panes) (fn [] ,body))))
 
@@ -70,9 +75,9 @@
 (fn send-keys-to-selected-pane [text]
   ;; the pane record knows its driver — terminal buffers write
   ;; straight to the channel, tmux panes shell out as before
-  (case (?. state.pane :driver)
-    :channel (channel.send state.pane text)
-    _ (tmux.send state.pane text)))
+  (case (?. codeboomer.pane :driver)
+    :channel (channel.send codeboomer.pane text)
+    _ (tmux.send codeboomer.pane text)))
 
 (local last-line-max-length 80)
 
@@ -92,7 +97,7 @@
 (fn choose-pane [panes ?then]
   (let [last-lines (all-last-lines)
         on-pick (fn [pane]
-                  (set state.pane pane)
+                  (set codeboomer.pane pane)
                   (schedule-notify (string.format "codeboomer: pane %s (%s:%s.%s) selected"
                                                   pane.pane-id pane.session-name
                                                   pane.window-index
@@ -207,11 +212,11 @@
 ;; tmux's to manage
 (set M.TogglePane
      (fn []
-       (if (not state.pane)
+       (if (not codeboomer.pane)
            (schedule-notify "codeboomer: no pane selected — pick one with SetPane first"
                             vim.log.levels.WARN)
-           (case state.pane.driver
-             :channel (let [(res err) (channel.toggle state.pane)]
+           (case codeboomer.pane.driver
+             :channel (let [(res err) (channel.toggle codeboomer.pane)]
                         (if res
                             (schedule-notify (if (= :hidden res)
                                                  "codeboomer: terminal collapsed — the process keeps running"
@@ -247,7 +252,7 @@
         (pane err) (channel.spawn cwd entry.label entry.argv)]
     (if pane
         (do
-          (set state.pane pane)
+          (set codeboomer.pane pane)
           (schedule-notify (string.format "codeboomer: %s started in terminal buffer %s — it is the pane now"
                                           entry.label pane.pane-id)
                            vim.log.levels.INFO))
@@ -275,7 +280,7 @@
 (set M.LaunchReviewer
      (fn []
        (reviewer.launch (fn [pane]
-                          (set state.pane pane)))))
+                          (set codeboomer.pane pane)))))
 
 (set M.SendPrompt
      (fn [opts]
@@ -377,41 +382,67 @@
 
 ;; ship every unsent user message of the branch's session to the pane,
 ;; wrapped in the directive, then mark them sent. One message per
-;; LOGICAL THREAD: the message already carries the whole conversation
-;; (both halves of the pair), so several unsent comments of one
-;; thread (a back-and-forth) would otherwise ship N near-identical
-;; copies
+;; one outbox batch → the selected pane: one message per LOGICAL
+;; thread — the whole conversation both halves carry, so several
+;; unsent comments of one thread (a back-and-forth) don't ship N
+;; near-identical copies — then the reply instructions and the
+;; directive, plus the go-ahead rider when any shipped comment says
+;; `execute`. Every shipped comment is stamped :sent; true when the
+;; batch went out
+(fn send-batch [pending directive-text]
+  (let [seen {}
+        threads []]
+    (each [_ a (ipairs pending)]
+      (when (not (. seen (or a.thread.id 0)))
+        (tset seen (or a.thread.id 0) true)
+        (table.insert threads a.thread)))
+    (let [messages (icollect [_ t (ipairs threads)]
+                     (thread-message t))
+          annotations (concat-list-with-format messages "==Section Start=="
+                                               "====" "==Section End==")
+          execute? (accumulate [hit false _ a (ipairs pending) &until hit]
+                     (= a.comment.body agent.execute-body))]
+      (send-keys-to-selected-pane (.. annotations (agent.reply-instructions)
+                                      directive-text "\n"
+                                      (if execute?
+                                          (agent.execute-instructions)
+                                          "")))
+      (review.mark-annotations :sent
+                               (icollect [_ a (ipairs pending)]
+                                 a.comment.id))))
+  true)
+
 (fn flush-pending [directive-text]
   (let [pending (review.pending-for-flush (sidebar.session-id))]
     (if (= 0 (length pending))
         (schedule-notify "codeboomer: nothing to flush — no unsent messages"
                          vim.log.levels.WARN)
-        (let [seen {}
-              threads []]
-          (each [_ a (ipairs pending)]
-            (when (not (. seen (or a.thread.id 0)))
-              (tset seen (or a.thread.id 0) true)
-              (table.insert threads a.thread)))
-          (let [messages (icollect [_ t (ipairs threads)]
-                           (thread-message t))
-                annotations (concat-list-with-format messages
-                                                     "==Section Start==" "===="
-                                                     "==Section End==")
-                execute? (accumulate [hit false _ a (ipairs pending) &until hit]
-                           (= a.comment.body agent.execute-body))]
-            (send-keys-to-selected-pane (.. annotations
-                                            (agent.reply-instructions)
-                                            directive-text "\n"
-                                            (if execute?
-                                                (agent.execute-instructions)
-                                                "")))
-            (review.mark-annotations :sent
-                                     (icollect [_ a (ipairs pending)]
-                                       a.comment.id)))))))
+        (send-batch pending directive-text))))
 
 (set M.FlushWithDirective
      (fn []
        (with-pan (picker.choose "Pick a Directive> " (directives.list)
                                 #$1.label #(flush-pending $1.text)))))
+
+;; the sidebar's z (fix now): ship ONE thread right away — its unsent
+;; comments (a queued go-ahead included) ride with the fix directive,
+;; no FlushWithDirective round-trip. True when something went out
+(set M.FixThread (fn [thread-id]
+                   (with-pan (let [pending (icollect [_ a (ipairs (review.pending-for-flush (sidebar.session-id)))]
+                                             (when (= (or a.thread.id 0)
+                                                      (or thread-id 0))
+                                               a))]
+                               (if (= 0 (length pending))
+                                   (schedule-notify (string.format "codeboomer: thread #%d has nothing unsent"
+                                                                   (or thread-id
+                                                                       0))
+                                                    vim.log.levels.WARN)
+                                   (do
+                                     (send-batch pending (agent.fix-directive))
+                                     (schedule-notify (string.format "codeboomer: thread #%d sent with the fix directive"
+                                                                     (or thread-id
+                                                                         0))
+                                                      vim.log.levels.INFO)
+                                     true))))))
 
 M

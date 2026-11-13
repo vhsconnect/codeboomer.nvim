@@ -94,6 +94,17 @@ All commands are also available as `:Codeboomer <Name>` (e.g. `:Codeboomer Revie
 
 GLM 5.2
 
+## Hacking on codeboomer
+
+The plugin is written in Fennel (`fnl/`) and compiled to the checked-in `lua/` with [nfnl](https://github.com/Olical/nfnl) — treat `lua/` as build output, never edit it by hand. `nix develop` drops you into a shell with babashka, fnlfmt, busted and Neovim wired up (falls back to `nix run` for the tools if you skip it):
+
+- `bb build` — format every Fennel source with fnlfmt, then compile `fnl/` to `lua/`
+- `bb test` — run the busted suite (`bb test --filter pattern` to narrow)
+- `./test-codeboomer` — scratch Neovim with the plugin loaded; extra args pass through to nvim
+- `dev/reload.fnl` — Conjure hot-reload loop: eval the buffer once, then re-eval `(reload)` to pick up edits without restarting
+
+Specs are Fennel too, in `test/fnl/` (helpers in `cb_helpers.fnl`); `bb test` compiles them alongside the plugin first. For fennel-ls, `flsproject.fnl` already sets the fennel/macro paths and test globals.
+
 ## License
 
 MIT

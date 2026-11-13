@@ -12,7 +12,8 @@ local tmux = require("codeboomer.tmux")
 local channel = require("codeboomer.channel")
 local picker = require("codeboomer.picker")
 local reviewer = require("codeboomer.reviewer")
-local state = {pane = nil, ["last-input"] = nil}
+codeboomer = (codeboomer or {})
+local state = {["last-input"] = nil}
 local M = {}
 local function all_panes()
   return vim.list_extend(tmux["list-panes"](), channel["list-panes"]())
@@ -64,7 +65,7 @@ end
 local function send_keys_to_selected_pane(text)
   local case_8_
   do
-    local t_9_ = state.pane
+    local t_9_ = codeboomer.pane
     if (nil ~= t_9_) then
       t_9_ = t_9_.driver
     else
@@ -72,10 +73,10 @@ local function send_keys_to_selected_pane(text)
     case_8_ = t_9_
   end
   if (case_8_ == "channel") then
-    return channel.send(state.pane, text)
+    return channel.send(codeboomer.pane, text)
   else
     local _ = case_8_
-    return tmux.send(state.pane, text)
+    return tmux.send(codeboomer.pane, text)
   end
 end
 local last_line_max_length = 80
@@ -99,7 +100,7 @@ local function choose_pane(panes, _3fthen)
   local last_lines = all_last_lines()
   local on_pick
   local function _14_(pane)
-    state.pane = pane
+    codeboomer.pane = pane
     schedule_notify(string.format("codeboomer: pane %s (%s:%s.%s) selected", pane["pane-id"], pane["session-name"], pane["window-index"], pane["pane-index"]), vim.log.levels.INFO)
     if _3fthen then
       return _3fthen()
@@ -222,12 +223,12 @@ local function _32_()
 end
 M.SetPane = _32_
 local function _33_()
-  if not state.pane then
+  if not codeboomer.pane then
     return schedule_notify("codeboomer: no pane selected \226\128\148 pick one with SetPane first", vim.log.levels.WARN)
   else
-    local case_34_ = state.pane.driver
+    local case_34_ = codeboomer.pane.driver
     if (case_34_ == "channel") then
-      local res, err = channel.toggle(state.pane)
+      local res, err = channel.toggle(codeboomer.pane)
       if res then
         local _35_
         if ("hidden" == res) then
@@ -265,7 +266,7 @@ local function launch_process(entry)
   local cwd = (git["work-root"]() or vim.fn.getcwd())
   local pane, err = channel.spawn(cwd, entry.label, entry.argv)
   if pane then
-    state.pane = pane
+    codeboomer.pane = pane
     return schedule_notify(string.format("codeboomer: %s started in terminal buffer %s \226\128\148 it is the pane now", entry.label, pane["pane-id"]), vim.log.levels.INFO)
   else
     return schedule_notify(("codeboomer: LaunchProcess failed: " .. (err or "unknown error")), vim.log.levels.ERROR)
@@ -307,14 +308,14 @@ end
 M.LaunchProcess = _45_
 local function _53_()
   local function _54_(pane)
-    state.pane = pane
+    codeboomer.pane = pane
     return nil
   end
   return reviewer.launch(_54_)
 end
 M.LaunchReviewer = _53_
 local function _55_(opts)
-  if state.pane then
+  if codeboomer.pane then
     local context = get_visual_lines(opts)
     local function _56_(lines)
       local text = concat_list(lines)
@@ -346,7 +347,7 @@ end
 M.SendPrompt = _55_
 local function _62_(opts)
   if state["last-input"] then
-    if state.pane then
+    if codeboomer.pane then
       local context = get_visual_lines(opts)
       return send_keys_to_selected_pane(compose_message(context, state["last-input"]))
     else
@@ -362,7 +363,7 @@ local function _62_(opts)
 end
 M.SendLastPrompt = _62_
 local function _66_(opts)
-  if state.pane then
+  if codeboomer.pane then
     local context = get_visual_lines(opts)
     if context then
       return send_keys_to_selected_pane(context.lines)
@@ -410,7 +411,7 @@ local function _71_(opts)
 end
 M.AskOneOff = _71_
 local function annotate_flow(opts)
-  if state.pane then
+  if codeboomer.pane then
     local context = get_visual_lines(opts)
     local file_path
     if not context then
@@ -495,11 +496,8 @@ local function _95_(opts)
   return annotate_flow(opts)
 end
 M.Annotate = _95_
-local function flush_pending(directive_text)
-  local pending = review["pending-for-flush"](sidebar["session-id"]())
-  if (0 == #pending) then
-    return schedule_notify("codeboomer: nothing to flush \226\128\148 no unsent messages", vim.log.levels.WARN)
-  else
+local function send_batch(pending, directive_text)
+  do
     local seen = {}
     local threads = {}
     for _, a in ipairs(pending) do
@@ -553,11 +551,20 @@ local function flush_pending(directive_text)
       end
       return tbl_26_
     end
-    return review["mark-annotations"]("sent", _100_())
+    review["mark-annotations"]("sent", _100_())
+  end
+  return true
+end
+local function flush_pending(directive_text)
+  local pending = review["pending-for-flush"](sidebar["session-id"]())
+  if (0 == #pending) then
+    return schedule_notify("codeboomer: nothing to flush \226\128\148 no unsent messages", vim.log.levels.WARN)
+  else
+    return send_batch(pending, directive_text)
   end
 end
 local function _103_()
-  if state.pane then
+  if codeboomer.pane then
     local function _104_(_241)
       return _241.label
     end
@@ -579,4 +586,65 @@ local function _103_()
   end
 end
 M.FlushWithDirective = _103_
+local function _110_(thread_id)
+  if codeboomer.pane then
+    local pending
+    do
+      local tbl_26_ = {}
+      local i_27_ = 0
+      for _, a in ipairs(review["pending-for-flush"](sidebar["session-id"]())) do
+        local val_28_
+        if ((a.thread.id or 0) == (thread_id or 0)) then
+          val_28_ = a
+        else
+          val_28_ = nil
+        end
+        if (nil ~= val_28_) then
+          i_27_ = (i_27_ + 1)
+          tbl_26_[i_27_] = val_28_
+        else
+        end
+      end
+      pending = tbl_26_
+    end
+    if (0 == #pending) then
+      return schedule_notify(string.format("codeboomer: thread #%d has nothing unsent", (thread_id or 0)), vim.log.levels.WARN)
+    else
+      send_batch(pending, agent["fix-directive"]())
+      schedule_notify(string.format("codeboomer: thread #%d sent with the fix directive", (thread_id or 0)), vim.log.levels.INFO)
+      return true
+    end
+  else
+    local function _114_()
+      local pending
+      do
+        local tbl_26_ = {}
+        local i_27_ = 0
+        for _, a in ipairs(review["pending-for-flush"](sidebar["session-id"]())) do
+          local val_28_
+          if ((a.thread.id or 0) == (thread_id or 0)) then
+            val_28_ = a
+          else
+            val_28_ = nil
+          end
+          if (nil ~= val_28_) then
+            i_27_ = (i_27_ + 1)
+            tbl_26_[i_27_] = val_28_
+          else
+          end
+        end
+        pending = tbl_26_
+      end
+      if (0 == #pending) then
+        return schedule_notify(string.format("codeboomer: thread #%d has nothing unsent", (thread_id or 0)), vim.log.levels.WARN)
+      else
+        send_batch(pending, agent["fix-directive"]())
+        schedule_notify(string.format("codeboomer: thread #%d sent with the fix directive", (thread_id or 0)), vim.log.levels.INFO)
+        return true
+      end
+    end
+    return choose_pane(all_panes(), _114_)
+  end
+end
+M.FixThread = _110_
 return M

@@ -16,8 +16,9 @@
 ;;      trailing (reload) runs in the same chunk as the definitions;
 ;;      from then on re-evaluating just that (reload) form is enough
 ;;
-;; After a reload the chosen tmux pane is forgotten (re-pick with
-;; <leader>cp), and an open comments pane should be closed first: the
+;; The tethered pane survives the reload — it lives in the codeboomer
+;; global, not module state. An open comments pane should still be
+;; closed first: the
 ;; fresh sidebar module starts with no window reference and would open
 ;; a duplicate.
 

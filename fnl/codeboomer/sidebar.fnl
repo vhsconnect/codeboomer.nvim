@@ -15,11 +15,11 @@
 (local flash-ns (vim.api.nvim_create_namespace :codeboomer-review-flash))
 (local flash-ms 2000)
 (local pane-width 40)
-(local pane-keys-footer
-       [(.. "── keys " (string.rep "─" (- pane-width 8)))
-        "r reply · a agent · d delete"
-        "p promote · e edit · f refresh"
-        "q resolve · n/N thread · z execute"])
+(local pane-keys-footer [(.. "── keys " (string.rep "─" (- pane-width 8)))
+                         "r reply · a agent · d delete"
+                         "p promote · e edit · f refresh"
+                         "q resolve · n/N thread"
+                         "x mark for exec · z exec"])
 
 (local rest-ms 100)
 (local db-refresh-ms 5000)
@@ -278,12 +278,25 @@
                                  :on-submit submit})))]
     (with-agent-half compose)))
 
-;; queue the agent's go-ahead for the next flush
-(fn pane-execute []
+;; mark for exec (x): queue the agent's go-ahead for the next
+;; flush — it rides as the `execute` rider
+(fn pane-mark-execute []
   (with-agent-half (fn [_ target]
                      (when (review.user-reply (or target.id 0)
                                               agent.execute-body)
                        (refresh-pane)))))
+
+;; exec (z): queue the go-ahead, then ship just this thread with
+;; the fix directive right away — no directive picker, no flush wait.
+;; init.fnl owns the pane sends (and loads this module), so FixThread
+;; is reached through a lazy require here
+(fn pane-fix-now []
+  (with-agent-half (fn [t target]
+                     (when (review.user-reply (or target.id 0)
+                                              agent.execute-body)
+                       (let [fix (. (require :codeboomer.init) :FixThread)]
+                         (fix (or t.id 0))
+                         (refresh-pane))))))
 
 (fn virgin-body [t]
   (let [cs (review.conversation-comments (or t.id 0))]
@@ -439,9 +452,12 @@
     (vim.keymap.set :n :a pane-agent-reply
                     {:buffer buf
                      :desc "codeboomer: reply to the agent on this thread"})
-    (vim.keymap.set :n :z pane-execute
+    (vim.keymap.set :n :x pane-mark-execute
                     {:buffer buf
-                     :desc "codeboomer: tell the agent to execute on this thread"})
+                     :desc "codeboomer: mark this thread for exec"})
+    (vim.keymap.set :n :z pane-fix-now
+                    {:buffer buf
+                     :desc "codeboomer: exec this thread right away"})
     (vim.keymap.set :n :p pane-promote
                     {:buffer buf
                      :desc "codeboomer: promote this thread to the PR review"})
