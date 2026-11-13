@@ -22,6 +22,10 @@
                    pushback-clause)}
         {:label "Review - change"
          :text (.. "Make the changes my comments ask for directly, without discussing them first, "
+                   pushback-clause)}
+        {:label "Review - change + commit"
+         :text (.. "Make the changes my comments ask for directly, without discussing them first, "
+                   "and commit each change separately, "
                    pushback-clause)}])
 
 (fn M.defaults []
