@@ -612,6 +612,17 @@
     (when (not= sid loaded-session-id)
       (M.reload-threads))))
 
+;; the sqlite file stays closed until the plugin is actually used:
+;; the VimEnter/BufEnter/cursor probes below do nothing until the
+;; first :Codeboomer command (or agent post) activates the sidebar —
+;; a passive session never opens the database
+(var activated false)
+
+(set M.activate (fn []
+                  (when (not activated)
+                    (set activated true)
+                    (maybe-reload-session))))
+
 (fn M.reload-threads [?prefer]
   (let [sid (M.session-id)
         before (map-sig)]
@@ -634,15 +645,17 @@
   (vim.api.nvim_create_autocmd :VimEnter
                                {:group augroup-name
                                 :callback (fn []
-                                            (maybe-reload-session)
-                                            (open-on-session))})
+                                            (when activated
+                                              (maybe-reload-session)
+                                              (open-on-session)))})
   (vim.api.nvim_create_autocmd :BufEnter
                                {:group augroup-name
                                 :callback (fn [ev]
-                                            (maybe-reload-session)
-                                            (M.enter-file ev.buf)
-                                            (schedule-check)
-                                            (schedule-db-refresh))})
+                                            (when activated
+                                              (maybe-reload-session)
+                                              (M.enter-file ev.buf)
+                                              (schedule-check)
+                                              (schedule-db-refresh)))})
   (vim.api.nvim_create_autocmd [:WinEnter
                                 :TabEnter
                                 :CursorMoved
@@ -650,8 +663,9 @@
                                 :FocusGained]
                                {:group augroup-name
                                 :callback (fn []
-                                            (schedule-check)
-                                            (schedule-db-refresh))})
+                                            (when activated
+                                              (schedule-check)
+                                              (schedule-db-refresh)))})
   (vim.api.nvim_create_autocmd :WinClosed
                                {:group augroup-name
                                 :callback (fn [ev]
@@ -665,7 +679,9 @@
                                           :CodeboomerSessionReset
                                           :CodeboomerImported
                                           :CodeboomerAgentPosted]
-                                :callback #(M.reload-threads)}))
+                                :callback (fn []
+                                            (M.activate)
+                                            (M.reload-threads))}))
 
 (set M.open (fn []
               ;; an explicit open outranks a dismissal — opening a review

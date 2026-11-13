@@ -210,8 +210,11 @@ esac
                                                                      true))
                                                     l))]
                                      (opts.actions.default [(or picked
-                                                                (. lines 1))])))})))
-            pj-root (os.getenv :SQLITE_LUA_PATH) M.repo))
+                                                                (. lines 1))])))}))
+              ;; production gates the sidebar probes behind first use;
+              ;; specs exercise the active lifecycle, so start activated
+              (: (require :codeboomer.sidebar) :activate)) pj-root
+            (os.getenv :SQLITE_LUA_PATH) M.repo))
 
 (fn M.fzf-pick [prompt needle]
   (exec-lua (fn [prompt needle]

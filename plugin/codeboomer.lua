@@ -79,6 +79,9 @@ vim.api.nvim_create_user_command("Codeboomer", function(opts)
         vim.notify("codeboomer: available: " .. table.concat(vim.tbl_keys(subcommands), " "), vim.log.levels.INFO)
         return
     end
+    -- the first :Codeboomer command wakes the sidebar (and with it
+    -- the sqlite database); passive editing never opens the db
+    require("codeboomer.sidebar").activate()
     run(opts)
 end, {
     nargs = "*",

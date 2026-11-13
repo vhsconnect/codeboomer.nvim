@@ -906,6 +906,16 @@ local function maybe_reload_session()
     return nil
   end
 end
+local activated = false
+local function _141_()
+  if not activated then
+    activated = true
+    return maybe_reload_session()
+  else
+    return nil
+  end
+end
+M.activate = _141_
 M["reload-threads"] = function(_3fprefer)
   local sid = M["session-id"]()
   local before = map_sig()
@@ -935,24 +945,36 @@ M["reload-threads"] = function(_3fprefer)
 end
 local function attach_autocmds()
   vim.api.nvim_create_augroup(augroup_name, {clear = true})
-  local function _143_()
-    maybe_reload_session()
-    return open_on_session()
-  end
-  vim.api.nvim_create_autocmd("VimEnter", {group = augroup_name, callback = _143_})
-  local function _144_(ev)
-    maybe_reload_session()
-    M["enter-file"](ev.buf)
-    schedule_check()
-    return schedule_db_refresh()
-  end
-  vim.api.nvim_create_autocmd("BufEnter", {group = augroup_name, callback = _144_})
   local function _145_()
-    schedule_check()
-    return schedule_db_refresh()
+    if activated then
+      maybe_reload_session()
+      return open_on_session()
+    else
+      return nil
+    end
   end
-  vim.api.nvim_create_autocmd({"WinEnter", "TabEnter", "CursorMoved", "CursorMovedI", "FocusGained"}, {group = augroup_name, callback = _145_})
-  local function _146_(ev)
+  vim.api.nvim_create_autocmd("VimEnter", {group = augroup_name, callback = _145_})
+  local function _147_(ev)
+    if activated then
+      maybe_reload_session()
+      M["enter-file"](ev.buf)
+      schedule_check()
+      return schedule_db_refresh()
+    else
+      return nil
+    end
+  end
+  vim.api.nvim_create_autocmd("BufEnter", {group = augroup_name, callback = _147_})
+  local function _149_()
+    if activated then
+      schedule_check()
+      return schedule_db_refresh()
+    else
+      return nil
+    end
+  end
+  vim.api.nvim_create_autocmd({"WinEnter", "TabEnter", "CursorMoved", "CursorMovedI", "FocusGained"}, {group = augroup_name, callback = _149_})
+  local function _151_(ev)
     if (pane_win == tonumber(ev.match)) then
       pane_win = nil
       rendered_sig = nil
@@ -961,20 +983,21 @@ local function attach_autocmds()
       return nil
     end
   end
-  vim.api.nvim_create_autocmd("WinClosed", {group = augroup_name, callback = _146_})
-  local function _148_()
+  vim.api.nvim_create_autocmd("WinClosed", {group = augroup_name, callback = _151_})
+  local function _153_()
+    M.activate()
     return M["reload-threads"]()
   end
-  return vim.api.nvim_create_autocmd("User", {group = augroup_name, pattern = {"CodeboomerAnnotated", "CodeboomerSessionReset", "CodeboomerImported", "CodeboomerAgentPosted"}, callback = _148_})
+  return vim.api.nvim_create_autocmd("User", {group = augroup_name, pattern = {"CodeboomerAnnotated", "CodeboomerSessionReset", "CodeboomerImported", "CodeboomerAgentPosted"}, callback = _153_})
 end
-local function _149_()
+local function _154_()
   dismissed = false
   M["reload-threads"]()
   open_on_session()
   return check_now()
 end
-M.open = _149_
-local function _150_()
+M.open = _154_
+local function _155_()
   if pane_valid_3f() then
     dismissed = true
     hide_pane()
@@ -989,6 +1012,6 @@ local function _150_()
     end
   end
 end
-M.toggle = _150_
+M.toggle = _155_
 attach_autocmds()
 return M
