@@ -1,2 +1,2 @@
-- check out ./prompts/keep-readme-current.md
+- Do not edit readme but prompt the user to update it
 - prefer let bindings over inlining for bigger function definitions

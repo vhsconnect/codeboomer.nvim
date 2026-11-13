@@ -78,7 +78,7 @@ require("codeboomer").setup({
 })
 ```
 
-Set any binding to `false` to disable it. `prompting.directives` customizes the flush directives (built-ins: converse only, converse + change, change).
+Set any binding to `false` to disable it. `prompting.directives` customizes the flush directives (built-ins: converse only, converse + change, change, change + commit).
 
 ## Usage
 
