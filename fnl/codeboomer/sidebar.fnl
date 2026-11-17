@@ -453,8 +453,7 @@
                     {:buffer buf
                      :desc "codeboomer: reply to the agent on this thread"})
     (vim.keymap.set :n :x pane-mark-execute
-                    {:buffer buf
-                     :desc "codeboomer: mark this thread for exec"})
+                    {:buffer buf :desc "codeboomer: mark this thread for exec"})
     (vim.keymap.set :n :z pane-fix-now
                     {:buffer buf
                      :desc "codeboomer: exec this thread right away"})

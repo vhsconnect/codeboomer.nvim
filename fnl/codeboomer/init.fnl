@@ -14,6 +14,7 @@
 (local channel (require :codeboomer.channel))
 (local picker (require :codeboomer.picker))
 (local reviewer (require :codeboomer.reviewer))
+(local launch-processes (require :codeboomer.launch-processes))
 
 ;; a global, not module state: survives hot-reload (which kills
 ;; module-locals) and is readable without require. the or keeps a
@@ -226,7 +227,7 @@
 
 (set M.LaunchProcess
      (fn []
-       (let [processes (or (?. config :config :prompting :launch_processes) [])]
+       (let [processes (or (launch-processes.list) [])]
          (if (= 0 (length processes))
              (schedule-notify "codeboomer: prompting.launch_processes not set — call setup() first"
                               vim.log.levels.ERROR)

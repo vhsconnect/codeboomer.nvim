@@ -3,6 +3,7 @@
 (local M {})
 (local directives (require :codeboomer.directives))
 (local review-agents (require :codeboomer.review-agents))
+(local launch-processes (require :codeboomer.launch-processes))
 
 (local keymaps
        {:send_prompt [[:n :x]
@@ -50,7 +51,7 @@
 
 (fn fold-by-label [defaults entries]
   ;; entries override the built-ins by label and append new labels —
-  ;; shared by the directive and review agent lists
+  ;; shared by the directive, review agent and launch process lists
   (let [effective (vim.list_slice defaults)
         index {}]
     (each [i entry (ipairs effective)]
@@ -69,13 +70,13 @@
 
 (fn M.setup [opts]
   (set M.config (vim.tbl_deep_extend :force (or M.config {}) (or opts {})))
-  ;; Fold the built-in prompting defaults into the config: directives
-  ;; and review agents override the built-ins by label / append new labels.
   (let [prompting (or M.config.prompting {})]
     (set prompting.directives
          (fold-by-label (directives.defaults) prompting.directives))
     (set prompting.review_agents
          (fold-by-label (review-agents.defaults) prompting.review_agents))
+    (set prompting.launch_processes
+         (fold-by-label (launch-processes.defaults) prompting.launch_processes))
     (set M.config.prompting prompting))
   (each [k [mode rhs desc] (pairs keymaps)]
     (let [lhs (?. M.config :keybindings k)]

@@ -25,8 +25,7 @@
                    pushback-clause)}
         {:label "Review - change + commit"
          :text (.. "Make the changes my comments ask for directly, without discussing them first, "
-                   "and commit each change separately, "
-                   pushback-clause)}])
+                   "and commit each change separately, " pushback-clause)}])
 
 (fn M.defaults []
   "Return a fresh copy of the built-in directives"

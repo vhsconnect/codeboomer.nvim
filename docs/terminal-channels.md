@@ -88,9 +88,10 @@ coexist.
 require("codeboomer").setup({
   spawning = { backend = "channel" },  -- default; "tmux" restores the old reviewer behavior
   prompting = {
+    -- `terminal` (&shell), `pi` and `claude` ship as built-ins; an entry
+    -- overrides a built-in by label, or appends a new label
     launch_processes = {
-      { label = "pi", argv = { "pi" } },
-      { label = "claude", argv = { "claude" } },
+      { label = "pi", argv = { "pi", "--model", "sonnet" } },
     },
   },
 })
