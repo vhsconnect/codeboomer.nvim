@@ -1,78 +1,36 @@
--- [nfnl] codeboomer/init.fnl
+-- [nfnl] fnl/codeboomer/init.fnl
 vim = vim
 local config = require("codeboomer.config")
 local input = require("codeboomer.input")
 local directives = require("codeboomer.directives")
-local one_offs = require("codeboomer.one-offs")
-local state = {pane = nil, ["query-parts"] = {}}
+local review = require("codeboomer.review")
+local sidebar = require("codeboomer.sidebar")
+local agent = require("codeboomer.agent")
+local git = require("codeboomer.git")
+local tmux = require("codeboomer.tmux")
+local channel = require("codeboomer.channel")
+local picker = require("codeboomer.picker")
+local reviewer = require("codeboomer.reviewer")
+local launch_processes = require("codeboomer.launch-processes")
+codeboomer = (codeboomer or {})
+local state = {["last-input"] = nil}
 local M = {}
-local function _1_(opts)
-  return config.setup(opts)
+local function all_panes()
+  return vim.list_extend(tmux["list-panes"](), channel["list-panes"]())
 end
-M.setup = _1_
+local function all_last_lines()
+  return vim.tbl_extend("force", tmux["last-lines"](), channel["last-lines"]())
+end
 local function schedule_notify(msg, level)
-  local function _2_()
+  local function _1_()
     return vim.notify(msg, level)
   end
-  return vim.schedule(_2_)
+  return vim.schedule(_1_)
 end
-local function shell(command)
-  local handle = io.popen(command)
-  local output = handle:read("*a")
-  handle:close()
-  return output
+local function _2_(opts)
+  return config.setup(opts)
 end
-local panes_command = "tmux list-panes -a -F '#{session_name}|#{session_id}|#{window_index}|#{pane_index}|#{pane_id}|#{pane_current_command}|#{pane_mode}|#{pane_active}|#{window_active}|#{pane_current_path}'"
-local last_lines_command = "tmux list-panes -a -F '#{pane_id}' | while read -r p; do printf '%s\\t' \"$p\"; tmux capture-pane -p -t \"$p\" -S -5 -E -1 2>/dev/null | sed -e '/^[[:space:]]*$/d' | tail -n 1; echo; done"
-local function one_off_result(stdout)
-  local ok, parsed = pcall(vim.json.decode, stdout)
-  if (ok and (type(parsed) == "table") and parsed.result) then
-    return parsed.result
-  else
-    return stdout
-  end
-end
-local function run_one_off(cmd, prompt)
-  local argv = vim.list_slice((cmd.argv or {}))
-  local timeout = (cmd.timeout or 60000)
-  local function _4_(obj)
-    local function _5_()
-      if (obj.code == 0) then
-        return vim.notify(one_off_result((obj.stdout or "")), vim.log.levels.INFO)
-      else
-        return vim.notify(("codeboomer: one-off failed (exit " .. obj.code .. ")\n" .. (obj.stderr or "")), vim.log.levels.ERROR)
-      end
-    end
-    return vim.schedule(_5_)
-  end
-  return vim.system(vim.list_extend(argv, {prompt}), {text = true, timeout = timeout}, _4_)
-end
-local function parse_panes(x)
-  local pattern = "([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)|([^|\n]*)"
-  local result = string.gmatch(x, pattern)
-  local tbl_26_ = {}
-  local i_27_ = 0
-  for session_name, session_id, window_index, pane_index, pane_id, pane_current_command, pane_mode, pane_active, window_active, pane_current_path in result do
-    local val_28_ = {["session-name"] = session_name, ["session-id"] = session_id, ["window-index"] = window_index, ["pane-index"] = pane_index, ["pane-id"] = pane_id, ["pane-current-command"] = pane_current_command, ["pane-mode"] = pane_mode, ["pane-active"] = pane_active, ["window-active"] = window_active, ["pane-current-path"] = pane_current_path}
-    if (nil ~= val_28_) then
-      i_27_ = (i_27_ + 1)
-      tbl_26_[i_27_] = val_28_
-    else
-    end
-  end
-  return tbl_26_
-end
-local function parse_last_lines(x)
-  local result = {}
-  for line in string.gmatch(x, "[^\n]+") do
-    local sep = string.find(line, "\t", 1, true)
-    if sep then
-      result[string.sub(line, 1, (sep - 1))] = vim.trim(string.sub(line, (sep + 1)))
-    else
-    end
-  end
-  return result
-end
+M.setup = _2_
 local function shorten_path(path)
   local home = os.getenv("HOME")
   if (home and (1 == string.find(path, home, 1, true))) then
@@ -81,25 +39,22 @@ local function shorten_path(path)
     return path
   end
 end
-local function paste_text(pane_id, text)
-  local handle = io.popen(("tmux load-buffer -b codeboomer-paste - && " .. "tmux paste-buffer -p -r -d -b codeboomer-paste -t " .. pane_id), "w")
-  handle:write(text)
-  return handle:close()
-end
-local function press_key_command(pane_id, key)
-  return string.format("tmux send-keys -t %s %s", pane_id, key)
-end
-local function cancel_mode_command(pane_id)
-  return string.format("tmux send-keys -t %s -X cancel", pane_id)
-end
 local function send_keys_to_selected_pane(text)
-  local pane_id = state.pane["pane-id"]
-  if ("" ~= state.pane["pane-mode"]) then
-    shell(cancel_mode_command(pane_id))
-  else
+  local case_4_
+  do
+    local t_5_ = codeboomer.pane
+    if (nil ~= t_5_) then
+      t_5_ = t_5_.driver
+    else
+    end
+    case_4_ = t_5_
   end
-  paste_text(pane_id, text)
-  return shell(press_key_command(pane_id, "Enter"))
+  if (case_4_ == "channel") then
+    return channel.send(codeboomer.pane, text)
+  else
+    local _ = case_4_
+    return tmux.send(codeboomer.pane, text)
+  end
 end
 local last_line_max_length = 80
 local function pane_display(p, last_line)
@@ -118,33 +73,11 @@ local function pane_display(p, last_line)
   end
   return string.format("%-6s %-11s %-18s %-30s %s%s", p["pane-id"], p["pane-current-command"], location, shorten_path(p["pane-current-path"]), mode, short_line)
 end
-local pane_preview_command = "tmux capture-pane -p -t {1} -S -40"
 local function choose_pane(panes, _3fthen)
-  local fzf = require("fzf-lua")
-  local last_lines = parse_last_lines(shell(last_lines_command))
-  local by_display = {}
-  local lines
-  do
-    local tbl_26_ = {}
-    local i_27_ = 0
-    for _, p in ipairs(panes) do
-      local val_28_
-      do
-        local display = pane_display(p, last_lines[p["pane-id"]])
-        by_display[display] = p
-        val_28_ = display
-      end
-      if (nil ~= val_28_) then
-        i_27_ = (i_27_ + 1)
-        tbl_26_[i_27_] = val_28_
-      else
-      end
-    end
-    lines = tbl_26_
-  end
-  local function _14_(selected)
-    local pane = by_display[selected[1]]
-    state.pane = pane
+  local last_lines = all_last_lines()
+  local on_pick
+  local function _10_(pane)
+    codeboomer.pane = pane
     schedule_notify(string.format("codeboomer: pane %s (%s:%s.%s) selected", pane["pane-id"], pane["session-name"], pane["window-index"], pane["pane-index"]), vim.log.levels.INFO)
     if _3fthen then
       return _3fthen()
@@ -152,62 +85,23 @@ local function choose_pane(panes, _3fthen)
       return nil
     end
   end
-  return fzf.fzf_exec(lines, {prompt = "Pick a Pane> ", preview = pane_preview_command, fzf_opts = {["--with-nth"] = "2.."}, winopts = {preview = {layout = "vertical", vertical = "down:45%:follow", wrap = false}}, actions = {default = _14_}})
+  on_pick = _10_
+  local function _12_(_241)
+    return pane_display(_241, last_lines[_241["pane-id"]])
+  end
+  return picker.choose("Pick a Pane> ", panes, _12_, on_pick, {preview = channel["preview-command"], fzf_opts = {["--with-nth"] = "2.."}, winopts = {preview = {layout = "vertical", vertical = "down:45%:follow", wrap = false}}})
 end
-local one_off_argv_max_length = 80
-local function one_off_display(c)
-  local argv = table.concat(c.argv, " ")
-  local short_argv
-  if (#argv > one_off_argv_max_length) then
-    short_argv = (string.sub(argv, 1, one_off_argv_max_length) .. "\226\128\166")
+local function _13_()
+  local sid = sidebar["session-id"]()
+  if not sid then
+    return schedule_notify("codeboomer: no session for this branch", vim.log.levels.WARN)
   else
-    short_argv = argv
+    review["delete-session"](sid)
+    vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerSessionReset"})
+    return schedule_notify(string.format("codeboomer: session #%d reset \226\128\148 the next annotation starts a fresh one", sid), vim.log.levels.INFO)
   end
-  local timeout
-  if c.timeout then
-    timeout = string.format(" (%ds)", math.floor((c.timeout / 1000)))
-  else
-    timeout = ""
-  end
-  return string.format("%-22s %s%s", c.label, short_argv, timeout)
 end
-local function choose_one_off(commands, _3fthen)
-  local fzf = require("fzf-lua")
-  local by_display = {}
-  local lines
-  do
-    local tbl_26_ = {}
-    local i_27_ = 0
-    for _, c in ipairs(commands) do
-      local val_28_
-      do
-        local display = one_off_display(c)
-        by_display[display] = c
-        val_28_ = display
-      end
-      if (nil ~= val_28_) then
-        i_27_ = (i_27_ + 1)
-        tbl_26_[i_27_] = val_28_
-      else
-      end
-    end
-    lines = tbl_26_
-  end
-  local function _19_(selected)
-    local cmd = by_display[selected[1]]
-    if _3fthen then
-      return _3fthen(cmd)
-    else
-      return nil
-    end
-  end
-  return fzf.fzf_exec(lines, {prompt = "Pick a One-off> ", actions = {default = _19_}})
-end
-local function clear_annotations()
-  state["query-parts"] = {}
-  return nil
-end
-M.RunOneOff = run_one_off
+M.ResetSession = _13_
 local function concat_list(lines)
   return table.concat(lines, "\n")
 end
@@ -215,17 +109,17 @@ local function concat_list_with_format(lines, beginning, sep, _end)
   return (beginning .. "\n" .. table.concat(lines, (sep .. "\n")) .. "\n" .. _end .. "\n")
 end
 local function get_visual_lines(opts)
-  local _22_
+  local _16_
   do
-    local t_21_ = opts
-    if (nil ~= t_21_) then
-      t_21_ = t_21_.range
+    local t_15_ = opts
+    if (nil ~= t_15_) then
+      t_15_ = t_15_.range
     else
     end
-    _22_ = t_21_
+    _16_ = t_15_
   end
-  if (_22_ == 2) then
-    local path = vim.api.nvim_buf_get_name(0)
+  if (_16_ == 2) then
+    local path = git["rel-path"]()
     local ok, region_lines = pcall(vim.fn.getregion, vim.fn.getpos("'<"), vim.fn.getpos("'>"), {type = vim.fn.visualmode()})
     local lines
     if ok then
@@ -242,45 +136,173 @@ local function compose_message(context, text)
   if context then
     return ("regarding " .. context.file .. " lines " .. context.line1 .. " to " .. context.line2 .. "\n" .. context.lines .. "\n" .. text .. "\n")
   else
-    local file = vim.api.nvim_buf_get_name(0)
+    local file = git["rel-path"]()
     return ("regarding " .. file .. "\n" .. text .. "\n")
   end
 end
-local function _27_()
-  return choose_pane(parse_panes(shell(panes_command)))
+local function comment_line(c)
+  local name
+  local _22_
+  do
+    local t_21_ = review["comment-author"](c)
+    if (nil ~= t_21_) then
+      t_21_ = t_21_.name
+    else
+    end
+    _22_ = t_21_
+  end
+  name = (_22_ or "unknown")
+  return string.format("[%s] %s: %s", (c.source or "user"), name, (c.body or ""))
 end
-M.SetPane = _27_
-local function _28_(opts)
-  if state.pane then
+local function thread_message(t)
+  local conversation
+  do
+    local tbl_26_ = {}
+    local i_27_ = 0
+    for _, c in ipairs(review["conversation-comments"]((t.id or 0))) do
+      local val_28_ = comment_line(c)
+      if (nil ~= val_28_) then
+        i_27_ = (i_27_ + 1)
+        tbl_26_[i_27_] = val_28_
+      else
+      end
+    end
+    conversation = tbl_26_
+  end
+  if ("file" == (t.type or "line")) then
+    return string.format("regarding %s (thread %s)\n%s", (t.file_path or "?"), (t.id or "?"), table.concat(conversation, "\n\n"))
+  else
+    return string.format("regarding %s lines %s to %s (thread %s)\n%s\n%s", (t.file_path or "?"), (t.line_start or "?"), (t.line_end or "?"), (t.id or "?"), (t.code_snapshot or ""), table.concat(conversation, "\n\n"))
+  end
+end
+local function _26_()
+  return choose_pane(all_panes())
+end
+M.SetPane = _26_
+local function _27_()
+  if not codeboomer.pane then
+    return schedule_notify("codeboomer: no pane selected \226\128\148 pick one with SetPane first", vim.log.levels.WARN)
+  else
+    local case_28_ = codeboomer.pane.driver
+    if (case_28_ == "channel") then
+      local res, err = channel.toggle(codeboomer.pane)
+      if res then
+        local _29_
+        if ("hidden" == res) then
+          _29_ = "codeboomer: terminal collapsed \226\128\148 the process keeps running"
+        else
+          _29_ = "codeboomer: terminal back on the side"
+        end
+        return schedule_notify(_29_, vim.log.levels.INFO)
+      else
+        return schedule_notify(("codeboomer: " .. (err or "toggle failed")), vim.log.levels.WARN)
+      end
+    else
+      local _ = case_28_
+      return schedule_notify("codeboomer: the selected pane is a tmux pane \226\128\148 its window is tmux's to toggle", vim.log.levels.WARN)
+    end
+  end
+end
+M.TogglePane = _27_
+local function _34_()
+  local res, err = sidebar.toggle()
+  if res then
+    local _35_
+    if ("hidden" == res) then
+      _35_ = "codeboomer: comments pane collapsed \226\128\148 ToggleSidebar brings it back"
+    else
+      _35_ = "codeboomer: comments pane back"
+    end
+    return schedule_notify(_35_, vim.log.levels.INFO)
+  else
+    return schedule_notify(("codeboomer: " .. (err or "toggle failed")), vim.log.levels.WARN)
+  end
+end
+M.ToggleSidebar = _34_
+local function launch_process(entry)
+  local cwd = (git["work-root"]() or vim.fn.getcwd())
+  local pane, err = channel.spawn(cwd, entry.label, entry.argv)
+  if pane then
+    codeboomer.pane = pane
+    return schedule_notify(string.format("codeboomer: %s started in terminal buffer %s \226\128\148 it is the pane now", entry.label, pane["pane-id"]), vim.log.levels.INFO)
+  else
+    return schedule_notify(("codeboomer: LaunchProcess failed: " .. (err or "unknown error")), vim.log.levels.ERROR)
+  end
+end
+local function process_display(p)
+  return string.format("%-16s %s", p.label, table.concat(p.argv, " "))
+end
+local function _39_()
+  local processes = (launch_processes.list() or {})
+  if (0 == #processes) then
+    return schedule_notify("codeboomer: prompting.launch_processes not set \226\128\148 call setup() first", vim.log.levels.ERROR)
+  else
+    if (1 == #processes) then
+      return launch_process(processes[1])
+    else
+      return picker.choose("Pick a Process> ", processes, process_display, launch_process)
+    end
+  end
+end
+M.LaunchProcess = _39_
+local function _42_()
+  local function _43_(pane)
+    codeboomer.pane = pane
+    return nil
+  end
+  return reviewer.launch(_43_)
+end
+M.LaunchReviewer = _42_
+local function _44_(opts)
+  if codeboomer.pane then
     local context = get_visual_lines(opts)
-    local function _29_(lines)
+    local function _45_(lines)
       local text = concat_list(lines)
       if (text ~= "") then
+        state["last-input"] = text
         return send_keys_to_selected_pane(compose_message(context, text))
       else
         return nil
       end
     end
-    return input.open({title = " SendPrompt> ", ["on-submit"] = _29_})
+    return input.open({title = " SendPrompt> ", ["on-submit"] = _45_})
   else
-    local function _31_()
+    local function _47_()
       local context = get_visual_lines(opts)
-      local function _32_(lines)
+      local function _48_(lines)
         local text = concat_list(lines)
         if (text ~= "") then
+          state["last-input"] = text
           return send_keys_to_selected_pane(compose_message(context, text))
         else
           return nil
         end
       end
-      return input.open({title = " SendPrompt> ", ["on-submit"] = _32_})
+      return input.open({title = " SendPrompt> ", ["on-submit"] = _48_})
     end
-    return choose_pane(parse_panes(shell(panes_command)), _31_)
+    return choose_pane(all_panes(), _47_)
   end
 end
-M.SendPrompt = _28_
-local function _35_(opts)
-  if state.pane then
+M.SendPrompt = _44_
+local function _51_(opts)
+  if state["last-input"] then
+    if codeboomer.pane then
+      local context = get_visual_lines(opts)
+      return send_keys_to_selected_pane(compose_message(context, state["last-input"]))
+    else
+      local function _52_()
+        local context = get_visual_lines(opts)
+        return send_keys_to_selected_pane(compose_message(context, state["last-input"]))
+      end
+      return choose_pane(all_panes(), _52_)
+    end
+  else
+    return schedule_notify("codeboomer: no prompt sent yet \226\128\148 nothing to resend", vim.log.levels.WARN)
+  end
+end
+M.SendLastPrompt = _51_
+local function _55_(opts)
+  if codeboomer.pane then
     local context = get_visual_lines(opts)
     if context then
       return send_keys_to_selected_pane(context.lines)
@@ -288,7 +310,7 @@ local function _35_(opts)
       return nil
     end
   else
-    local function _37_()
+    local function _57_()
       local context = get_visual_lines(opts)
       if context then
         return send_keys_to_selected_pane(context.lines)
@@ -296,121 +318,245 @@ local function _35_(opts)
         return nil
       end
     end
-    return choose_pane(parse_panes(shell(panes_command)), _37_)
+    return choose_pane(all_panes(), _57_)
   end
 end
-M.SendSelection = _35_
-local function _40_(opts)
-  local context = get_visual_lines(opts)
-  local commands = (one_offs.list() or {})
-  local ask
-  local function _41_(cmd)
-    local function _42_(lines)
-      local text = concat_list(lines)
-      if (text ~= "") then
-        return run_one_off(cmd, compose_message(context, text))
-      else
-        return nil
-      end
-    end
-    return input.open({title = string.format(" AskOneOff: %s (Enter to send)> ", cmd.label), ["submit-on-enter"] = true, ["on-submit"] = _42_})
-  end
-  ask = _41_
-  if (0 == #commands) then
-    return schedule_notify("codeboomer: prompting.one_off_commands not set \226\128\148 call setup() first", vim.log.levels.ERROR)
-  else
-    if (1 == #commands) then
-      return ask(commands[1])
-    else
-      return choose_one_off(commands, ask)
-    end
-  end
-end
-M.AskOneOff = _40_
-local function _46_(opts)
-  if state.pane then
+M.SendSelection = _55_
+local function annotate_flow(opts)
+  if codeboomer.pane then
     local context = get_visual_lines(opts)
-    local function _47_(lines)
-      local text = concat_list(lines)
-      if (text ~= "") then
-        return table.insert(state["query-parts"], compose_message(context, text))
-      else
-        return nil
-      end
+    local file_path
+    if not context then
+      file_path = git["rel-path"]()
+    else
+      file_path = nil
     end
-    return input.open({title = " Annotate> ", ["on-submit"] = _47_})
-  else
-    local function _49_()
-      local context = get_visual_lines(opts)
-      local function _50_(lines)
+    local repo_file_3f = (file_path and (file_path ~= "") and (file_path ~= vim.api.nvim_buf_get_name(0)))
+    if (not context and not repo_file_3f) then
+      return schedule_notify("codeboomer: annotate needs a selection or a repo file", vim.log.levels.ERROR)
+    else
+      local function _61_(lines)
         local text = concat_list(lines)
-        if (text ~= "") then
-          return table.insert(state["query-parts"], compose_message(context, text))
+        if (text == "") then
+          return schedule_notify("codeboomer: empty annotation ignored", vim.log.levels.WARN)
         else
-          return nil
+          local sid = review["ensure-session"]()
+          if not sid then
+            local _62_
+            if git["repo-root"]() then
+              _62_ = "codeboomer: annotate needs a checked-out branch \226\128\148 sessions are tied to branches, a detached HEAD has none"
+            else
+              _62_ = "codeboomer: annotate needs a repo file"
+            end
+            return schedule_notify(_62_, vim.log.levels.ERROR)
+          else
+            if context then
+              review["user-comment"](sid, context.file, context.line1, context.line2, context.lines, text)
+            else
+              review["file-comment"](sid, file_path, text)
+            end
+            return vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerAnnotated"})
+          end
         end
       end
-      return input.open({title = " Annotate> ", ["on-submit"] = _50_})
+      return input.open({title = " Annotate> ", ["on-submit"] = _61_})
     end
-    return choose_pane(parse_panes(shell(panes_command)), _49_)
+  else
+    local function _68_()
+      local context = get_visual_lines(opts)
+      local file_path
+      if not context then
+        file_path = git["rel-path"]()
+      else
+        file_path = nil
+      end
+      local repo_file_3f = (file_path and (file_path ~= "") and (file_path ~= vim.api.nvim_buf_get_name(0)))
+      if (not context and not repo_file_3f) then
+        return schedule_notify("codeboomer: annotate needs a selection or a repo file", vim.log.levels.ERROR)
+      else
+        local function _70_(lines)
+          local text = concat_list(lines)
+          if (text == "") then
+            return schedule_notify("codeboomer: empty annotation ignored", vim.log.levels.WARN)
+          else
+            local sid = review["ensure-session"]()
+            if not sid then
+              local _71_
+              if git["repo-root"]() then
+                _71_ = "codeboomer: annotate needs a checked-out branch \226\128\148 sessions are tied to branches, a detached HEAD has none"
+              else
+                _71_ = "codeboomer: annotate needs a repo file"
+              end
+              return schedule_notify(_71_, vim.log.levels.ERROR)
+            else
+              if context then
+                review["user-comment"](sid, context.file, context.line1, context.line2, context.lines, text)
+              else
+                review["file-comment"](sid, file_path, text)
+              end
+              return vim.api.nvim_exec_autocmds("User", {pattern = "CodeboomerAnnotated"})
+            end
+          end
+        end
+        return input.open({title = " Annotate> ", ["on-submit"] = _70_})
+      end
+    end
+    return choose_pane(all_panes(), _68_)
   end
 end
-M.Annotate = _46_
-local function _53_()
-  if state.pane then
-    local fzf = require("fzf-lua")
-    local all_directives = directives.list()
-    local lines
+local function _78_(opts)
+  return annotate_flow(opts)
+end
+M.Annotate = _78_
+local function send_batch(pending, directive_text)
+  do
+    local seen = {}
+    local threads = {}
+    for _, a in ipairs(pending) do
+      if not seen[(a.thread.id or 0)] then
+        seen[(a.thread.id or 0)] = true
+        table.insert(threads, a.thread)
+      else
+      end
+    end
+    local messages
     do
       local tbl_26_ = {}
       local i_27_ = 0
-      for _, d in ipairs(all_directives) do
-        local val_28_ = d.label
+      for _, t in ipairs(threads) do
+        local val_28_ = thread_message(t)
         if (nil ~= val_28_) then
           i_27_ = (i_27_ + 1)
           tbl_26_[i_27_] = val_28_
         else
         end
       end
-      lines = tbl_26_
+      messages = tbl_26_
     end
-    local function _55_(selected)
-      local selected_label = selected[1]
-      local directive_text = directives.get(selected_label)
-      local annotations = concat_list_with_format(state["query-parts"], "==Section Start==", "====", "==Section End==")
-      send_keys_to_selected_pane((annotations .. directive_text .. "\n"))
-      return clear_annotations()
+    local annotations = concat_list_with_format(messages, "==Section Start==", "====", "==Section End==")
+    local execute_3f
+    do
+      local hit = false
+      for _, a in ipairs(pending) do
+        if hit then break end
+        hit = (a.comment.body == agent["execute-body"])
+      end
+      execute_3f = hit
     end
-    return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _55_}})
+    local _81_
+    if execute_3f then
+      _81_ = agent["execute-instructions"]()
+    else
+      _81_ = ""
+    end
+    send_keys_to_selected_pane((annotations .. agent["reply-instructions"]() .. directive_text .. "\n" .. _81_))
+    local function _83_()
+      local tbl_26_ = {}
+      local i_27_ = 0
+      for _, a in ipairs(pending) do
+        local val_28_ = a.comment.id
+        if (nil ~= val_28_) then
+          i_27_ = (i_27_ + 1)
+          tbl_26_[i_27_] = val_28_
+        else
+        end
+      end
+      return tbl_26_
+    end
+    review["mark-annotations"]("sent", _83_())
+  end
+  return true
+end
+local function flush_pending(directive_text)
+  local pending = review["pending-for-flush"](sidebar["session-id"]())
+  if (0 == #pending) then
+    return schedule_notify("codeboomer: nothing to flush \226\128\148 no unsent messages", vim.log.levels.WARN)
   else
-    local function _56_()
-      local fzf = require("fzf-lua")
-      local all_directives = directives.list()
-      local lines
+    return send_batch(pending, directive_text)
+  end
+end
+local function _86_()
+  if codeboomer.pane then
+    local function _87_(_241)
+      return _241.label
+    end
+    local function _88_(_241)
+      return flush_pending(_241.text)
+    end
+    return picker.choose("Pick a Directive> ", directives.list(), _87_, _88_)
+  else
+    local function _89_()
+      local function _90_(_241)
+        return _241.label
+      end
+      local function _91_(_241)
+        return flush_pending(_241.text)
+      end
+      return picker.choose("Pick a Directive> ", directives.list(), _90_, _91_)
+    end
+    return choose_pane(all_panes(), _89_)
+  end
+end
+M.FlushWithDirective = _86_
+local function _93_(thread_id)
+  if codeboomer.pane then
+    local pending
+    do
+      local tbl_26_ = {}
+      local i_27_ = 0
+      for _, a in ipairs(review["pending-for-flush"](sidebar["session-id"]())) do
+        local val_28_
+        if ((a.thread.id or 0) == (thread_id or 0)) then
+          val_28_ = a
+        else
+          val_28_ = nil
+        end
+        if (nil ~= val_28_) then
+          i_27_ = (i_27_ + 1)
+          tbl_26_[i_27_] = val_28_
+        else
+        end
+      end
+      pending = tbl_26_
+    end
+    if (0 == #pending) then
+      return schedule_notify(string.format("codeboomer: thread #%d has nothing unsent", (thread_id or 0)), vim.log.levels.WARN)
+    else
+      send_batch(pending, agent["fix-directive"]())
+      schedule_notify(string.format("codeboomer: thread #%d sent with the fix directive", (thread_id or 0)), vim.log.levels.INFO)
+      return true
+    end
+  else
+    local function _97_()
+      local pending
       do
         local tbl_26_ = {}
         local i_27_ = 0
-        for _, d in ipairs(all_directives) do
-          local val_28_ = d.label
+        for _, a in ipairs(review["pending-for-flush"](sidebar["session-id"]())) do
+          local val_28_
+          if ((a.thread.id or 0) == (thread_id or 0)) then
+            val_28_ = a
+          else
+            val_28_ = nil
+          end
           if (nil ~= val_28_) then
             i_27_ = (i_27_ + 1)
             tbl_26_[i_27_] = val_28_
           else
           end
         end
-        lines = tbl_26_
+        pending = tbl_26_
       end
-      local function _58_(selected)
-        local selected_label = selected[1]
-        local directive_text = directives.get(selected_label)
-        local annotations = concat_list_with_format(state["query-parts"], "==Section Start==", "====", "==Section End==")
-        send_keys_to_selected_pane((annotations .. directive_text .. "\n"))
-        return clear_annotations()
+      if (0 == #pending) then
+        return schedule_notify(string.format("codeboomer: thread #%d has nothing unsent", (thread_id or 0)), vim.log.levels.WARN)
+      else
+        send_batch(pending, agent["fix-directive"]())
+        schedule_notify(string.format("codeboomer: thread #%d sent with the fix directive", (thread_id or 0)), vim.log.levels.INFO)
+        return true
       end
-      return fzf.fzf_exec(lines, {prompt = "Pick a Directive> ", actions = {default = _58_}})
     end
-    return choose_pane(parse_panes(shell(panes_command)), _56_)
+    return choose_pane(all_panes(), _97_)
   end
 end
-M.FlushWithDirective = _53_
+M.FixThread = _93_
 return M

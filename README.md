@@ -1,261 +1,126 @@
-# codeboomer.nvim
 
-A Neovim plugin for sending text and commands to tmux panes. Useful for sending text blocks to a repl or an AI agent along with some comments or instructions. 
+## What it does
 
-## Features
+- Send annotated code snippets to a seperate process or tmux pane. This can be an agent harnass, a repl or a file - anything you can run in terminal.
+- Annotate Multiple files and send them with a specific/custom directive to a different process when you're done.
+- Keep track of various annotations/comments/conversations in a sidepane view.
+- The sidepane tracks conversations/comments. You can jump through comments quickly, dimiss some when you're done
+- conversations are between you and the agent or you and the PR reviewer on github. You can promote a conversation with an agent and cherry pick what to send to github as PR comment. You can also chat about a PR comment with your agent before responding on github - or promoting a response to github.
+- You can start a code reviewing session by opening a github PR and load all its comments into the sidebar while you review it.
+- You can send prompts to modify the source code while your agent does work `Codeboomer SendPrompt`or at the very end by flushing all your directives at once `Codeboomer FlushWithDirective`. Any new conversations on existing threads, or new threads will be sent to the process/harnass in one big prompt but the responses land back in the threads.
 
-- Send text from Neovim to any tmux pane
-- Fuzzy-finder interface (via fzf-lua) to select target panes, showing each pane's last output line and working directory, with a live content preview
-- Visual mode support — send the selection as-is (`SendSelection`) or as context in a composed prompt (`SendPrompt`)
-- Annotation workflow — accumulate multiple code selections for review before sending
-- Bracketed-paste support for proper multi-line handling
-- **One-off queries (`AskOneOff`)** — spawn a single process for a quick task without maintaining a session or requiring a tmux pane; define any number of user-named one-off commands and pick one with fzf when there is more than one
+Note that conversations and threads are pinned to the original line number they annotated even after you make edits to the file - `Codeboomer Annotate` (available in visual mode to annotate a line or in normal mode to annotate the whole file.)
 
-## Installation
+### Tmux vs Neovim embedded terminal
+
+When you launch Codeboomer and want to start annotating code or sending prompts, You will be prompted through fzf-lua "recommended" or a vanilla selector to choose a pane - unless you have already Launched an embeeded terminal in your neovim session `Codeboomer LaunchProcess`. Tmux pane gives you better ergonomics with following stdout and copy paste primitives and all the tmux features you're used to. The in session terminal gives you a little more convenience perhaps for certain tasks - you'll probably want to set a better keybinding for exitting insert mode while in the terminal pane. For example 
+
+```lua
+vim.keymap.set("t", "<C-Space>", [[<C-\><C-n>]]) -- exit insert mode in terminal
+```
+
+The tmux way is recommended.
+
+
+### LaunchReviewer
+
+You can start reviewing code alongside a reviewer agent that you spawn. You get the option to review code either by choosing _a base commit_, _any uncommitted code_ or _a github PR_. Once that's selected. you get 
+
+- A quickfix pane with all the files that have changes
+- `gitsigns` diff makers if you have that plugin installed _Recommneded_
+- A terminal pane with a harnass of your choice with a customizable prompt to review your changes. (unless you've already selected a tmux pane) `Codeboomer SetPane`
+- The sidebar to be populated with you and your agents comments to start discussing issues.
+
+
+## How it works
+
+Codeboomer is designed to let you drive your ai harnass and your review workflow from within neovim. It does so in a variety of ways but in summary it allows for 2 way comunication with a different process - either through tmux panes or an embedded terminal. The proess/agent calls neovim back by calling the codeboomer shim through a neovim `--headless` command.. 
+
+
+## Requirements
+
+Neovim, [fzf-lua](https://github.com/ibhagwan/fzf-lua), [sqlite.lua](https://github.com/kkharji/sqlite.lua) (needs system `libsqlite3`), and [tmux](https://github.com/tmux/tmux) for tmux panes. PR features additionally need `gh` authenticated against a GitHub remote.
+
+
+## Installation and Configuration
 
 ```lua
 -- lazy.nvim
 {
   "vhsconnect/codeboomer.nvim",
-  dependencies = { "ibhagwan/fzf-lua" },
+  lazy = false, -- keeps the agent bridge and sidebar hooks live for
+                -- agent replies arriving from outside the editor
+  dependencies = { "ibhagwan/fzf-lua", "kkharji/sqlite.lua" },
   config = function()
-    require("codeboomer").setup({
-      -- Optional: customize keybindings (set to false to disable)
-      keybindings = {
-        pane = "<leader>cp",            -- pick a tmux pane
-        send_prompt = "<leader>cs",     -- send a prompt to the pane
-      },
-    })
+    require("codeboomer").setup({})
   end,
 }
 ```
 
-## Configuration
-
-### Keybindings
-
-The plugin sets up no default keybindings; configure them like this:
-
-| Mode | Binding | Description |
-|------|---------|-------------|
-| Normal + Visual | `<leader>cs` | `SendPrompt` — open the prompt; the selection is included as context when invoked visually |
-| Visual | `<leader>cr` | `SendSelection` — send the selection to the pane as-is, then press Enter |
-| Normal + Visual | `<leader>cc` | `AskOneOff` — run a one-off query; the answer is shown in a notification |
-| Normal | `<leader>cp` | `SetPane` — pick a tmux pane to send messages to |
-| Visual | `<leader>ca` | `Annotate` — add the selection (plus an optional note) to the query context |
-| Normal | `<leader>cd` | `FlushWithDirective` — flush accumulated annotations with a directive |
-
-Disable or customize any binding under `keybindings` in `setup()` (set to `false` to disable):
+`setup()` sets no default keybindings; configure your own:
 
 ```lua
 require("codeboomer").setup({
   keybindings = {
-    send_prompt = "<leader>cs",
-    send_selection = "<leader>cr",
-    ask_one_off = "<leader>cc",
-    flush_with_directive = "<leader>cd",
-    pane = "<leader>cp",
-    annotate = "<leader>ca",
+    send_prompt = "<leader>cs",         -- prompt (selection included in visual mode)
+    send_last_prompt = "<leader>cl",    -- resend last prompt
+    send_selection = "<leader>cr",      -- send selection as-is (visual)
+    annotate = "<leader>ca",            -- add selection to the session
+    flush_with_directive = "<leader>cd",-- send annotations with a directive
+    pane = "<leader>cp",                -- pick a target pane
+    launch_reviewer = "<leader>cA",     -- spawn a review agent
+    launch_process = "<leader>cT",      -- spawn a process pane
+    pane_toggle = "<leader>ct",         -- collapse/restore the pane split
+    sidebar_toggle = "<leader>cb",      -- collapse/restore the comments pane
+    reset_session = "<leader>cS",       -- delete this branch's session
+    review = "<leader>cR",              -- open a PR review
+    post_review = "<leader>cP",         -- push promoted threads to GitHub
+    pull_review = "<leader>cL",         -- refresh the PR's comments
   },
-})
-```
-
-### Prompting
-
-`<leader>cd` (`:Codeboomer FlushWithDirective`) picks a directive from a
-fzf-lua menu — by default the two built-ins, `Review - converse` and
-`Review - execute`. Pass your own list under `prompting.directives` in
-`setup()` to add to or override it:
-
-```lua
-require("codeboomer").setup({
   prompting = {
+    -- a label matching a built-in overrides it; new labels append
     directives = {
-      -- a label matching a built-in overrides it in place
-      { label = "Review - converse", text = "Reply point by point, then wait." },
-      -- new labels are appended after the built-ins
       { label = "Explain", text = "Explain the selected code. No changes." },
     },
-  },
-})
-```
-
-Each entry needs a `label` (shown in the fzf menu) and a `text` (the message
-sent along with any accumulated annotations). Omitting `prompting.directives`
-keeps the built-ins as-is.
-
-`prompting.one_off_commands` defines the one-off commands `<leader>cc`
-(`:Codeboomer AskOneOff`) can run: a list of entries, each with a `label`
-(shown in the fzf picker and the input title) and a static `argv` list. The
-composed prompt is appended to `argv` as the final argument when the command
-runs. Entries may also set `timeout` (milliseconds; 60000 by default). When
-unset, the list defaults to a single built-in entry:
-
-```lua
-require("codeboomer").setup({
-  prompting = {
-    one_off_commands = {
-      -- a label matching a built-in overrides it in place
-      { label = "claude-code (haiku)",
-        argv = { "claude-code", "--model", "haiku", "--output-format", "json",
-                 "--permission-mode", "acceptEdits", "-p" } },
-      -- new labels are appended after the built-ins
-      { label = "Deep",
-        argv = { "claude-code", "--model", "opus", "--output-format", "json", "-p" },
-        timeout = 300000 },
-      { label = "Local", argv = { "ollama", "run", "qwen2.5-coder" } },
+    review_agents = {
+      { label = "claude", argv = { "claude", "--dangerously-skip-permissions" } },
+      { label = "pi", argv = { "pi" } },
+    },
+    launch_processes = {
+      { label = "pi", argv = { "pi" } },
+      { label = "claude", argv = { "claude", "--dangerously-skip-permissions" } },
     },
   },
 })
 ```
 
-When more than one command is defined, `AskOneOff` opens an fzf picker
-(each entry shows its label, argv, and a non-default timeout) before the
-input UI; a single configured command runs directly without a picker.
+Set any binding to `false` to disable it. `prompting.directives` customizes the flush directives (built-ins: converse only, converse + change, change, change + commit).
 
-Point entries at whatever the machine at hand provides — a plain binary, a
-container wrapper, a nix flake invocation, … Output that is JSON with a
-`result` field is shown as just the result; anything else is displayed raw.
+## Usage
 
-## Commands
+**Sending** — pick a pane with `<leader>cp`, then send a prompt (`<leader>cs`), resend it (`<leader>cl`), or paste the selection as-is (`<leader>cr`).
 
-### `:Codeboomer SendPrompt`
+**Annotating** — annotate selections with `<leader>ca` as you read, then `<leader>cd` to pick a directive and send everything in one message. The agent answers each thread back into the comments pane; discuss with `a`, resolve with `q`. Sessions are tied to your current branch; `<leader>cS` starts over.
 
-Opens the input UI and sends the composed message to the selected pane.
+**Reviewing a PR** — check out the branch, run `<leader>cR` and pick the PR; its inline comments arrive as threads. Annotate as usual, promote keepers with `p`, and `<leader>cP` posts them as a pending review to submit on GitHub.
 
-- With a visual range, the selection is included as context (`regarding <file> lines X to Y`), followed by the typed text
-- Without a range, the current file name is sent as context (`regarding <file>`), followed by the typed text — use `SendSelection` for raw, unwrapped text
+All commands are also available as `:Codeboomer <Name>` (e.g. `:Codeboomer Review 42`).
 
-```
-:'<,'>Codeboomer SendPrompt
-```
+##### LLM assisted
 
-### `:Codeboomer SendSelection`
+GLM 5.2
+Opus 5.5
 
-Sends the visual selection to the selected pane **as-is** — no prompt, no context header. The lines are pasted with tmux bracketed paste and `Enter` is pressed.
+## Hacking on codeboomer
 
-- Requires a pane (picked first if none is selected)
-- Requires a visual range
+The plugin is written in Fennel (`fnl/`) and compiled to the checked-in `lua/` with [nfnl](https://github.com/Olical/nfnl) — treat `lua/` as build output, never edit it by hand. `nix develop` drops you into a shell with babashka, fnlfmt, busted and Neovim wired up (falls back to `nix run` for the tools if you skip it):
 
-```
-:'<,'>Codeboomer SendSelection
-```
+- `bb build` — format every Fennel source with fnlfmt, then compile `fnl/` to `lua/`
+- `bb test` — run the busted suite (`bb test --filter pattern` to narrow)
+- `./test-codeboomer` — scratch Neovim with the plugin loaded; extra args pass through to nvim
+- `dev/reload.fnl` — Conjure hot-reload loop: eval the buffer once, then re-eval `(reload)` to pick up edits without restarting
 
-### `:Codeboomer SetPane`
-
-Opens fzf-lua to select a target tmux pane. Each entry shows the running
-command, location, working directory, mode, and last output line; a live
-preview shows the pane's recent content.
-
-### `:Codeboomer AskOneOff`
-
-Runs a one-shot query — a single process, no session or pane needed. The
-answer is shown in a notification. Works with or without a visual selection
-(included as context when present; without one, the current file name is
-sent instead).
-
-- If more than one one-off command is configured (see
-  `prompting.one_off_commands`), an fzf picker — label plus argv per entry —
-  opens first; a single configured command runs directly
-- The input title shows the chosen command's label and submits on `<CR>` —
-  `<C-j>` (insert mode) or `o` (normal mode) for a newline
-- Runs asynchronously via `vim.system` (no shell interpretation, per-entry
-  `timeout` defaulting to 60 s); failures surface the exit code and stderr
-  in a notification
-
-### `:Codeboomer Annotate`
-
-Adds the current selection to an accumulated query context. Use this to annotate multiple code sections before sending a directive.
-
-- Requires a pane to be selected first via `:Codeboomer SetPane`
-- With a visual range, the selection is included as context (`regarding <file> lines X to Y`); without one, the current file name is sent instead
-- The selection is stored and will be included in the next `:Codeboomer FlushWithDirective` call
-
-```
-:'<,'>Codeboomer Annotate
-```
-
-### `:Codeboomer FlushWithDirective`
-
-> [!warn] **Tentative API** — This command is experimental and subject to change in future versions.
-
-Opens fzf to select a pre-defined directive, then sends it along with all previously accumulated annotations from `:Codeboomer Annotate`.
-
-- Requires a pane to be selected first via `:Codeboomer SetPane`
-- Select from a list of pre-defined directives (see Configuration below for customizing)
-- After sending, the annotation context is cleared
-
-```vim
-:Codeboomer FlushWithDirective
-```
-
-## How it works
-
-### Basic workflow
-
-1. Select a pane with `<leader>cp` or `:Codeboomer SetPane`
-2. Send a prompt with `<leader>cs` (`:Codeboomer SendPrompt`), or send the selection as-is with `<leader>cr` (`:Codeboomer SendSelection`)
-
-### Annotation workflow
-
-For more complex queries, you can build up context across multiple selections:
-
-1. Select a pane with `<leader>cp`
-2. Select code sections and run `<leader>ca` (or `:Codeboomer Annotate`) to add annotations to your query
-3. When ready, run `<leader>cd` (or `:Codeboomer FlushWithDirective`) to send your directive along with all accumulated annotations
-
-## Development
-
-This plugin is written in **Fennel** and compiled to Lua using **nfnl** (embedded directly in the repo under `lua/nfnl/`).
-
-### How the build works
-
-Edit `.fnl` files under `fnl/`; **nfnl** auto-compiles them to `.lua` under
-`lua/` on save. The `.lua` files are generated (marked by an `[nfnl]` header)
-and never hand-edited.
-
-### nfnl commands
-
-These are available automatically when nfnl is loaded (no extra config needed):
-
-| Command | Description |
-|---------|-------------|
-| `:NfnlCompileFile` | Compile the current (or given) `.fnl` file to Lua |
-| `:NfnlCompileAllFiles` | Compile every `.fnl` file in the project |
-| `:NfnlFindOrphans` | List `.lua` files with no matching `.fnl` source |
-| `:NfnlDeleteOrphans` | Delete those orphan `.lua` files |
-| `:NfnlFile` | Execute a compiled `.lua` file from disk |
-
-### Setting up a dev environment
-
-To develop on this plugin without installing it into your main Neovim config, use `dev.lua`:
-
-```lua
--- dev.lua  (run with: nvim -u dev.lua)
-vim.opt.runtimepath:append("/path/to/codeboomer.nvim")
-require("codeboomer").setup()
-```
-
-**Update the path** in `dev.lua` to point at your local clone, then launch:
-
-```bash
-nvim -u dev.lua
-```
-This gives you an isolated Neovim instance with the plugin loaded, nfnl active, and auto-compilation working — write any `.fnl` file and the corresponding `.lua` updates immediately.
-
-For testing the repo's copy against your **regular** Neovim config (it is prepended to the runtimepath, so it shadows any installed version — rebuild artifacts with `nfnl` first), use `./test-codeboomer`. It requires `CODEBOOMER_PATH` to point at the plugin directory and wires up the full keymap set (`<leader>cs`, `<leader>cr`, `<leader>cc`, `<leader>cd`, `<leader>cp`, `<leader>ca`):
-
-```bash
-CODEBOOMER_PATH=$PWD ./test-codeboomer
-```
-
-### Trusting the repo
-
-You need to trust the repo for the plugin to compile your code. Open a fennel buffer, follow the prompt, press `v` to view and then run `:trust` in the empty buffer that Neovim opens.
-
-## LLM assistance
-
-- GLM 5.2
+Specs are Fennel too, in `test/fnl/` (helpers in `cb_helpers.fnl`); `bb test` compiles them alongside the plugin first. For fennel-ls, `flsproject.fnl` already sets the fennel/macro paths and test globals.
 
 ## License
 

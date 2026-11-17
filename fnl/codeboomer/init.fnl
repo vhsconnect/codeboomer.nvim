@@ -3,92 +3,46 @@
 (local config (require :codeboomer.config))
 (local input (require :codeboomer.input))
 (local directives (require :codeboomer.directives))
-(local one-offs (require :codeboomer.one-offs))
+(local review (require :codeboomer.review))
 
-(local state {:pane nil :query-parts {}})
+;; autocmds 
+(local sidebar (require :codeboomer.sidebar))
+
+(local agent (require :codeboomer.agent))
+(local git (require :codeboomer.git))
+(local tmux (require :codeboomer.tmux))
+(local channel (require :codeboomer.channel))
+(local picker (require :codeboomer.picker))
+(local reviewer (require :codeboomer.reviewer))
+(local launch-processes (require :codeboomer.launch-processes))
+
+;; a global, not module state: survives hot-reload (which kills
+;; module-locals) and is readable without require. the or keeps a
+;; reload from clobbering the surviving record
+(global codeboomer (or codeboomer {}))
+
+(local state {:last-input nil})
 
 (local M {})
 
-(macro with-pan [body]
-  `(if state.pane
-       ,body
-       (choose-pane (parse-panes (shell panes-command)) (fn [] ,body))))
+;; every target the picker can tether: tmux panes from any session
+;; plus the terminal buffers running inside this nvim
+(fn all-panes []
+  (vim.list_extend (tmux.list-panes) (channel.list-panes)))
 
-(set M.setup (fn [opts]
-               (config.setup opts)))
+(fn all-last-lines []
+  (vim.tbl_extend :force (tmux.last-lines) (channel.last-lines)))
+
+(macro with-pan [body]
+  `(if codeboomer.pane
+       ,body
+       (choose-pane (all-panes) (fn [] ,body))))
 
 (fn schedule-notify [msg level]
   (vim.schedule #(vim.notify msg level)))
 
-(fn shell [command]
-  (let [handle (io.popen command)
-        output (handle:read :*a)]
-    (handle:close)
-    output))
-
-(local panes-command
-       "tmux list-panes -a -F '#{session_name}|#{session_id}|#{window_index}|#{pane_index}|#{pane_id}|#{pane_current_command}|#{pane_mode}|#{pane_active}|#{window_active}|#{pane_current_path}'")
-
-(local last-lines-command
-       "tmux list-panes -a -F '#{pane_id}' | while read -r p; do printf '%s\\t' \"$p\"; tmux capture-pane -p -t \"$p\" -S -5 -E -1 2>/dev/null | sed -e '/^[[:space:]]*$/d' | tail -n 1; echo; done")
-
-(fn one-off-result [stdout]
-  ;; --output-format json wraps the answer in an object; show the .result
-  ;; field and fall back to raw output when it isn't JSON
-  (let [(ok parsed) (pcall vim.json.decode stdout)]
-    (if (and ok (= (type parsed) :table) (. parsed :result))
-        (. parsed :result)
-        stdout)))
-
-(fn run-one-off [cmd prompt]
-  (let [argv (vim.list_slice (or cmd.argv []))
-        timeout (or cmd.timeout 60000)]
-    (vim.system (vim.list_extend argv [prompt]) {:text true : timeout}
-                (fn [obj]
-                  (vim.schedule #(if (= obj.code 0)
-                                     (vim.notify (one-off-result (or obj.stdout
-                                                                     ""))
-                                                 vim.log.levels.INFO)
-                                     (vim.notify (.. "codeboomer: one-off failed (exit "
-                                                     obj.code ")\n"
-                                                     (or obj.stderr ""))
-                                                 vim.log.levels.ERROR)))))))
-
-(fn parse-panes [x]
-  (let [pattern "([^|
-]*)|([^|
-]*)|([^|
-]*)|([^|
-]*)|([^|
-]*)|([^|
-]*)|([^|
-]*)|([^|
-]*)|([^|
-]*)|([^|
-]*)"
-        result (string.gmatch x pattern)]
-    (icollect [(session-name session-id window-index pane-index pane-id
-                             pane-current-command pane-mode pane-active
-                             window-active pane-current-path) result]
-      {: session-name
-       : session-id
-       : window-index
-       : pane-index
-       : pane-id
-       : pane-current-command
-       : pane-mode
-       : pane-active
-       : window-active
-       : pane-current-path})))
-
-(fn parse-last-lines [x]
-  (let [result {}]
-    (each [line (string.gmatch x "[^\n]+")]
-      (let [sep (string.find line "\t" 1 true)]
-        (when sep
-          (tset result (string.sub line 1 (- sep 1))
-                (vim.trim (string.sub line (+ sep 1)))))))
-    result))
+(set M.setup (fn [opts]
+               (config.setup opts)))
 
 (fn shorten-path [path]
   (let [home (os.getenv :HOME)]
@@ -96,31 +50,12 @@
         (.. "~" (string.sub path (+ 1 (length home))))
         path)))
 
-(fn paste-text [pane-id text]
-  ;; send-keys -l delivers raw LF bytes, which TUI input fields (pi, Claude
-  ;; Code, ...) drop — only CR counts as a key — so multi-line text arrived
-  ;; without line breaks. Loading a tmux buffer and pasting it with -p wraps
-  ;; the text in bracketed-paste control codes (when the app supports them)
-  ;; so newlines are inserted literally; -r stops tmux from rewriting LF to
-  ;; CR inside the paste; -d deletes the buffer after pasting.
-  (let [handle (io.popen (.. "tmux load-buffer -b codeboomer-paste - && "
-                             "tmux paste-buffer -p -r -d -b codeboomer-paste -t "
-                             pane-id) :w)]
-    (handle:write text)
-    (handle:close)))
-
-(fn press-key-command [pane-id key]
-  (string.format "tmux send-keys -t %s %s" pane-id key))
-
-(fn cancel-mode-command [pane-id]
-  (string.format "tmux send-keys -t %s -X cancel" pane-id))
-
 (fn send-keys-to-selected-pane [text]
-  (let [pane-id state.pane.pane-id]
-    (when (not= "" state.pane.pane-mode)
-      (shell (cancel-mode-command pane-id)))
-    (paste-text pane-id text)
-    (shell (press-key-command pane-id :Enter))))
+  ;; the pane record knows its driver — terminal buffers write
+  ;; straight to the channel, tmux panes shell out as before
+  (case (?. codeboomer.pane :driver)
+    :channel (channel.send codeboomer.pane text)
+    _ (tmux.send codeboomer.pane text)))
 
 (local last-line-max-length 80)
 
@@ -137,70 +72,46 @@
                    p.pane-current-command location
                    (shorten-path p.pane-current-path) mode short-line)))
 
-(local pane-preview-command
-       ;; {1} is fzf's first field of the highlighted entry — the pane-id
-       "tmux capture-pane -p -t {1} -S -40")
-
 (fn choose-pane [panes ?then]
-  (let [fzf (require :fzf-lua)
-        last-lines (parse-last-lines (shell last-lines-command))
-        by-display {}
-        lines (icollect [_ p (ipairs panes)]
-                (let [display (pane-display p (. last-lines p.pane-id))]
-                  (tset by-display display p)
-                  display))]
-    (fzf.fzf_exec lines
-                  {:prompt "Pick a Pane> "
-                   :preview pane-preview-command
-                   ;; hide the pane-id from the visible entries — fzf
-                   ;; extracts {1} from the original (untransformed) line,
-                   ;; so the preview still receives it
-                   :fzf_opts {:--with-nth :2..}
-                   :winopts {:preview {:wrap false
-                                       :layout :vertical
-                                       :vertical "down:45%:follow"}}
-                   :actions {:default (fn [selected]
-                                        (let [pane (. by-display (. selected 1))]
-                                          (set state.pane pane)
-                                          (schedule-notify (string.format "codeboomer: pane %s (%s:%s.%s) selected"
-                                                                          pane.pane-id
-                                                                          pane.session-name
-                                                                          pane.window-index
-                                                                          pane.pane-index)
-                                                           vim.log.levels.INFO)
-                                          ;; execute callback when passed
-                                          (when ?then (?then))))}})))
+  (let [last-lines (all-last-lines)
+        on-pick (fn [pane]
+                  (set codeboomer.pane pane)
+                  (schedule-notify (string.format "codeboomer: pane %s (%s:%s.%s) selected"
+                                                  pane.pane-id pane.session-name
+                                                  pane.window-index
+                                                  pane.pane-index)
+                                   vim.log.levels.INFO)
+                  (when ?then (?then)))]
+    (picker.choose "Pick a Pane> " panes
+                   #(pane-display $1 (. last-lines $1.pane-id)) on-pick
+                   {:preview channel.preview-command
+                    ;; hide the pane-id from the visible entries — fzf
+                    ;; extracts {1} from the original (untransformed) line,
+                    ;; so the preview still receives it
+                    :fzf_opts {:--with-nth :2..}
+                    :winopts {:preview {:wrap false
+                                        :layout :vertical
+                                        :vertical "down:45%:follow"}}})))
 
-(local one-off-argv-max-length 80)
-
-(fn one-off-display [c]
-  (let [argv (table.concat c.argv " ")
-        short-argv (if (> (length argv) one-off-argv-max-length)
-                       (.. (string.sub argv 1 one-off-argv-max-length) "…")
-                       argv)
-        ;; surface a non-default timeout so long-running entries stand out
-        timeout (if c.timeout
-                    (string.format " (%ds)" (math.floor (/ c.timeout 1000)))
-                    "")]
-    (string.format "%-22s %s%s" c.label short-argv timeout)))
-
-(fn choose-one-off [commands ?then]
-  (let [fzf (require :fzf-lua)
-        by-display {}
-        lines (icollect [_ c (ipairs commands)]
-                (let [display (one-off-display c)]
-                  (tset by-display display c)
-                  display))]
-    (fzf.fzf_exec lines
-                  {:prompt "Pick a One-off> "
-                   :actions {:default (fn [selected]
-                                        (let [cmd (. by-display (. selected 1))]
-                                          ;; execute callback when passed
-                                          (when ?then (?then cmd))))}})))
-
-(fn clear-annotations [] (set state.query-parts {}))
-
-(set M.RunOneOff run-one-off)
+;; :Codeboomer ResetSession — terminate this branch's set of comments:
+;; delete the branch's session with its threads so the next
+;; annotation starts a fresh one; the pane reloads empty via
+;; CodeboomerSessionReset. The one replacement for the old session
+;; picker's d — with sessions tied to branches there is nothing left
+;; to pick
+(set M.ResetSession
+     (fn []
+       (let [sid (sidebar.session-id)]
+         (if (not sid)
+             (schedule-notify "codeboomer: no session for this branch"
+                              vim.log.levels.WARN)
+             (do
+               (review.delete-session sid)
+               (vim.api.nvim_exec_autocmds :User
+                                           {:pattern :CodeboomerSessionReset})
+               (schedule-notify (string.format "codeboomer: session #%d reset — the next annotation starts a fresh one"
+                                               sid)
+                                vim.log.levels.INFO))))))
 
 (fn concat-list [lines]
   (table.concat lines "\n"))
@@ -210,7 +121,7 @@
 
 (fn get-visual-lines [opts]
   (when (= (?. opts :range) 2)
-    (let [path (vim.api.nvim_buf_get_name 0)
+    (let [path (git.rel-path)
           (ok region-lines) (pcall vim.fn.getregion (vim.fn.getpos "'<")
                                    (vim.fn.getpos "'>")
                                    {:type (vim.fn.visualmode)})
@@ -226,12 +137,112 @@
   (if context
       (.. "regarding " context.file " lines " context.line1 " to "
           context.line2 "\n" context.lines "\n" text "\n")
-      (let [file (vim.api.nvim_buf_get_name 0)]
+      (let [file (git.rel-path)]
         (.. "regarding " file "\n" text "\n"))))
 
-(set M.SetPane
+;; one conversation entry — "[source] name: body" — so the receiving
+;; agent can tell a GitHub reviewer's words from its own earlier
+;; answers and the local user's notes
+(fn comment-line [c]
+  (let [name (or (?. (review.comment-author c) :name) :unknown)]
+    (string.format "[%s] %s: %s" (or c.source :user) name (or c.body ""))))
+
+;; one thread → one message: location and code snapshot, then the FULL
+;; conversation (every comment, author-labeled) — a reply flushed to a
+;; pulled thread carries the GitHub reviewer's words along, and a
+;; thread whose local half carries agent answers ships those answers
+;; back for context. Both halves of a pair interleave: the promoted
+;; wording and the discussion that produced it
+(fn thread-message [t]
+  (let [conversation (icollect [_ c (ipairs (review.conversation-comments (or t.id
+                                                                              0)))]
+                       (comment-line c))]
+    (if (= :file (or t.type :line))
+        (string.format "regarding %s (thread %s)\n%s" (or t.file_path "?")
+                       (or t.id "?") (table.concat conversation "\n\n"))
+        (string.format "regarding %s lines %s to %s (thread %s)\n%s\n%s"
+                       (or t.file_path "?") (or t.line_start "?")
+                       (or t.line_end "?") (or t.id "?") (or t.code_snapshot "")
+                       (table.concat conversation "\n\n")))))
+
+(set M.SetPane (fn []
+                 (choose-pane (all-panes))))
+
+;; :Codeboomer TogglePane — collapse the selected pane's terminal back
+;; out of the layout, or bring it back in its right-hand split; the
+;; job runs on either way and the pane stays selected. Tmux panes are
+;; tmux's to manage
+(set M.TogglePane
      (fn []
-       (choose-pane (parse-panes (shell panes-command)))))
+       (if (not codeboomer.pane)
+           (schedule-notify "codeboomer: no pane selected — pick one with SetPane first"
+                            vim.log.levels.WARN)
+           (case codeboomer.pane.driver
+             :channel (let [(res err) (channel.toggle codeboomer.pane)]
+                        (if res
+                            (schedule-notify (if (= :hidden res)
+                                                 "codeboomer: terminal collapsed — the process keeps running"
+                                                 "codeboomer: terminal back on the side")
+                                             vim.log.levels.INFO)
+                            (schedule-notify (.. "codeboomer: "
+                                                 (or err "toggle failed"))
+                                             vim.log.levels.WARN)))
+             _
+             (schedule-notify "codeboomer: the selected pane is a tmux pane — its window is tmux's to toggle"
+                              vim.log.levels.WARN)))))
+
+;; :Codeboomer ToggleSidebar — collapse the comments pane away — and
+;; its auto-open with it — or bring it back
+(set M.ToggleSidebar
+     (fn []
+       (let [(res err) (sidebar.toggle)]
+         (if res
+             (schedule-notify (if (= :hidden res)
+                                  "codeboomer: comments pane collapsed — ToggleSidebar brings it back"
+                                  "codeboomer: comments pane back")
+                              vim.log.levels.INFO)
+             (schedule-notify (.. "codeboomer: " (or err "toggle failed"))
+                              vim.log.levels.WARN)))))
+
+;; :Codeboomer LaunchProcess — start a configured long-lived process
+;; (the harness, a repl, a watcher) in a terminal buffer of its own and
+;; tether it as the pane: the process is an nvim job, so later sends
+;; are chansend and the codeboomer-agent shim posts back through
+;; $NVIM into this session — the channel driver's whole point
+(fn launch-process [entry]
+  (let [cwd (or (git.work-root) (vim.fn.getcwd))
+        (pane err) (channel.spawn cwd entry.label entry.argv)]
+    (if pane
+        (do
+          (set codeboomer.pane pane)
+          (schedule-notify (string.format "codeboomer: %s started in terminal buffer %s — it is the pane now"
+                                          entry.label pane.pane-id)
+                           vim.log.levels.INFO))
+        (schedule-notify (.. "codeboomer: LaunchProcess failed: "
+                             (or err "unknown error"))
+                         vim.log.levels.ERROR))))
+
+(fn process-display [p]
+  (string.format "%-16s %s" p.label (table.concat p.argv " ")))
+
+(set M.LaunchProcess
+     (fn []
+       (let [processes (or (launch-processes.list) [])]
+         (if (= 0 (length processes))
+             (schedule-notify "codeboomer: prompting.launch_processes not set — call setup() first"
+                              vim.log.levels.ERROR)
+             ;; a single configured process runs directly — the picker
+             ;; only appears when there is an actual choice to make
+             (if (= 1 (length processes))
+                 (launch-process (. processes 1))
+                 (picker.choose "Pick a Process> " processes process-display
+                                launch-process))))))
+
+;; the picked agent's window becomes the pane — later flushes reach it
+(set M.LaunchReviewer
+     (fn []
+       (reviewer.launch (fn [pane]
+                          (set codeboomer.pane pane)))))
 
 (set M.SendPrompt
      (fn [opts]
@@ -240,8 +251,18 @@
                                 :on-submit (fn [lines]
                                              (let [text (concat-list lines)]
                                                (when (not= text "")
+                                                 (set state.last-input text)
                                                  (send-keys-to-selected-pane (compose-message context
                                                                                               text)))))})))))
+
+(set M.SendLastPrompt
+     (fn [opts]
+       (if state.last-input
+           (with-pan (let [context (get-visual-lines opts)]
+                       (send-keys-to-selected-pane (compose-message context
+                                                                    state.last-input))))
+           (schedule-notify "codeboomer: no prompt sent yet — nothing to resend"
+                            vim.log.levels.WARN))))
 
 ;; Raw send
 (set M.SendSelection
@@ -250,58 +271,118 @@
                    (when context
                      (send-keys-to-selected-pane context.lines))))))
 
-(set M.AskOneOff (fn [opts]
-                   (let [context (get-visual-lines opts)
-                         commands (or (one-offs.list) [])
-                         ask (fn [cmd]
-                               (input.open {:title (string.format " AskOneOff: %s (Enter to send)> "
-                                                                  cmd.label)
-                                            :submit-on-enter true
-                                            :on-submit (fn [lines]
-                                                         (let [text (concat-list lines)]
-                                                           (when (not= text "")
-                                                             (run-one-off cmd
-                                                                          (compose-message context
-                                                                                           text)))))}))]
-                     (if (= 0 (length commands))
-                         (schedule-notify "codeboomer: prompting.one_off_commands not set — call setup() first"
-                                          vim.log.levels.ERROR)
-                         ;; a single configured command runs directly — the picker only
-                         ;; appears when there is an actual choice to make
-                         (if (= 1 (length commands))
-                             (ask (. commands 1))
-                             (choose-one-off commands ask))))))
+;; the annotate flow itself — behind the old-side guard of M.Annotate
+;; below. With a visual range the thread anchors to those lines; with
+;; none it becomes a whole-file comment on the current buffer
+(fn annotate-flow [opts]
+  (with-pan (let [context (get-visual-lines opts)
+                  ;; rel-path falls back to the raw buffer name (empty
+                  ;; for scratch buffers, absolute outside a repo) —
+                  ;; neither shape belongs in a thread, so a file
+                  ;; comment requires a name rel-path actually relativized
+                  file-path (when (not context) (git.rel-path))
+                  repo-file? (and file-path (not= file-path "")
+                                  (not= file-path (vim.api.nvim_buf_get_name 0)))]
+              (if (and (not context) (not repo-file?))
+                  (schedule-notify "codeboomer: annotate needs a selection or a repo file"
+                                   vim.log.levels.ERROR)
+                  (input.open {:title " Annotate> "
+                               :on-submit (fn [lines]
+                                            (let [text (concat-list lines)]
+                                              ;; the DB is the only store now — an
+                                              ;; empty note would only pollute threads
+                                              (if (= text "")
+                                                  (schedule-notify "codeboomer: empty annotation ignored"
+                                                                   vim.log.levels.WARN)
+                                                  ;; the branch's session, find-or-create —
+                                                  ;; the one and only per (repo, branch)
+                                                  (let [sid (review.ensure-session)]
+                                                    (if (not sid)
+                                                        (schedule-notify (if (git.repo-root)
+                                                                             "codeboomer: annotate needs a checked-out branch — sessions are tied to branches, a detached HEAD has none"
+                                                                             "codeboomer: annotate needs a repo file")
+                                                                         vim.log.levels.ERROR)
+                                                        (do
+                                                          (if context
+                                                              (review.user-comment sid
+                                                                                   context.file
+                                                                                   context.line1
+                                                                                   context.line2
+                                                                                   context.lines
+                                                                                   text)
+                                                              (review.file-comment sid
+                                                                                   file-path
+                                                                                   text))
+                                                          ;; let an open pane pick the
+                                                          ;; fresh thread up
+                                                          (vim.api.nvim_exec_autocmds :User
+                                                                                      {:pattern :CodeboomerAnnotated})))))))})))))
 
-(set M.Annotate
-     (fn [opts]
-       (with-pan (let [context (get-visual-lines opts)]
-                   (input.open {:title " Annotate> "
-                                :on-submit (fn [lines]
-                                             (let [text (concat-list lines)]
-                                               (when (not= text "")
-                                                 (table.insert state.query-parts
-                                                               (compose-message context
-                                                                                text)))))})))))
+(set M.Annotate (fn [opts] (annotate-flow opts)))
+
+;; ship every unsent user message of the branch's session to the pane,
+;; wrapped in the directive, then mark them sent. One message per
+;; one outbox batch → the selected pane: one message per LOGICAL
+;; thread — the whole conversation both halves carry, so several
+;; unsent comments of one thread (a back-and-forth) don't ship N
+;; near-identical copies — then the reply instructions and the
+;; directive, plus the go-ahead rider when any shipped comment says
+;; `execute`. Every shipped comment is stamped :sent; true when the
+;; batch went out
+(fn send-batch [pending directive-text]
+  (let [seen {}
+        threads []]
+    (each [_ a (ipairs pending)]
+      (when (not (. seen (or a.thread.id 0)))
+        (tset seen (or a.thread.id 0) true)
+        (table.insert threads a.thread)))
+    (let [messages (icollect [_ t (ipairs threads)]
+                     (thread-message t))
+          annotations (concat-list-with-format messages "==Section Start=="
+                                               "====" "==Section End==")
+          execute? (accumulate [hit false _ a (ipairs pending) &until hit]
+                     (= a.comment.body agent.execute-body))]
+      (send-keys-to-selected-pane (.. annotations (agent.reply-instructions)
+                                      directive-text "\n"
+                                      (if execute?
+                                          (agent.execute-instructions)
+                                          "")))
+      (review.mark-annotations :sent
+                               (icollect [_ a (ipairs pending)]
+                                 a.comment.id))))
+  true)
+
+(fn flush-pending [directive-text]
+  (let [pending (review.pending-for-flush (sidebar.session-id))]
+    (if (= 0 (length pending))
+        (schedule-notify "codeboomer: nothing to flush — no unsent messages"
+                         vim.log.levels.WARN)
+        (send-batch pending directive-text))))
 
 (set M.FlushWithDirective
      (fn []
-       (with-pan (let [fzf (require :fzf-lua)
-                       all-directives (directives.list)
-                       lines (icollect [_ d (ipairs all-directives)]
-                               d.label)]
-                   (fzf.fzf_exec lines
-                                 {:prompt "Pick a Directive> "
-                                  :actions {:default (fn [selected]
-                                                       (let [selected-label (. selected
-                                                                               1)
-                                                             directive-text (directives.get selected-label)
-                                                             annotations (concat-list-with-format state.query-parts
-                                                                                                  "==Section Start=="
-                                                                                                  "===="
-                                                                                                  "==Section End==")]
-                                                         (send-keys-to-selected-pane (.. annotations
-                                                                                         directive-text
-                                                                                         "\n"))
-                                                         (clear-annotations)))}})))))
+       (with-pan (picker.choose "Pick a Directive> " (directives.list)
+                                #$1.label #(flush-pending $1.text)))))
+
+;; the sidebar's z (fix now): ship ONE thread right away — its unsent
+;; comments (a queued go-ahead included) ride with the fix directive,
+;; no FlushWithDirective round-trip. True when something went out
+(set M.FixThread (fn [thread-id]
+                   (with-pan (let [pending (icollect [_ a (ipairs (review.pending-for-flush (sidebar.session-id)))]
+                                             (when (= (or a.thread.id 0)
+                                                      (or thread-id 0))
+                                               a))]
+                               (if (= 0 (length pending))
+                                   (schedule-notify (string.format "codeboomer: thread #%d has nothing unsent"
+                                                                   (or thread-id
+                                                                       0))
+                                                    vim.log.levels.WARN)
+                                   (do
+                                     (send-batch pending (agent.fix-directive))
+                                     (schedule-notify (string.format "codeboomer: thread #%d sent with the fix directive"
+                                                                     (or thread-id
+                                                                         0))
+                                                      vim.log.levels.INFO)
+                                     true))))))
 
 M

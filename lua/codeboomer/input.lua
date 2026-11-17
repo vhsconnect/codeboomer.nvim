@@ -11,17 +11,19 @@ end
 local function open(_2_)
   local on_submit = _2_["on-submit"]
   local alt_on_submit = _2_.on_submit
-  local submit_on_enter = _2_["submit-on-enter"]
-  local alt_submit_on_enter = _2_.submit_on_enter
   local title = _2_.title
+  local prefill = _2_.prefill
   local on_submit0 = (on_submit or alt_on_submit)
-  local submit_on_enter0 = (submit_on_enter or alt_submit_on_enter)
   local buf = vim.api.nvim_create_buf(false, true)
   local bo = vim.bo[buf]
   local width = math.floor((vim.o.columns * 0.6))
   local height = math.floor((vim.o.lines * 0.3))
   local win = vim.api.nvim_open_win(buf, true, {relative = "editor", row = math.floor(((vim.o.lines - height) / 2)), col = math.floor(((vim.o.columns - width) / 2)), width = width, height = height, style = "minimal", border = "rounded", title = (title or " Input "), title_pos = "center"})
   local submitted_3f = false
+  if (prefill and ("" ~= prefill)) then
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(prefill, "\n", {plain = true}))
+  else
+  end
   bo.bufhidden = "wipe"
   local function finish()
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -32,10 +34,6 @@ local function open(_2_)
     else
       return nil
     end
-  end
-  if submit_on_enter0 then
-    vim.keymap.set({"i", "n"}, "<CR>", finish, {buffer = buf})
-  else
   end
   local function _5_()
     if not submitted_3f then

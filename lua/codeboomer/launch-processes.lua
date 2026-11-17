@@ -1,12 +1,12 @@
--- [nfnl] fnl/codeboomer/one-offs.fnl
+-- [nfnl] fnl/codeboomer/launch-processes.fnl
 vim = vim
 local M = {}
-local default_one_offs = {{label = "claude-code (haiku)", argv = {"claude-code", "--model", "haiku", "--output-format", "json", "--permission-mode", "acceptEdits", "-p"}}}
+local default_launch_processes = {{label = "terminal", argv = {vim.o.shell}}, {label = "pi", argv = {"pi"}}, {label = "claude", argv = {"claude"}}}
 M.defaults = function()
   local tbl_26_ = {}
   local i_27_ = 0
-  for _, c in ipairs(default_one_offs) do
-    local val_28_ = {label = c.label, argv = vim.list_slice(c.argv)}
+  for _, p in ipairs(default_launch_processes) do
+    local val_28_ = {label = p.label, argv = vim.list_slice(p.argv)}
     if (nil ~= val_28_) then
       i_27_ = (i_27_ + 1)
       tbl_26_[i_27_] = val_28_
@@ -26,7 +26,7 @@ M.list = function()
   else
   end
   if (nil ~= t_2_) then
-    t_2_ = t_2_.one_off_commands
+    t_2_ = t_2_.launch_processes
   else
   end
   return t_2_

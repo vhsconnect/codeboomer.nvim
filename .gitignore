@@ -6,3 +6,8 @@
 .lsp/
 .envrc
 todo
+/scratch/
+.nvimlog
+/test/lua/
+.direnv/
+.nrepl-port
