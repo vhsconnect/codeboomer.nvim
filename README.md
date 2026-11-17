@@ -1,22 +1,46 @@
 
 ## What it does
 
-- Send annotated code snippets to a seperate process or tmux pane - read agent harnass - to communicate with it.
+- Send annotated code snippets to a seperate process or tmux pane. This can be an agent harnass, a repl or a file - anything you can run in terminal.
 - Annotate Multiple files and send them with a specific/custom directive to a different process when you're done.
 - Keep track of various annotations/comments/conversations in a sidepane view.
 - The sidepane tracks conversations/comments. You can jump through comments quickly, dimiss some when you're done
 - conversations are between you and the agent or you and the PR reviewer on github. You can promote a conversation with an agent and cherry pick what to send to github as PR comment. You can also chat about a PR comment with your agent before responding on github - or promoting a response to github.
 - You can start a code reviewing session by opening a github PR and load all its comments into the sidebar while you review it.
-- You can send code to a repl for reads.
+- You can send prompts to modify the source code while your agent does work `Codeboomer SendPrompt`or at the very end by flushing all your directives at once `Codeboomer FlushWithDirective`. Any new conversations on existing threads, or new threads will be sent to the process/harnass in one big prompt but the responses land back in the threads.
+
+Note that conversations and threads are pinned to the original line number they annotated even after you make edits to the file - `Codeboomer Annotate` (available in visual mode to annotate a line or in normal mode to annotate the whole file.)
+
+### Tmux vs Neovim embedded terminal
+
+When you launch Codeboomer and want to start annotating code or sending prompts, You will be prompted through fzf-lua "recommended" or a vanilla selector to choose a pane - unless you have already Launched an embeeded terminal in your neovim session `Codeboomer LaunchProcess`. Tmux pane gives you better ergonomics with following stdout and copy paste primitives and all the tmux features you're used to. The in session terminal gives you a little more convenience perhaps for certain tasks - you'll probably want to set a better keybinding for exitting insert mode while in the terminal pane. For example 
+
+```lua
+vim.keymap.set("t", "<C-Space>", [[<C-\><C-n>]]) -- exit insert mode in terminal
+```
+
+The tmux way is recommended.
+
+
+### LaunchReviewer
+
+You can start reviewing code alongside a reviewer agent that you spawn. You get the option to review code either by choosing _a base commit_, _any uncommitted code_ or _a github PR_. Once that's selected. you get 
+
+- A quickfix pane with all the files that have changes
+- `gitsigns` diff makers if you have that plugin installed _Recommneded_
+- A terminal pane with a harnass of your choice with a customizable prompt to review your changes. (unless you've already selected a tmux pane) `Codeboomer SetPane`
+- The sidebar to be populated with you and your agents comments to start discussing issues.
+
 
 ## How it works
 
-Codeboomer is designed to let you drive your ai harnass and your review workflow from within neovim. It does so in a variety of ways but in summary it allows for 2 way comunication with a different process - either through tmux panes or an embedded terminal. The proess calls neovim back by calling the codeboomer shim through neovim itself with `--headless`. 
+Codeboomer is designed to let you drive your ai harnass and your review workflow from within neovim. It does so in a variety of ways but in summary it allows for 2 way comunication with a different process - either through tmux panes or an embedded terminal. The proess/agent calls neovim back by calling the codeboomer shim through a neovim `--headless` command.. 
 
 
 ## Requirements
 
 Neovim, [fzf-lua](https://github.com/ibhagwan/fzf-lua), [sqlite.lua](https://github.com/kkharji/sqlite.lua) (needs system `libsqlite3`), and [tmux](https://github.com/tmux/tmux) for tmux panes. PR features additionally need `gh` authenticated against a GitHub remote.
+
 
 ## Installation and Configuration
 
@@ -85,6 +109,7 @@ All commands are also available as `:Codeboomer <Name>` (e.g. `:Codeboomer Revie
 ##### LLM assisted
 
 GLM 5.2
+Opus 5.5
 
 ## Hacking on codeboomer
 
