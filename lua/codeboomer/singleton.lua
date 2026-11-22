@@ -52,15 +52,20 @@ local function force_close()
     return nil
   end
 end
+local function keep_open()
+  return db:open()
+end
 local M
 local function get_db()
   if (db == nil) then
     local sqlite = require("sqlite")
     db = sqlite({uri = db_path(), opts = {journal_mode = "WAL", synchronous = "NORMAL", busy_timeout = 500, foreign_keys = "ON", auto_vacuum = "INCREMENTAL", wal_autocheckpoint = 100}})
     ensure_schema()
+    keep_open()
     return db
   else
     local _ = db
+    keep_open()
     return db
   end
 end

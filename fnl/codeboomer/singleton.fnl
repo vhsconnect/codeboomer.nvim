@@ -55,6 +55,17 @@
       (pcall #(db:close)))
     (set db nil)))
 
+;; sqlite.lua routes every tbl call through helpers.run, which takes
+;; the slow path — with_open, a fresh connection, a WAL journal
+;; setup's worth of fsyncs — whenever the handle reports closed, and
+;; ensure-schema's with_open leaves it exactly so. Taxing every
+;; query with a reconnect turns a ~200-query session reload into
+;; seconds on btrfs. Keeping the handle open between calls is the
+;; supported fast path: db:open is idempotent, and VimLeavePre's
+;; close-db still checkpoints and closes on the way out
+(fn keep-open []
+  (db:open))
+
 (local M {:get-db (fn get-db []
                     ;; sqlite.nvim is required here, not at the top
                     ;; level, so merely loading this module never
@@ -72,8 +83,11 @@
                                                  :auto_vacuum :INCREMENTAL
                                                  :wal_autocheckpoint 100}}))
                             (ensure-schema)
+                            (keep-open)
                             db)
-                      _ db))
+                      _ (do
+                          (keep-open)
+                          db)))
           ;; with_open (mark-annotations) closes the shared handle
           ;; after each call, so only close what is actually open —
           ;; then drop the reference so a later get-db builds a

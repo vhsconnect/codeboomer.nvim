@@ -77,33 +77,33 @@
         :posted {:type :integer :default 0}
         :created_at {:type :integer :default created-at-default}})
 
-;; the table helpers. NOTE: the callable class lives in the :sqlite.tbl
-;; module — (require :sqlite).tbl resolves through the module proxy to
-;; the db:tbl method, whose string-self path silently drops the db
-;; argument, so every helper would fail its first :get/:insert with
-;; "db object is not set". The require stays inside each helper so
-;; loading this module never loads sqlite.nvim
-(local user (fn [db]
-              ((require :sqlite.tbl) :user user-schema db)))
+;; the table helpers. NOTE: (require :sqlite).tbl resolves through the
+;; module proxy to db:tbl, which silently drops the db argument — the
+;; callable class lives in :sqlite.tbl, and that require stays inside
+;; the helper so loading this module never loads sqlite.nvim.
+;; Wrapper construction re-probes the schema on its own connection —
+;; per-call wrappers once froze the editor on a ~200-query reload — so
+;; one wrapper is cached per (handle, table).
+(var tbl-cache {})
 
-(local repo (fn [db]
-              ((require :sqlite.tbl) :repo repo-schema db)))
+(fn tbl-for [name schema db]
+  (let [per-db (or (. tbl-cache db)
+                   (let [fresh {}] (tset tbl-cache db fresh) fresh))]
+    (or (. per-db name) (let [wrapper ((require :sqlite.tbl) name schema db)]
+                          (tset per-db name wrapper)
+                          wrapper))))
 
-(local session
-       (fn [db]
-         ((require :sqlite.tbl) :session session-schema db)))
+(local user (fn [db] (tbl-for :user user-schema db)))
 
-(local commit
-       (fn [db]
-         ((require :sqlite.tbl) :git_commit commit-schema db)))
+(local repo (fn [db] (tbl-for :repo repo-schema db)))
 
-(local thread
-       (fn [db]
-         ((require :sqlite.tbl) :comment_thread thread-schema db)))
+(local session (fn [db] (tbl-for :session session-schema db)))
 
-(local comments
-       (fn [db]
-         ((require :sqlite.tbl) :comment comment-schema db)))
+(local commit (fn [db] (tbl-for :git_commit commit-schema db)))
+
+(local thread (fn [db] (tbl-for :comment_thread thread-schema db)))
+
+(local comments (fn [db] (tbl-for :comment comment-schema db)))
 
 (local M {: user
           : repo
