@@ -1,2 +1,3 @@
 -- [nfnl] fnl/codeboomer/version.fnl
-return "0.0.3"
+local M = "0.0.3"
+return M

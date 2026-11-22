@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: bb test
+        run: nix develop -c bb test
+
+  build:
+    name: bb build / bb format produce no diff
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: bb build
+        run: nix develop -c bb build
+
+      - name: Check for diff
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error::'bb build' produced a diff — run 'bb build' locally and commit the result"
+            exit 1
+          fi
